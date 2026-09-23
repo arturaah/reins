@@ -1,3 +1,5 @@
+<p align="center"><img src="reins.png" alt="Reins logo" width="480"></p>
+
 # Reins
 
 **Any VLM. Your hands on the reins.**
