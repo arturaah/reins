@@ -48,6 +48,12 @@ Machine roles: the Mac hosts the harness, VLM calls, IK and the MuJoCo preview. 
 2. **Arm action service and the `rt/arm_sdk` topic** (`high_level/r1_arm_action_example.cpp`, `r1_arm_sdk_dds_example.cpp`): run preset or teach-recorded arm actions, or stream upper-body joint targets with a 0..1 blend weight while the robot balances itself. Do not substitute G1's arm action client: same service name and API IDs, different action IDs and error codes.
 3. **Low-level `rt/lowcmd` / `rt/lowstate`** (`low_level/`): all 26 motors under PD control on a 2 ms loop. You own balance.
 
+R1 facts that differ from the G1, all verified against the vendored SDK on 2026-09-26:
+- `rt/arm_sdk` carries an hg `LowCmd`; the blend weight is `mode_pr` in 0..100 (G1 uses a spare motor slot). Joints use the controller's 35-slot layout from `unitree_sdk2/include/unitree/dds_wrapper/robots/r1/defines.h`: left arm 15-19, right arm 22-26, waist yaw 13, head 29-30. `rt/lowstate` uses the same slots. The 26-motor numbering in the Python low-level example is a compact index mapped through `joint_idx_in_idl`.
+- Loco FSM ids (`r1_loco_client.hpp`): 0 ZeroTorque, 1 Damp, 4 StandUp (position lock), 811 Start (balance control). The arm topic only takes effect with the built-in controller active (4 or 811). Activation is the operator's job with the remote: L2+UP to stand prep while holding the rear handle, then R2+A.
+- Python SDK packaging gap: `unitree_sdk2py/r1/` has no `__init__.py` upstream, so pip skips it. Setup copies the two loco files into the venv (see step 6). The Python API file also lacks `ROBOT_API_ID_LOCO_GET_FSM_MODE` (7002); `tools/arm_lift.py` defines it locally.
+- `tools/arm_lift.py IFACE` is the reference actuation script: dry run by default (reads pose, queries FSM, checks limits and speed, kinematic hand check, writes a preview plan), `--execute` streams one joint at 50 Hz with weight ramps and a tracking-error abort. It refuses to execute outside FSM 4/811.
+
 Sim: `unitreerobotics/unitree_mujoco` ships an R1 model that consumes the same DDS topics, so a plan can be dry-run before touching hardware. Its MJCF has 29 actuators (3-DoF waist and wrists) while the A5 low-level joint map has 26. Check the variant before trusting joint indices.
 
 ## Connecting a Mac to the robot
@@ -77,6 +83,9 @@ Steps:
    uv python install 3.10 && uv venv --python 3.10 .venv
    uv pip install --python .venv/bin/python "cyclonedds==0.10.2" numpy
    uv pip install --python .venv/bin/python --no-deps "git+https://github.com/unitreerobotics/unitree_sdk2_python"
+   P=.venv/lib/python3.10/site-packages/unitree_sdk2py/r1/loco; mkdir -p $P; touch $(dirname $P)/__init__.py $P/__init__.py
+   for f in r1_loco_api.py r1_loco_client.py; do curl -sL https://raw.githubusercontent.com/unitreerobotics/unitree_sdk2_python/main/unitree_sdk2py/r1/loco/$f > $P/$f; done
+   uv pip install --python .venv/bin/python mujoco scipy matplotlib
    .venv/bin/python tools/lowstate_peek.py en6
    ```
    Pass `en6` (or whatever `networksetup -listallhardwareports` shows) as the interface. `tools/lowstate_peek.py` is subscribe-only and is the standard "can this machine see the robot" check. On the Jetson the interface is `eth10`.

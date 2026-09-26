@@ -31,12 +31,16 @@ if last is None:
     print(f"no rt/lowstate messages on {iface} in {seconds:.0f} s")
     sys.exit(1)
 m = last
-q = [round(s.q, 3) for s in m.motor_state[:26]]
+# Slots follow the controller's 35-slot layout (unitree_sdk2/include/unitree/dds_wrapper/robots/r1/defines.h):
+# legs 0-11, waist roll 12, waist yaw 13, L arm 15-19, R arm 22-26, head 29-30. Slots 14, 20, 21, 27, 28 are unused on the A5.
+q = [round(s.q, 3) for s in m.motor_state[:31]]
 print(f"rt/lowstate on {iface}: {count} msgs in {seconds:.0f} s = {count/seconds:.0f} Hz")
 print(f"mode_machine={m.mode_machine}  tick={m.tick}")
 print(f"imu rpy={[round(v, 3) for v in m.imu_state.rpy]}  quat={[round(v, 3) for v in m.imu_state.quaternion]}")
-print(f"joint q[0:6]  (L leg)  ={q[0:6]}")
-print(f"joint q[12:14](waist)  ={q[12:14]}")
-print(f"joint q[14:19](L arm)  ={q[14:19]}")
-print(f"joint q[24:26](head)   ={q[24:26]}")
+print(f"L leg  q[0:6]   ={q[0:6]}")
+print(f"R leg  q[6:12]  ={q[6:12]}")
+print(f"waist  q[12:14] ={q[12:14]}  (roll, yaw)")
+print(f"L arm  q[15:20] ={q[15:20]}  (sh pitch, sh roll, sh yaw, elbow, wrist roll)")
+print(f"R arm  q[22:27] ={q[22:27]}")
+print(f"head   q[29:31] ={q[29:31]}  (pitch, yaw)")
 print(f"motor temps (first 6)  ={[s.temperature for s in m.motor_state[:6]]}")
