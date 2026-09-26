@@ -61,7 +61,13 @@ def render_loop():
         q, quat = state["q"], state["quat"]
         if q is not None:
             data.qpos[0:3] = [0.0, 0.0, 0.78]
-            data.qpos[3:7] = quat if quat and abs(sum(v * v for v in quat) - 1) < 0.1 else [1, 0, 0, 0]
+            if quat and abs(sum(v * v for v in quat) - 1) < 0.1:
+                w, x, y, z = quat                                  # keep roll and pitch, drop heading so the view stays robot-relative
+                yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+                q_unyaw = np.zeros(4); mujoco.mju_mulQuat(q_unyaw, np.array([np.cos(yaw / 2), 0, 0, -np.sin(yaw / 2)]), np.array(quat, dtype=float))
+                data.qpos[3:7] = q_unyaw
+            else:
+                data.qpos[3:7] = [1, 0, 0, 0]
             for s, adr in qadr.items(): data.qpos[adr] = q[s]
             mujoco.mj_forward(model, data)
             zmin = min(data.geom_xpos[g][2] for g in range(model.ngeom) if g != floor)   # put the lowest point on the floor
