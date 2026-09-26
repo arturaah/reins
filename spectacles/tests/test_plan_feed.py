@@ -6,14 +6,30 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import mujoco
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from plan_feed import Feed, MJCF, RelayState
+from plan_feed import DirectRobotState, Feed, MJCF, RelayState
 
 
 class PlanFeedTests(unittest.TestCase):
+    def test_direct_robot_state_uses_fresh_measured_dds_sample(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+        import twin
+        with patch.object(twin, "listen_dds", return_value=[object()]) as subscribe:
+            state = DirectRobotState("en6")
+        subscribe.assert_called_once_with(state.robot, "en6", 0)
+        self.assertFalse(state.fresh())
+        state.robot.set_state({"right_shoulder_pitch_joint": 0.3})
+        state.robot.set_cmd(1.0, {"right_shoulder_pitch_joint": 0.4})
+        self.assertTrue(state.fresh())
+        self.assertTrue(state.commanding)
+        self.assertEqual(state.q["right_shoulder_pitch_joint"], 0.3)
+        state.robot.t -= 1
+        self.assertFalse(state.fresh())
+
     def test_relay_state_rejects_repeated_stale_robot_sample(self):
         state = RelayState()
         sample = {"type": "r1_state", "version": 1, "t": 123.0,

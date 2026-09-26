@@ -38,7 +38,7 @@ For an alignment check with fixed paths, add `--static`. This holds both
 paths at the model's neutral hand starts and leaves their endpoints unchanged;
 it does not represent measured robot motion.
 
-The server requires Python 3.10+ and the `websockets` package (already installed on this Mac). It emits four updates per second. This checkout first tries `ws://172.20.10.8:8765` (this Mac's current iPhone-hotspot address), then `ws://127.0.0.1:8765` through an optional **wired ADB reverse tunnel**. The hotspot address may change when devices reconnect: check `ipconfig getifaddr en0`, update `websocketUrl` in `Assets/Scene.scene` or the script Inspector, and resend the Lens. Both the Mac and Spectacles must be on the same hotspot for wireless updates. With the Spectacles attached by USB, `adb reverse tcp:8765 tcp:8765` can provide a fallback, but is not needed for the direct hotspot route. The Lens uses its built-in animated mock until a feed arrives, then holds the last received path if both routes disconnect. On-device access to local `ws://` requires the project's enabled Experimental APIs flag; Lens Studio's ordinary desktop preview does not expose this WebSocket API.
+The server requires Python 3.10+ and the `websockets` package. It emits four updates per second. The current Lens tries Jonathan's hackathon-Wi-Fi address (`ws://192.168.1.145:8765`), then `ws://127.0.0.1:8765` through a **wired ADB reverse tunnel**. That first address is only a snapshot: it will not point to Artur's Mac. For a wired demo on Artur's Mac, plug the glasses into his Mac and run `adb reverse tcp:8765 tcp:8765`; the fallback URL then reaches his local feed without editing or rebuilding the Lens. To try wireless later, put Artur's Mac and the glasses on the same hotspot, set `websocketUrl` in the Lens Inspector to Artur's hotspot IP, save, and resend the Lens. The Lens uses its built-in animated mock until a feed arrives, then holds the last received path if both routes disconnect. On-device access to local `ws://` requires the project's enabled Experimental APIs flag; Lens Studio's ordinary desktop preview does not expose this WebSocket API.
 
 The included server is an **animated trajectory test**, not robot telemetry. Both hands start at the model's neutral hand sites; their planned endpoints change shape roughly every nine seconds while their starting points stay fixed. It can verify that the Lens receives live plan updates over Wi-Fi, but it cannot show measured hand movement or shorten a path as the robot moves.
 
@@ -63,6 +63,32 @@ Example message:
 .venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json
 .venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json --print   # one message, no server
 ```
+
+### One-Mac wired demo on Artur's robot Mac
+
+Artur does **not** need Lens Studio to serve trajectories or read robot joints. The already-sent Lens can use USB to his Mac while it remains running on the glasses. Lens Studio is needed only to install, resend, or edit the Lens. The robot stays on its Ethernet link; the Mac's Wi-Fi or hotspot is independent of the wired USB feed.
+
+From Artur's copy of this repository, with the R1 on its existing Ethernet interface (replace `en6` if his interface differs):
+
+```sh
+# Once per USB connection, with the glasses plugged into Artur's Mac:
+adb devices
+adb reverse tcp:8765 tcp:8765
+
+# Terminal 1: read robot pose and serve remaining hand paths; no robot commands:
+.venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json --robot-iface en6
+```
+
+`adb` is supplied by Homebrew's `android-platform-tools` if it is missing. The Python environment needs `mujoco`, `numpy`, `websockets`, and `unitree_sdk2py` as used by the existing robot tools. The feed prints `listening on en6, domain 0` when DDS starts, `loaded ...` when the plan is valid, and `Lens connected: ...` when the glasses reach it. The `rt/lowstate` readings must arrive before the path can shorten; a plan file can still be shown without robot state. The current plan is re-read whenever its file changes.
+
+To start from the robot's actual measured arm pose, first dry-run the plan on Artur's Mac with the existing command tool, then serve its resolved output instead:
+
+```sh
+.venv/bin/python tools/arm_lift.py en6 --plan tools/plans/cup_grab_right.json
+.venv/bin/python spectacles/plan_feed.py sim/plans/arm_lift_dryrun.json --robot-iface en6
+```
+
+The dry run and feed above only read the robot; neither publishes a movement command. If a separate controller later sends the corresponding `rt/arm_sdk` command, the feed uses measured `rt/lowstate` joints to shorten the path. If that controller writes a new plan JSON file, the feed reloads it and updates the glasses. There is no need to run `tools/relay.py` when `--robot-iface` is used on the robot-side Mac. `--state-url` remains available when the feed runs on a different computer.
 
 To see what the robot would actually do, run `tools/arm_lift.py IFACE --plan ...` without `--execute`. That dry run only subscribes and publishes nothing. It writes the resolved plan, starting from the measured pose and including the measured angles of the joints that stay put, to `sim/plans/arm_lift_dryrun.json`. Serve that file with `plan_feed.py`. The feed re-reads the file when it changes, so the next dry run appears on the glasses without a restart. Stop `trajectory_server.py` first and keep the `adb reverse` tunnel. For reference, the model's shoulder pitch joints sit at `[0.032, ±0.086, 0.986]` m.
 

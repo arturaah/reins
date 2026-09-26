@@ -13,6 +13,8 @@ towards the robot.
 
 The plan file is re-read when it changes. With --state-url, measured joints
 from tools/relay.py advance the remaining path while rt/arm_sdk is active.
+With --robot-iface, subscribe directly on the robot-side Mac instead of
+running a separate relay. Both modes are read-only.
 The Lens falls back to its mock after 1.5 s of silence, so the path is
 resent every --period seconds. No command is sent to the robot.
 
@@ -193,6 +195,26 @@ class RelayState:
                 (self.source_t is None or now - self.source_change_at < 0.5))
 
 
+class DirectRobotState:
+    """Adapt the existing DDS subscriber to the feed's measured-state interface."""
+    def __init__(self, iface, domain=0):
+        sys.path.insert(0, str(ROOT / "tools"))
+        from twin import RobotState, listen_dds
+        self.robot = RobotState()
+        self.readers = listen_dds(self.robot, iface, domain)
+
+    @property
+    def q(self):
+        return self.robot.q
+
+    @property
+    def commanding(self):
+        return self.robot.commanding(time.time())
+
+    def fresh(self):
+        return self.robot.q is not None and time.time() - self.robot.t < 0.5
+
+
 async def listen_relay(state, url):
     from websockets.asyncio.client import connect
     while True:
@@ -233,7 +255,10 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--period", type=float, default=0.25, help="seconds between resends (Lens times out at 1.5)")
     ap.add_argument("--print", action="store_true", help="print one message and exit, no server")
-    ap.add_argument("--state-url", help="Chris's read-only relay, e.g. ws://ARTUR_MAC:8766")
+    state_source = ap.add_mutually_exclusive_group()
+    state_source.add_argument("--state-url", help="read-only relay, e.g. ws://ARTUR_MAC:8766")
+    state_source.add_argument("--robot-iface", help="subscribe to R1 DDS directly on this Mac, e.g. en6")
+    ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
     if not 2 <= a.points <= MAX_POINTS:
         ap.error(f"--points must be 2..{MAX_POINTS}")
@@ -245,8 +270,8 @@ def main():
         print(text)
         return
     async def run():
-        state = RelayState() if a.state_url else None
-        if state:
+        state = DirectRobotState(a.robot_iface, a.domain) if a.robot_iface else (RelayState() if a.state_url else None)
+        if a.state_url:
             asyncio.create_task(listen_relay(state, a.state_url))
         await serve_feed(feed, a.host, a.port, a.period, state)
     asyncio.run(run())
