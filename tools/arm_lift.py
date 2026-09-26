@@ -77,16 +77,22 @@ class State:
 
 
 class Plan:
-    """times[i] and frames[i] = {slot: q}; every frame names the same slots."""
+    """times[i] and frames[i] = {slot: q}; every frame names the same slots.
+    Sparse, hand-authored keyframes ease in and out per segment; dense ones
+    (recordings, median spacing under 0.25 s) interpolate linearly, otherwise
+    every segment would stop and restart."""
     def __init__(self, times, frames):
         self.times, self.frames, self.slots = times, frames, sorted(frames[0])
+        gaps = np.diff(times)
+        self.linear = len(gaps) > 0 and float(np.median(gaps)) < 0.25
     @property
     def duration(self): return self.times[-1]
     def at(self, t):
         if t >= self.duration: return dict(self.frames[-1])
         i = max(k for k, tk in enumerate(self.times) if tk <= t)
         t0, t1 = self.times[i], self.times[i + 1]
-        r = ease((t - t0) / (t1 - t0)) if t1 > t0 else 1.0
+        x = (t - t0) / (t1 - t0) if t1 > t0 else 1.0
+        r = x if self.linear else ease(x)
         return {s: self.frames[i][s] + (self.frames[i + 1][s] - self.frames[i][s]) * r for s in self.slots}
 
 
@@ -171,7 +177,7 @@ def main():
     if peak > MAX_VEL:
         j, k = np.unravel_index(vel.argmax(), vel.shape)
         sys.exit(f"ABORT: {names[moving[k]]} reaches {peak:.2f} rad/s at t={ts[j]:.2f}s; cap {MAX_VEL}")
-    print(f"\nplan '{label}': {len(plan.times)} keyframes, {plan.duration:.1f} s, {len(moving)} joints move, "
+    print(f"\nplan '{label}': {len(plan.times)} keyframes ({'linear' if plan.linear else 'eased'}), {plan.duration:.1f} s, {len(moving)} joints move, "
           f"peak {peak:.2f} rad/s; {RATE_HZ:.0f} Hz; weight ramp {RAMP_S}s each side; total {plan.duration + 2*RAMP_S:.1f}s")
 
     # forward kinematics per keyframe (no physics)
@@ -239,7 +245,7 @@ def main():
         print(f"recorded {len(rec)} keyframes over {out['duration_s']} s to {a.record}")
 
     print("\nEXECUTE: ramping weight up")
-    dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0)
+    dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0); ticks = 0
     try:
         while True:
             now = time.time(); t = now - t_start
@@ -249,7 +255,7 @@ def main():
                 w, targets = 1.0, plan.at(t - RAMP_S)
             else:
                 break
-            send(w, targets)
+            send(w, targets); ticks += 1
             if a.record and t >= RAMP_S and (t - RAMP_S) - rec_last >= 0.05:
                 rec_last = 0.0 if not rec else t - RAMP_S          # first sample is stamped exactly 0
                 rec.append((rec_last, dict(targets), {s: st.msg.motor_state[s].q for s in moving}))
@@ -267,6 +273,7 @@ def main():
                 print(f"  t={t:4.1f}s w={w:.2f}  worst lag {names[worst]} {errs[worst]:+.3f}  " +
                       " ".join(f"{names[s][:8]}={targets[s]:+.2f}" for s in moving[:5]))
             time.sleep(max(0.0, dt - (time.time() - now)))
+        print(f"loop: {ticks} ticks in {t:.1f} s = {ticks / t:.0f} Hz (target {RATE_HZ:.0f})")
         print("ramping weight down"); release(targets); save_recording()
         print("done. final vs start: " + ", ".join(f"{names[s]} {st.msg.motor_state[s].q:+.3f}/{q_meas[s]:+.3f}" for s in moving))
     except KeyboardInterrupt:
