@@ -156,6 +156,9 @@ def main():
     a = ap.parse_args()
     detail = (lambda *x: None) if a.brief else print     # per-joint tables and protocol facts: CLI only
 
+    if a.plan and json.loads(Path(a.plan).read_text()).get('preview_only'):
+        sys.exit('ABORT: this generated prompt plan is preview-only; physical execution is not enabled.')
+
     ChannelFactoryInitialize(0, a.iface)
     st = State()
     sub = ChannelSubscriber("rt/lowstate", LowState_); sub.Init(st.on_msg, 10)

@@ -2,3 +2,6 @@
 __pycache__/
 sim/arm_lift_preview.json
 sim/plans/arm_lift_dryrun.json
+
+# Generated prompt previews (runtime artifacts)
+sim/plans/prompt_*.json

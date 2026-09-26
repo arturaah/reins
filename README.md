@@ -17,3 +17,17 @@ Where we add value is the interaction between the VLM and the human. Before the 
 ## Status
 
 A first simulation-only preview is available in [`sim/`](sim/README.md). It loads Unitree R1, predicts a named-joint plan, and draws the planned hand path. A separate [Spectacles AR prototype](spectacles/README.md) displays mock or WebSocket-fed hand paths aligned with shoulder tracking cards on the R1. The AR prototype currently has its own demo trajectory feed; integrating it with the Reins contract remains to be done. Neither preview commands physical hardware.
+
+## Observatory UI
+
+Launch the modern local dashboard with:
+
+```sh
+.venv/bin/python tools/dashboard.py
+```
+
+Open **http://localhost:8090** for the MuJoCo trajectory preview, robot cameras,
+a glasses video or mirrored-window view, and trajectory control (Dry run,
+Execute behind a dry-run gate and confirmation, Abort). See the
+[dashboard guide](tools/dashboard/README.md). The preview is local. Only the
+control panel reaches the robot, through `tools/arm_lift.py`.
