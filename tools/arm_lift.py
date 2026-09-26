@@ -109,7 +109,7 @@ def build_plan(a, q_meas):
         unknown = names - set(BY_MJ)
         assert not unknown, f"joints not on the arm topic or not in the sim model: {sorted(unknown)}"
         slots = {n: BY_MJ[n][0] for n in names}
-        times = [float(f["time_s"]) for f in kfs] + [float(kfs[-1]["time_s"]) + a.return_s]
+        times = [float(f["time_s"]) / a.speed for f in kfs] + [float(kfs[-1]["time_s"]) / a.speed + a.return_s]
         frames = [{slots[n]: float(v) for n, v in f["joint_targets_rad"].items()} for f in kfs]
         frames[0] = {s: q_meas[s] for s in slots.values()}            # start where the arm is
         frames.append({s: q_meas[s] for s in slots.values()})         # and come back
@@ -128,6 +128,8 @@ def main():
     ap.add_argument("iface")
     ap.add_argument("--plan", help="keyframe plan JSON (sim contract, MuJoCo joint names)")
     ap.add_argument("--return-s", type=float, default=2.5, help="seconds for the appended return to the measured pose")
+    ap.add_argument("--speed", type=float, default=1.0, help="time scale for --plan: 0.5 plays it at half speed")
+    ap.add_argument("--kp-scale", type=float, default=1.0, help="multiply Unitree's arm kp (stiffer replay = less gravity droop)")
     ap.add_argument("--joint", default="left_shoulder_pitch", choices=sorted(BY_NAME))
     ap.add_argument("--delta", type=float, default=-0.25, help="radians to add to the measured angle (one-joint mode)")
     ap.add_argument("--move-s", type=float, default=2.0)
@@ -219,7 +221,7 @@ def main():
     pub = ChannelPublisher("rt/arm_sdk", LowCmd_); pub.Init()
     crc = CRC(); cmd = unitree_hg_msg_dds__LowCmd_()
     for s, n, _, k, d in JOINTS:
-        mc = cmd.motor_cmd[s]; mc.q, mc.dq, mc.tau, mc.kp, mc.kd = q_meas[s], 0.0, 0.0, k, d
+        mc = cmd.motor_cmd[s]; mc.q, mc.dq, mc.tau, mc.kp, mc.kd = q_meas[s], 0.0, 0.0, k * a.kp_scale, d
 
     def send(weight, targets):
         cmd.mode_pr = int(round(np.clip(weight, 0.0, 1.0) * 100))
