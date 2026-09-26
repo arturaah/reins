@@ -54,8 +54,8 @@ Sim: `unitreerobotics/unitree_mujoco` ships an R1 model that consumes the same D
 Port facts from Unitree's docs: the **RJ45 Gigabit Ethernet** port on the R1's upper body is the PC link. The R1's **USB-C port is the internal link to the EDU Jetson**; plugging a Mac into it gives no network connection.
 
 Robot wired network, 192.168.123.0/24:
-- `192.168.123.164` EDU Jetson (Ubuntu, aarch64). SSH as `unitree`, default password `123`. Change it on first login.
-- `192.168.123.161` is the controller address in community R1 projects, but it does not answer ping on our robot. The R1 controller's address is still unknown; find it from the Jetson's neighbour table.
+- `192.168.123.164` EDU Jetson (hostname `ubuntu`, Ubuntu aarch64, robot-side interface `eth10`). SSH as `unitree`, default password `123`. Change it on first login. Host key fingerprint on our unit: `SHA256:b49bi+OYx/3BYWPsTlMZF1psSs5FW8FnpmFfHpfoDrk`.
+- `192.168.123.161` motion controller (MAC `7e:1d:75:60:f5:89`, confirmed from the Jetson's neighbour table). It does not answer ping or ARP from the Mac; whether it answers the Jetson is not yet checked.
 
 Steps:
 1. Power the robot on (short press the battery button, then hold it for more than 2 s). The Ethernet link only comes up with the robot powered.
@@ -67,8 +67,8 @@ Steps:
    ```
    No router. Wi-Fi stays as is and keeps internet on `en0`.
 5. `ping -c 3 192.168.123.164`, then `ssh unitree@192.168.123.164`.
-6. DDS from the Mac: pass `en6` as the network interface to the SDK's channel factory. On the Jetson the interface is typically `eth0`; check with `ip link`.
+6. DDS from the Mac: pass `en6` as the network interface to the SDK's channel factory. On the Jetson the interface is `eth10`.
 
-Status 2026-09-26, verified on the lab MacBook Air: link active at 100BASE-TX, static IP 192.168.123.99 set, Jetson 192.168.123.164 answers ping in about 1 ms. Not yet verified: SSH to the Jetson, the controller's address, DDS from the Mac. Update this line as steps are confirmed.
+Status 2026-09-26, verified on the lab MacBook Air: link active at 100BASE-TX, static IP 192.168.123.99 set, Jetson 192.168.123.164 answers ping in about 1 ms and accepts SSH. Controller identified at .161 from the Jetson. Not yet verified: whether .161 answers the Jetson, what Unitree software runs on the Jetson, DDS from the Mac. Update this line as steps are confirmed.
 
 Rule for agents: any command that sends anything to the robot (ping, SSH, DDS subscribe or publish) is proposed as a question and run only after Artur approves it. Mac-local checks need no approval.
