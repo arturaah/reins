@@ -17,7 +17,7 @@ hands off the arms when the tool says "releasing". Requires FSM 4 or 811.
 Move slowly: the replay gate caps joint speed at 0.5 rad/s (about 30 deg/s);
 --speed on replay slows a recording that was taught faster.
 """
-import argparse, json, sys, time
+import argparse, json, signal, sys, time
 from pathlib import Path
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber
@@ -66,11 +66,15 @@ def send(weight):
     cmd.crc = crc.Crc(cmd); pub.Write(cmd)
 
 def release(seconds=2.0):
+    """Ramp the weight to 0. A second Ctrl-C while this runs is ignored: the ramp must finish."""
+    signal.signal(signal.SIGINT, lambda *_: print("(already finishing: the weight ramps down first)"))
     print("releasing: hands off the arms, the controller takes them back")
     t_r = time.time()
-    while (el := time.time() - t_r) < seconds:
-        send(1.0 - el / seconds); time.sleep(1.0 / RATE_HZ)
-    send(0.0)
+    try:
+        while (el := time.time() - t_r) < seconds:
+            send(1.0 - el / seconds); time.sleep(1.0 / RATE_HZ)
+    finally:
+        send(0.0)
 
 dt = 1.0 / RATE_HZ
 print("ramping weight up (arms go soft in 1 s)")
@@ -96,16 +100,21 @@ try:
         time.sleep(max(0.0, dt - (time.time() - now)))
 except KeyboardInterrupt:
     print()
-release()
-sub.Close()
+signal.signal(signal.SIGINT, lambda *_: print("(already finishing: saving, then the weight ramps down)"))
+path = ROOT / "recordings" / f"{a.name}.json"
+try:                                   # save first (milliseconds), release no matter what
+    if len(rec) >= 2:
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps({"schema_version": 1, "name": a.name, "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "source": "kinesthetic teach, measured", "duration_s": rec[-1][0],
+            "keyframes": [{"time_s": t, "joint_targets_rad": qq} for t, qq in rec]}, indent=1) + "\n")
+        span = {mj: max(qq[mj] for _, qq in rec) - min(qq[mj] for _, qq in rec) for _, _, mj, *_ in ARM}
+        moved = ", ".join(f"{mj.replace('_joint','')}={v:.2f}" for mj, v in span.items() if v > 0.02)
+        print(f"saved {len(rec)} samples over {rec[-1][0]} s to {path.relative_to(ROOT)}")
+        print(f"range of motion (rad): {moved}" if moved else "range of motion: none, the arms were not moved")
+finally:
+    release()
+    sub.Close()
 if len(rec) < 2:
     sys.exit("nothing recorded")
-path = ROOT / "recordings" / f"{a.name}.json"; path.parent.mkdir(exist_ok=True)
-path.write_text(json.dumps({"schema_version": 1, "name": a.name, "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    "source": "kinesthetic teach, measured", "duration_s": rec[-1][0],
-    "keyframes": [{"time_s": t, "joint_targets_rad": qq} for t, qq in rec]}, indent=1) + "\n")
-span = {mj: max(qq[mj] for _, qq in rec) - min(qq[mj] for _, qq in rec) for _, _, mj, *_ in ARM}
-moved = ", ".join(f"{mj.replace('_joint','')}={v:.2f}" for mj, v in span.items() if v > 0.02)
-print(f"saved {len(rec)} samples over {rec[-1][0]} s to {path.relative_to(ROOT)}")
-print(f"range of motion (rad): {moved}" if moved else "range of motion: none, the arms were not moved")
 print(f"replay: .venv/bin/python tools/arm_lift.py {a.iface} --plan {path.relative_to(ROOT)}   (add --speed 0.5 if the dry run says too fast)")

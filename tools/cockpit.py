@@ -5,17 +5,27 @@ joint angles and IMU orientation, renders it offscreen and streams it as MJPEG.
 The page embeds the head camera (tools/headcam.py, port 8081) and the wrist
 cameras (tools/camstream.py on the Jetson, forwarded to port 8080). Read-only.
 
+Trajectory preview: GET /preview?file=sim/plans/arm_lift_dryrun.json loads the
+resolved plan (what arm_lift streams, lead-in and return included) and draws both
+hands' full paths as lines; a translucent ghost of the arms plays the plan in a
+loop with a progress caption. GET /preview/stop ends it.
+Whenever anything publishes on rt/arm_sdk with weight > 0 (arm_lift --execute,
+teach.py, teleop), the ghost switches to the commanded joint targets read off
+that topic, in yellow, captioned SENDING: the twin then shows exactly what is
+being sent next to what the robot measures. The desktop window loads the plan
+after every passing dry run and again the moment an execute starts.
+
     .venv/bin/python tools/cockpit.py en6 [--port 8082] [--fps 15]
     open http://localhost:8082/
 """
-import argparse, io, os, threading, time
+import argparse, io, json, os, threading, time, urllib.parse
 os.environ.setdefault("MUJOCO_GL", "cgl")          # macOS offscreen context, no window needed
 import mujoco, numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_, LowCmd_
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCENE = os.path.join(ROOT, "sim/models/r1/scene.xml")
@@ -35,25 +45,143 @@ SLOT_TO_JOINT = {
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 ap.add_argument("iface"); ap.add_argument("--port", type=int, default=8082); ap.add_argument("--fps", type=float, default=15.0)
 ap.add_argument("--head", default="http://localhost:8081/cam"); ap.add_argument("--wrists", default="http://localhost:8080")
+ap.add_argument("--domain", type=int, default=0, help="DDS domain (0 = the robot; 1 with lo0 for loopback tests)")
 a = ap.parse_args()
 
 model = mujoco.MjModel.from_xml_path(SCENE); data = mujoco.MjData(model)
 qadr = {s: int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, j)]) for s, j in SLOT_TO_JOINT.items()}
-state = {"q": None, "quat": None, "n": 0, "mode": None, "t": 0.0}
+state = {"q": None, "quat": None, "n": 0, "mode": None, "t": 0.0, "cmd_q": None, "cmd_w": 0, "cmd_t": 0.0, "cmd_n": 0}
 
 def on_msg(m: LowState_):
     state["q"] = [m.motor_state[s].q for s in range(35)]
     state["quat"] = list(m.imu_state.quaternion)          # w, x, y, z
     state["mode"] = m.mode_machine; state["n"] += 1; state["t"] = time.time()
 
-ChannelFactoryInitialize(0, a.iface)
+def on_cmd(m: LowCmd_):                                    # what any publisher is sending on the arm topic
+    state["cmd_q"] = [m.motor_cmd[s].q for s in range(35)]; state["cmd_w"] = int(m.mode_pr)
+    state["cmd_t"] = time.time(); state["cmd_n"] += 1
+
+ChannelFactoryInitialize(a.domain, a.iface)
 sub = ChannelSubscriber("rt/lowstate", LowState_); sub.Init(on_msg, 10)
+sub_cmd = ChannelSubscriber("rt/arm_sdk", LowCmd_); sub_cmd.Init(on_cmd, 10)
+ARM_SLOTS = [s for s in qadr if s in (13, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26)]   # slots the arm topic drives
 
 renderer = mujoco.Renderer(model, height=480, width=640)
 cam = mujoco.MjvCamera(); cam.type = mujoco.mjtCamera.mjCAMERA_FREE
 cam.lookat[:] = [0.0, 0.0, 0.72]; cam.distance = 2.4; cam.azimuth = 155; cam.elevation = -12   # 180 = facing the camera
 floor = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
 latest = {"jpg": b""}
+
+# ---- trajectory preview: a ghost of the arms following a resolved plan ---------------------------
+def body_name(i): return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i) or ""
+def descendants(root):
+    out = set()
+    for b in range(model.nbody):
+        k = b
+        while k > 0:
+            if k == root: out.add(b); break
+            k = int(model.body_parentid[k])
+    return out
+ARM_BODIES = set().union(*(descendants(b) for b in range(model.nbody) if "shoulder_pitch" in body_name(b)))
+WRIST = {"left": mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "left_wrist_roll_link"),
+         "right": mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "right_wrist_roll_link")}
+TIP = np.array([0.13, 0.0, 0.0])                                    # hand tip in the wrist roll frame (as the fixed-base model's sites)
+PATH_RGBA = {"left": (0.0, 1.0, 1.0, 0.9), "right": (1.0, 0.4, 0.0, 0.9)}
+GHOST_RGBA = (0.35, 0.85, 1.0, 0.45)                                # preview playback
+CMD_RGBA = (1.0, 0.9, 0.2, 0.55)                                    # commanded targets read off rt/arm_sdk
+CMD_STALE_S = 0.5
+ghost = mujoco.MjData(model); scratch = mujoco.MjData(model)
+vopt = mujoco.MjvOption(); pert = mujoco.MjvPerturb()
+preview = {"plan": None, "t0": 0.0, "name": "", "duration": 0.0, "loops": 0, "was_sending": False}
+PAUSE_S, MAX_LOOPS = 1.0, 3      # a dry-run preview plays 3 times and clears; after real streaming the ghost clears at once
+
+def load_plan(path):
+    """Resolved plan (sim contract) -> dict with times, per-keyframe qpos values of the named joints, held joints, hand paths in the base frame."""
+    src = json.loads(open(path).read())
+    kfs = sorted(src["keyframes"], key=lambda f: f["time_s"])
+    adr = {n: int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)]) for n in kfs[0]["joint_targets_rad"]}
+    held = {int(model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)]): float(v) for n, v in src.get("held_joints_rad", {}).items()}
+    times = np.array([float(f["time_s"]) for f in kfs])
+    frames = np.array([[float(f["joint_targets_rad"][n]) for n in adr] for f in kfs])
+    gaps = np.diff(times); linear = len(gaps) > 0 and float(np.median(gaps)) < 0.25
+    plan = {"times": times, "frames": frames, "adr": list(adr.values()), "held": held, "linear": linear}
+    def pose(t):
+        i = int(np.searchsorted(times, t, side="right") - 1); i = max(0, min(i, len(times) - 2))
+        t0, t1 = times[i], times[i + 1]; x = (t - t0) / (t1 - t0) if t1 > t0 else 1.0
+        x = min(max(x, 0.0), 1.0); r = x if linear else 0.5 - 0.5 * np.cos(np.pi * x)
+        return frames[i] + (frames[i + 1] - frames[i]) * r
+    plan["pose"] = pose
+    # hand paths in the pelvis frame, sampled every 0.1 s: base at the origin, live legs do not matter for the arms
+    scratch.qpos[:] = 0.0; scratch.qpos[3] = 1.0
+    for k, v in held.items(): scratch.qpos[k] = v
+    paths = {side: [] for side in WRIST}
+    for t in np.arange(0.0, times[-1] + 1e-9, 0.1):
+        q = pose(t)
+        for k, v in zip(plan["adr"], q): scratch.qpos[k] = v
+        mujoco.mj_forward(model, scratch)
+        for side, b in WRIST.items():
+            paths[side].append(scratch.xpos[b] + scratch.xmat[b].reshape(3, 3) @ TIP)
+    plan["paths"] = {side: np.array(p) for side, p in paths.items()}
+    return plan, src.get("name", os.path.basename(path)), float(times[-1])
+
+def add_line(scn, p0, p1, rgba, width=4.0):
+    if scn.ngeom >= scn.maxgeom: return
+    g = scn.geoms[scn.ngeom]
+    mujoco.mjv_initGeom(g, mujoco.mjtGeom.mjGEOM_LINE, np.zeros(3), np.zeros(3), np.eye(3).ravel(), np.array(rgba, dtype=np.float32))
+    mujoco.mjv_connector(g, mujoco.mjtGeom.mjGEOM_LINE, width, np.asarray(p0, dtype=float), np.asarray(p1, dtype=float))
+    scn.ngeom += 1
+
+def add_sphere(scn, p, rgba, r=0.02):
+    if scn.ngeom >= scn.maxgeom: return
+    mujoco.mjv_initGeom(scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_SPHERE, np.array([r, 0, 0]), np.asarray(p, dtype=float),
+                        np.eye(3).ravel(), np.array(rgba, dtype=np.float32))
+    scn.ngeom += 1
+
+def draw_preview(scn):
+    """Ghost arms (commanded targets while the arm topic is live, else the plan's playback) plus the plan's hand paths,
+    all in the live robot's base frame. Returns the caption, or None when there is nothing to show."""
+    plan = preview["plan"]
+    sending = state["cmd_q"] is not None and time.time() - state["cmd_t"] < CMD_STALE_S and state["cmd_w"] > 0
+    if plan is None and not sending: return None
+    ghost.qpos[:] = data.qpos
+    if sending:
+        for s in ARM_SLOTS: ghost.qpos[qadr[s]] = state["cmd_q"][s]
+        rgba = CMD_RGBA
+        caption = f"SENDING {preview['name'] if plan else ''}   weight {state['cmd_w']}%"
+        preview["was_sending"] = True
+    else:
+        if preview["was_sending"]:                                   # streaming just ended: show only the real robot again
+            preview.update(plan=None, was_sending=False); return None
+        cycle = preview["duration"] + PAUSE_S
+        el = time.time() - preview["t0"]; t = min(el % cycle, preview["duration"]); preview["loops"] = int(el // cycle) + 1
+        if preview["loops"] > MAX_LOOPS:
+            preview["plan"] = None; return None
+        for k, v in plan["held"].items(): ghost.qpos[k] = v
+        for k, v in zip(plan["adr"], plan["pose"](t)): ghost.qpos[k] = v
+        rgba = GHOST_RGBA
+        caption = f"PREVIEW {preview['name']}   {t:4.1f} / {preview['duration']:.1f} s   loop {preview['loops']}"
+    mujoco.mj_forward(model, ghost)
+    n0 = scn.ngeom
+    mujoco.mjv_addGeoms(model, ghost, vopt, pert, mujoco.mjtCatBit.mjCAT_DYNAMIC, scn)
+    for i in range(n0, scn.ngeom):
+        g = scn.geoms[i]
+        if g.objtype == mujoco.mjtObj.mjOBJ_GEOM and int(model.geom_bodyid[g.objid]) in ARM_BODIES: g.rgba[:] = rgba
+        else: g.rgba[3] = 0.0                                        # the rest of the ghost coincides with the live robot: hide it
+    R = ghost.xmat[1].reshape(3, 3) if model.nbody > 1 else np.eye(3); P = ghost.xpos[1]   # body 1 = pelvis (floating base)
+    if plan:
+        for side, pts in plan["paths"].items():
+            w = pts @ R.T + P
+            for p0, p1 in zip(w[:-1], w[1:]): add_line(scn, p0, p1, PATH_RGBA[side])
+    for side in WRIST:
+        add_sphere(scn, ghost.xpos[WRIST[side]] + ghost.xmat[WRIST[side]].reshape(3, 3) @ TIP, PATH_RGBA[side])
+    return caption
+
+def start_preview(rel):
+    path = os.path.realpath(os.path.join(ROOT, rel))
+    if not path.startswith(ROOT + os.sep) or not path.endswith(".json"): raise ValueError("plan must be a .json inside the repo")
+    plan, name, duration = load_plan(path)
+    preview.update(plan=plan, name=name, duration=duration, t0=time.time(), loops=0, was_sending=False)
+    return f"previewing {name}: {duration:.1f} s, {MAX_LOOPS} times"
 
 def render_loop():
     while True:
@@ -74,7 +202,14 @@ def render_loop():
             data.qpos[2] += 0.02 - zmin
             mujoco.mj_forward(model, data)
             renderer.update_scene(data, camera=cam)
-            buf = io.BytesIO(); Image.fromarray(renderer.render()).save(buf, "JPEG", quality=75)
+            try:
+                caption = draw_preview(renderer.scene)
+            except Exception as e:                                   # a bad plan must not kill the live twin
+                preview["plan"] = None; caption = f"preview failed: {e}"[:80]
+            im = Image.fromarray(renderer.render())
+            if caption:
+                ImageDraw.Draw(im).text((8, 6), caption, fill=(255, 255, 255))
+            buf = io.BytesIO(); im.save(buf, "JPEG", quality=75)
             latest["jpg"] = buf.getvalue()
         time.sleep(max(0.0, 1.0 / a.fps - (time.time() - t)))
 
@@ -95,7 +230,18 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/status":
             age = time.time() - state["t"]
             txt = f"mode_machine {state['mode']}, {state['n']} msgs, last {age:.1f}s ago" if state["n"] else "no rt/lowstate yet"
+            if state["cmd_q"] is not None and time.time() - state["cmd_t"] < CMD_STALE_S: txt += f" · SENDING weight {state['cmd_w']}%"
+            elif preview["plan"] is not None: txt += f" · preview {preview['name']} loop {preview['loops']}"
             self.send_response(200); self.send_header("Content-Type", "text/plain"); self.end_headers(); self.wfile.write(txt.encode()); return
+        if self.path.startswith("/preview"):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:
+                if self.path.startswith("/preview/stop"): preview["plan"] = None; txt = "preview stopped"
+                else: txt = start_preview(q.get("file", ["sim/plans/arm_lift_dryrun.json"])[0])
+                code = 200
+            except Exception as e:
+                txt, code = f"preview failed: {e}", 400
+            self.send_response(code); self.send_header("Content-Type", "text/plain"); self.end_headers(); self.wfile.write(txt.encode()); return
         if self.path == "/twin":
             self.send_response(200); self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame"); self.end_headers()
             try:

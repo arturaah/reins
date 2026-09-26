@@ -25,7 +25,7 @@ name are held at their measured angle.
 Protocol facts (vendored C++ SDK, robots/r1/r1_pub.h and defines.h): hg LowCmd
 on rt/arm_sdk, weight = mode_pr in 0..100, controller's 35-slot joint layout.
 """
-import argparse, json, sys, time
+import argparse, json, signal, sys, time
 from pathlib import Path
 import numpy as np
 import mujoco
@@ -61,6 +61,7 @@ JOINTS = [
 BY_NAME = {j[1]: j for j in JOINTS}
 BY_MJ = {j[2]: j for j in JOINTS if j[2]}
 RATE_HZ, RAMP_S, MAX_VEL, MAX_ERR, LIMIT_MARGIN = 50.0, 1.0, 0.5, 0.6, 0.05
+APPROACH_VEL = 0.25   # rad/s for the lead-in from the measured pose to a recording's first sample
 # FSM ids from unitree_sdk2/include/unitree/robot/r1/loco/r1_loco_client.hpp
 FSM_NAMES = {0: "ZeroTorque (motors unpowered)", 1: "Damp", 4: "StandUp (position lock)", 811: "Start (balance control)"}
 FSM_ARM_OK = {4, 811}   # states in which the built-in controller drives the arms; extend only with evidence
@@ -82,10 +83,10 @@ class Plan:
     Sparse, hand-authored keyframes ease in and out per segment; dense ones
     (recordings, median spacing under 0.25 s) interpolate linearly, otherwise
     every segment would stop and restart."""
-    def __init__(self, times, frames):
+    def __init__(self, times, frames, linear=None):
         self.times, self.frames, self.slots = times, frames, sorted(frames[0])
         gaps = np.diff(times)
-        self.linear = len(gaps) > 0 and float(np.median(gaps)) < 0.25
+        self.linear = (len(gaps) > 0 and float(np.median(gaps)) < 0.25) if linear is None else linear
     @property
     def duration(self): return self.times[-1]
     def at(self, t):
@@ -109,11 +110,25 @@ def build_plan(a, q_meas):
         unknown = names - set(BY_MJ)
         assert not unknown, f"joints not on the arm topic or not in the sim model: {sorted(unknown)}"
         slots = {n: BY_MJ[n][0] for n in names}
-        times = [float(f["time_s"]) / a.speed for f in kfs] + [float(kfs[-1]["time_s"]) / a.speed + a.return_s]
+        times = [float(f["time_s"]) / a.speed for f in kfs]
         frames = [{slots[n]: float(v) for n, v in f["joint_targets_rad"].items()} for f in kfs]
-        frames[0] = {s: q_meas[s] for s in slots.values()}            # start where the arm is
-        frames.append({s: q_meas[s] for s in slots.values()})         # and come back
+        start = {s: q_meas[s] for s in slots.values()}
+        src_gaps = np.diff([float(f["time_s"]) for f in kfs])
+        recorded = len(src_gaps) > 0 and float(np.median(src_gaps)) < 0.25
+        if recorded:
+            # A recording's first sample is a real pose (often drooped a little from where the controller holds the
+            # arm now). Keep it and approach it from the measured pose slowly, instead of within one sample interval.
+            jump = max(abs(frames[0][s] - start[s]) for s in start)
+            lead = max(0.5, jump / APPROACH_VEL)
+            if jump > 0.05:
+                print(f"note: the arm is {jump:.2f} rad from the recording's first pose; {lead:.1f} s lead-in added")
+            times = [0.0] + [lead + t for t in times]
+            frames = [start] + frames
+        else:
+            frames[0] = start                                          # hand-authored plans start where the arm is
+        times.append(times[-1] + a.return_s); frames.append(dict(start))   # and come back
         label = src.get("name", Path(a.plan).name)
+        return Plan(times, frames, linear=recorded), label
     else:
         slot = BY_NAME[a.joint][0]
         q0 = q_meas[slot]; q1 = a.to if a.to is not None else q0 + a.delta
@@ -137,7 +152,9 @@ def main():
     ap.add_argument("--hold-s", type=float, default=1.0)
     ap.add_argument("--execute", action="store_true", help="actually publish to rt/arm_sdk")
     ap.add_argument("--record", help="override the recording path (default recordings/<timestamp>_<name>.json)")
+    ap.add_argument("--brief", action="store_true", help="print only what a person acts on (the desktop window uses this)")
     a = ap.parse_args()
+    detail = (lambda *x: None) if a.brief else print     # per-joint tables and protocol facts: CLI only
 
     ChannelFactoryInitialize(0, a.iface)
     st = State()
@@ -148,7 +165,7 @@ def main():
     if st.msg is None:
         sys.exit(f"no rt/lowstate on {a.iface}; nothing done")
     q_meas = {s: st.msg.motor_state[s].q for s, *_ in JOINTS}
-    print(f"lowstate: {st.count} msgs, mode_machine={st.msg.mode_machine}")
+    detail(f"lowstate: {st.count} msgs, mode_machine={st.msg.mode_machine}")
 
     fsm = mode = None
     try:
@@ -157,7 +174,8 @@ def main():
         fsm = json.loads(data)["data"] if code == 0 and data else None
         code2, data2 = lc._Call(ROBOT_API_ID_LOCO_GET_FSM_MODE, "")
         mode = json.loads(data2)["data"] if code2 == 0 and data2 else None
-        print(f"fsm id: {fsm} = {FSM_NAMES.get(fsm, 'unknown')}   fsm mode: {mode}   (rpc codes {code}, {code2})")
+        if a.brief: print(f"robot: FSM {fsm} = {FSM_NAMES.get(fsm, 'unknown')}")
+        else: print(f"fsm id: {fsm} = {FSM_NAMES.get(fsm, 'unknown')}   fsm mode: {mode}   (rpc codes {code}, {code2})")
     except Exception as e:
         print(f"fsm query failed: {e}")
 
@@ -173,7 +191,7 @@ def main():
         lo, hi = model.jnt_range[jid]
         for t, f in zip(plan.times, plan.frames):
             if not (lo <= f[s] <= hi):
-                sys.exit(f"ABORT: {names[s]} = {f[s]:+.3f} at t={t}s outside the joint range [{lo:.3f}, {hi:.3f}]")
+                print(f"ABORT before sending anything: {names[s]} = {f[s]:+.3f} at t={t:.1f} s is outside the joint range [{lo:.3f}, {hi:.3f}]"); sys.exit(4)
             clamped = float(np.clip(f[s], lo + LIMIT_MARGIN, hi - LIMIT_MARGIN))   # inside the range but in the margin band: pull to the band edge
             if clamped != f[s]:
                 print(f"note: {names[s]} {f[s]:+.3f} at t={t}s pulled to {clamped:+.3f} to keep the {LIMIT_MARGIN} rad margin from the limit")
@@ -184,29 +202,39 @@ def main():
     peak = float(vel.max()) if vel.size else 0.0
     if peak > MAX_VEL:
         j, k = np.unravel_index(vel.argmax(), vel.shape)
-        sys.exit(f"ABORT: {names[moving[k]]} reaches {peak:.2f} rad/s at t={ts[j]:.2f}s; cap {MAX_VEL}")
-    print(f"\nplan '{label}': {len(plan.times)} keyframes ({'linear' if plan.linear else 'eased'}), {plan.duration:.1f} s, {len(moving)} joints move, "
-          f"peak {peak:.2f} rad/s; {RATE_HZ:.0f} Hz; weight ramp {RAMP_S}s each side; total {plan.duration + 2*RAMP_S:.1f}s")
+        print(f"ABORT before sending anything: {names[moving[k]]} would move at {peak:.2f} rad/s at t={ts[j]:.1f} s, over the {MAX_VEL} rad/s cap. Lower the speed."); sys.exit(4)
+    if a.brief:
+        print(f"plan '{label}': {plan.duration:.1f} s, {len(moving)} joints move, peak speed {peak:.2f} rad/s (cap {MAX_VEL})")
+    else:
+        print(f"\nplan '{label}': {len(plan.times)} keyframes ({'linear' if plan.linear else 'eased'}), {plan.duration:.1f} s, {len(moving)} joints move, "
+              f"peak {peak:.2f} rad/s; {RATE_HZ:.0f} Hz; weight ramp {RAMP_S}s each side; total {plan.duration + 2*RAMP_S:.1f}s")
 
     # forward kinematics per keyframe (no physics)
     data = mujoco.MjData(model)
-    side = "right" if all(names[s].startswith("right") for s in moving) else "left"
-    site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, f"{side}_hand_preview")
+    sides = [sd for sd in ("left", "right") if any(names[s].startswith(sd) for s in moving)] or ["left"]
+    side = sides[0]                                   # the detailed table shows one hand; the brief line reports every moving hand
+    sites = {sd: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, f"{sd}_hand_preview") for sd in sides}
     def fk(frame):
         data.qpos[:] = 0.0
         for s_, n_, mj, *_ in JOINTS:
             if mj:
                 data.qpos[model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, mj)]] = frame.get(s_, q_meas[s_])
         mujoco.mj_forward(model, data)
-        return data.site_xpos[site].copy(), data.ncon
+        return {sd: data.site_xpos[k].copy() for sd, k in sites.items()}, data.ncon
     h0, ncon0 = fk(plan.frames[0])
-    print(f"keyframes ({side} hand xyz in m, relative to start; contacts vs {ncon0} at rest):")
-    print("   t    " + "  ".join(f"{names[s][:14]:>14s}" for s in moving) + "     dx     dy     dz  contacts")
+    detail(f"keyframes ({side} hand xyz in m, relative to start; contacts vs {ncon0} at rest):")
+    detail("   t    " + "  ".join(f"{names[s][:14]:>14s}" for s in moving) + "     dx     dy     dz  contacts")
+    reach, contact_t = {sd: 0.0 for sd in sides}, None
     for t, f in zip(plan.times, plan.frames):
         h, ncon = fk(f)
-        d = h - h0
-        print(f"  {t:4.1f}  " + "  ".join(f"{f[s]:+14.3f}" for s in moving) + f"  {d[0]:+.3f} {d[1]:+.3f} {d[2]:+.3f}  {ncon:5d}" + ("  <-- new contacts!" if ncon > ncon0 else ""))
-    print("held joints: " + ", ".join(f"{names[s]}={q_meas[s]:+.2f}" for s, *_ in JOINTS if s not in moving))
+        d = h[side] - h0[side]
+        for sd in sides: reach[sd] = max(reach[sd], float(np.linalg.norm(h[sd] - h0[sd])))
+        if ncon > ncon0 and contact_t is None: contact_t = t
+        detail(f"  {t:4.1f}  " + "  ".join(f"{f[s]:+14.3f}" for s in moving) + f"  {d[0]:+.3f} {d[1]:+.3f} {d[2]:+.3f}  {ncon:5d}" + ("  <-- new contacts!" if ncon > ncon0 else ""))
+    detail("held joints: " + ", ".join(f"{names[s]}={q_meas[s]:+.2f}" for s, *_ in JOINTS if s not in moving))
+    if a.brief:
+        print(", ".join(f"{sd} hand travels up to {reach[sd]:.2f} m" for sd in sides) + " from where it is now" +
+              (f"; WARNING: the model shows the arm touching something from t={contact_t:.1f} s" if contact_t is not None else "; no self-contact in the model"))
 
     resolved = ROOT / "sim/plans/arm_lift_dryrun.json"
     resolved.write_text(json.dumps({"schema_version": 1, "name": label, "duration_s": plan.duration,
@@ -215,14 +243,15 @@ def main():
         # measured pose of the joints that stay put, so spectacles/plan_feed.py draws both hands where they are
         "held_joints_rad": {mj: round(q_meas[s], 6) for s, _, mj, *_ in JOINTS if mj and s not in moving}},
         indent=1) + "\n")
-    print(f"resolved plan written to {resolved.relative_to(ROOT)} (view: mjpython sim/preview.py --plan {resolved.relative_to(ROOT)} --preview-only)")
+    detail(f"resolved plan written to {resolved.relative_to(ROOT)} (view: mjpython sim/preview.py --plan {resolved.relative_to(ROOT)} --preview-only)")
 
     if fsm not in FSM_ARM_OK:
         print(f"\nNOTE: controller is in FSM {fsm} = {FSM_NAMES.get(fsm, 'unknown')}. The arm topic only takes effect in "
               f"{sorted(FSM_ARM_OK)}; --execute is refused in this state.")
         if a.execute: sys.exit(3)
     if not a.execute:
-        print("\nDRY RUN, nothing published. Messages would carry mode_pr=100 (weight 1.0) and, per joint, q from the plan, dq=0, tau=0, kp/kd from Unitree's example.")
+        if a.brief: print("checks passed. Dry run: nothing was sent to the robot.")
+        else: print("\nDRY RUN, nothing published. Messages would carry mode_pr=100 (weight 1.0) and, per joint, q from the plan, dq=0, tau=0, kp/kd from Unitree's example.")
         sub.Close(); return
 
     # ---- execute ----
@@ -237,10 +266,14 @@ def main():
         cmd.crc = crc.Crc(cmd); pub.Write(cmd)
 
     def release(targets, seconds=RAMP_S):
+        """Ramp the weight to 0. A Ctrl-C while this runs is ignored: the ramp must finish."""
+        signal.signal(signal.SIGINT, lambda *_: print("(already releasing: the weight ramps down first)"))
         t_r = time.time()
-        while (el := time.time() - t_r) < seconds:
-            send(1.0 - el / seconds, targets); time.sleep(1.0 / RATE_HZ)
-        send(0.0, targets)
+        try:
+            while (el := time.time() - t_r) < seconds:
+                send(1.0 - el / seconds, targets); time.sleep(1.0 / RATE_HZ)
+        finally:
+            send(0.0, targets)
 
     rec, rec_last = [], -1.0
     def save_recording():
@@ -258,7 +291,7 @@ def main():
         print(f"recorded {len(rec)} keyframes over {out['duration_s']} s to {path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
 
     print("\nEXECUTE: ramping weight up")
-    dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0); ticks = 0
+    dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0); ticks = 0; lag_max = (0.0, None)
     try:
         while True:
             now = time.time(); t = now - t_start
@@ -274,6 +307,7 @@ def main():
                 rec.append((rec_last, dict(targets), {s: st.msg.motor_state[s].q for s in moving}))
             errs = {s: st.msg.motor_state[s].q - targets[s] for s in moving}
             worst = max(errs, key=lambda s: abs(errs[s]))
+            if abs(errs[worst]) > lag_max[0]: lag_max = (abs(errs[worst]), worst)
             if now - st.t_last > 0.5:
                 print("ABORT: lowstate stale"); release(targets, 0.5); sys.exit(2)
             if abs(errs[worst]) > MAX_ERR:
@@ -282,15 +316,26 @@ def main():
                     print(f"ABORT: {names[worst]} lags by {errs[worst]:+.2f} rad"); release(targets, 0.5); sys.exit(2)
             else:
                 err_since = None
-            if int(t / 0.5) != int((t - dt) / 0.5):
+            if a.brief:
+                if t >= RAMP_S and int((t - RAMP_S) / 2.0) != int((t - RAMP_S - dt) / 2.0):
+                    print(f"  {t - RAMP_S:4.1f} / {plan.duration:.1f} s   lag {abs(errs[worst]):.2f} rad ({names[worst]})")
+            elif int(t / 0.5) != int((t - dt) / 0.5):
                 print(f"  t={t:4.1f}s w={w:.2f}  worst lag {names[worst]} {errs[worst]:+.3f}  " +
                       " ".join(f"{names[s][:8]}={targets[s]:+.2f}" for s in moving[:5]))
             time.sleep(max(0.0, dt - (time.time() - now)))
-        print(f"loop: {ticks} ticks in {t:.1f} s = {ticks / t:.0f} Hz (target {RATE_HZ:.0f})")
+        detail(f"loop: {ticks} ticks in {t:.1f} s = {ticks / t:.0f} Hz (target {RATE_HZ:.0f})")
         print("ramping weight down"); release(targets); save_recording()
-        print("done. final vs start: " + ", ".join(f"{names[s]} {st.msg.motor_state[s].q:+.3f}/{q_meas[s]:+.3f}" for s in moving))
+        back = max(abs(st.msg.motor_state[s].q - q_meas[s]) for s in moving)
+        if a.brief:
+            print(f"done. Worst lag during the motion {lag_max[0]:.2f} rad ({names[lag_max[1]] if lag_max[1] is not None else '-'}); "
+                  f"arm back within {back:.2f} rad of where it started")
+        else:
+            print("done. final vs start: " + ", ".join(f"{names[s]} {st.msg.motor_state[s].q:+.3f}/{q_meas[s]:+.3f}" for s in moving))
     except KeyboardInterrupt:
-        print("\ninterrupted: releasing"); release(targets, 0.5); save_recording(); sys.exit(130)
+        print("\ninterrupted: releasing")
+        try: release(targets, 0.5)
+        finally: save_recording()
+        sys.exit(130)
     finally:
         sub.Close()
 
