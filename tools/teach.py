@@ -14,8 +14,8 @@ are held at their measured pose with normal gains. Both arms are recorded at
 Ends after --seconds or Ctrl-C, then ramps the weight down over 2 s: the
 built-in controller takes the arms back to its own pose during that ramp, so
 hands off the arms when the tool says "releasing". Requires FSM 4 or 811.
-Move slowly: the replay gate caps joint speed at 0.5 rad/s (about 30 deg/s);
---speed on replay slows a recording that was taught faster.
+The replay gate caps joint speed at 1.5 rad/s (about 85 deg/s), enough for a
+calm hand-guided motion; --speed on replay slows a take that was taught faster.
 """
 import argparse, json, signal, sys, time
 from pathlib import Path

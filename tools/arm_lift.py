@@ -60,7 +60,7 @@ JOINTS = [
 ]
 BY_NAME = {j[1]: j for j in JOINTS}
 BY_MJ = {j[2]: j for j in JOINTS if j[2]}
-RATE_HZ, RAMP_S, MAX_VEL, MAX_ERR, LIMIT_MARGIN = 50.0, 1.0, 0.5, 0.6, 0.05
+RATE_HZ, RAMP_S, MAX_VEL, MAX_ERR, LIMIT_MARGIN = 50.0, 1.0, 1.5, 0.6, 0.05   # MAX_VEL was 0.5 until Artur raised it (2026-09-26 evening) so hand-taught takes replay at real speed
 APPROACH_VEL = 0.25   # rad/s for the lead-in from the measured pose to a recording's first sample
 # FSM ids from unitree_sdk2/include/unitree/robot/r1/loco/r1_loco_client.hpp
 FSM_NAMES = {0: "ZeroTorque (motors unpowered)", 1: "Damp", 4: "StandUp (position lock)", 811: "Start (balance control)"}
@@ -202,7 +202,11 @@ def main():
     peak = float(vel.max()) if vel.size else 0.0
     if peak > MAX_VEL:
         j, k = np.unravel_index(vel.argmax(), vel.shape)
-        print(f"ABORT before sending anything: {names[moving[k]]} would move at {peak:.2f} rad/s at t={ts[j]:.1f} s, over the {MAX_VEL} rad/s cap. Lower the speed."); sys.exit(4)
+        if ts[j] >= plan.times[-2] - 1e-6:                              # the appended return leg: --speed does not scale it
+            fix = f"The return to the start pose is what is too fast: end the recording nearer to where it began, or raise --return-s to {a.return_s * peak / MAX_VEL * 1.05:.1f}."
+        else:
+            fix = f"Lower the speed to {int(a.speed * MAX_VEL / peak * 100 * 0.97) / 100:.2f} or less."
+        print(f"ABORT before sending anything: {names[moving[k]]} would move at {peak:.2f} rad/s at t={ts[j]:.1f} s, over the {MAX_VEL} rad/s cap. {fix}"); sys.exit(4)
     if a.brief:
         print(f"plan '{label}': {plan.duration:.1f} s, {len(moving)} joints move, peak speed {peak:.2f} rad/s (cap {MAX_VEL})")
     else:

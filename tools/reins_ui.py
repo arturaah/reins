@@ -95,7 +95,7 @@ ctrl = ttk.Frame(panes, width=380); panes.add(ctrl, weight=0)
 hdr = ttk.Frame(ctrl); hdr.pack(fill="x", padx=6, pady=(6, 0))
 ttk.Label(hdr, text="Trajectories").pack(side="left")
 files = []
-lb = tk.Listbox(ctrl, height=10, bg="#161c23", fg="#c9d1d9", selectbackground="#0f766e", exportselection=False)
+lb = tk.Listbox(ctrl, height=8, bg="#161c23", fg="#c9d1d9", selectbackground="#0f766e", exportselection=False)
 def listdir(d):
     p = os.path.join(ROOT, d); return sorted(os.listdir(p)) if os.path.isdir(p) else []
 def reload_files(select=None):
@@ -140,6 +140,36 @@ rkp = tk.StringVar(value="20"); ttk.Entry(rf, textvariable=rkp, width=6).grid(ro
 rbtns = ttk.Frame(ctrl); rbtns.pack(fill="x", padx=6, pady=4)
 rec_lbl = tk.Label(ctrl, text="", bg="#0f1419", fg="#ff6b6b", font=("Menlo", 11, "bold"), anchor="w"); rec_lbl.pack(fill="x", padx=6)
 
+# ---- control pane: say (onboard text-to-speech via tools/say.py; independent of the trajectory slot) -----------
+ttk.Label(ctrl, text="Say").pack(anchor="w", padx=6, pady=(10, 0))
+sf = ttk.Frame(ctrl); sf.pack(fill="x", padx=6)
+say_text = tk.StringVar(); say_entry = ttk.Entry(sf, textvariable=say_text); say_entry.pack(side="left", fill="x", expand=True)
+voice = tk.StringVar(value="English"); ttk.Combobox(sf, textvariable=voice, values=("English", "Chinese"), state="readonly", width=8).pack(side="left", padx=4)
+ttk.Label(sf, text="vol").pack(side="left"); vol = tk.StringVar(); ttk.Entry(sf, textvariable=vol, width=4).pack(side="left", padx=2)
+def say():
+    text = say_text.get().strip()
+    if not text: log("\ntype something for the robot to say\n"); return
+    cmd = [PY, "tools/say.py", a.iface, text, "--speaker", "0" if voice.get() == "Chinese" else "1"]
+    if vol.get().strip(): cmd += ["--volume", vol.get().strip()]
+    log(f"\n🔊 {text}\n")
+    # Start the child from the main thread: on macOS a fork from a worker thread inside a Tk process can take the
+    # window down. Only the waiting and reading happen in a thread (same pattern as launch()).
+    try:
+        p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                             env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    except Exception as ex:
+        log(f"say failed to start: {ex}\n"); return
+    def go():
+        try:
+            out_, _ = p.communicate(timeout=30)
+            lines = [l for l in out_.splitlines() if l.strip() and "take sample error" not in l]
+            events.put(("log", "".join(l + "\n" for l in lines) + ("" if p.returncode == 0 else f"■ say failed (code {p.returncode})\n")))
+        except Exception as ex:
+            p.kill(); events.put(("log", f"say failed: {ex}\n"))
+    threading.Thread(target=go, daemon=True).start()
+ttk.Button(sf, text="Say", command=say).pack(side="left", padx=4)
+say_entry.bind("<Return>", lambda _e: say())
+
 lhdr = ttk.Frame(ctrl); lhdr.pack(fill="x", padx=6, pady=(6, 0))
 ttk.Label(lhdr, text="Log").pack(side="left")
 out = tk.Text(ctrl, height=14, width=48, bg="#0b0f14", fg="#c9d1d9", font=("Menlo", 10))
@@ -170,6 +200,7 @@ def launch(cmd, kind, title, result=None, secs=0.0):
             if "take sample error" in line or SKIP.match(line): continue
             if line.startswith(("TEACH:", "recording ")): events.put(("rec_start", ""))   # the tool's own "now recording" line
             if line.startswith("EXECUTE:"): events.put(("exec_start", ""))               # arm_lift has just written the resolved plan
+            if (m := re.search(r"Lower the speed to ([0-9.]+)", line)): events.put(("speed", m.group(1)))
             if line.startswith(("releasing", "ramping weight down", "interrupted")): proc["finishing"] = True
             events.put(("log", line))
         events.put(("done", p.wait()))
@@ -236,8 +267,6 @@ def finished(code):
         log("the twin pane plays this exact trajectory 3 times (cyan ghost arms, hand paths); the robot itself does not move\n")
     if ok:
         log(f"saved {res}: selected above. Dry run it, then Execute.\n")
-        if proc["kind"] == "teach":
-            speed.set("0.4"); log("speed set to 0.4: hand-taught motions are usually faster than the 0.5 rad/s replay gate\n")
     elif proc["kind"] in ("teach", "record"):
         log("no recording saved\n")
     proc["result"] = None
@@ -248,10 +277,10 @@ ttk.Button(btns, text="Abort", style="Danger.TButton", command=interrupt).pack(s
 ttk.Button(rbtns, text="Teach by hand…", command=lambda: start_recording("teach")).pack(side="left")
 ttk.Button(rbtns, text="Passive log", command=lambda: start_recording("record")).pack(side="left", padx=6)
 ttk.Button(rbtns, text="Finish & save", style="Go.TButton", command=interrupt).pack(side="left")
-ttk.Label(ctrl, text="Dry run checks the trajectory and plays it in the twin pane; while anything streams to the arms the twin shows the "
+hint = ttk.Label(ctrl, text="Dry run checks the trajectory and plays it in the twin pane; while anything streams to the arms the twin shows the "
                      "sent pose in yellow. Execute and Teach ask first. Abort / Finish & save = "
                      "Ctrl-C to the tool: a replay ramps the weight down, teach saves the file and releases the arms, passive log saves the file.",
-          wraplength=360).pack(anchor="w", padx=6, pady=(0, 6))
+          wraplength=360); hint.pack(anchor="w", padx=6, pady=(0, 6))
 
 def refresh():
     for name, lbl in (("head", head_lbl), ("twin", twin_lbl), ("wrist_l", wl_lbl), ("wrist_r", wr_lbl)):
@@ -281,6 +310,8 @@ def drain():
             if kind == "log": log(val)
             elif kind == "status": status.configure(text=val)
             elif kind == "rec_start": proc["t0"] = time.time()
+            elif kind == "speed":
+                speed.set(val); log(f"speed field set to {val}: press Dry run or Execute again\n")
             elif kind == "exec_start":
                 cockpit("/preview?file=sim/plans/arm_lift_dryrun.json")
                 log("the twin pane shows the planned hand paths and, in yellow, the pose being sent right now\n")
@@ -313,7 +344,21 @@ root.bind("<Configure>", on_resize)
 root.after(300, place_sashes)
 root.after(200, refresh); root.after(300, drain)
 root.protocol("WM_DELETE_WINDOW", on_close)
-if a.selftest:
+def report_callback_exception(exc, val, tb):                       # a Tk callback error must not kill the window silently
+    import traceback; msg = "".join(traceback.format_exception(exc, val, tb))
+    sys.stderr.write(msg); open("/tmp/reins_ui_crash.log", "a").write(time.strftime("%F %T ") + msg)
+    try: log(f"\n■ window error: {val}\n")
+    except Exception: pass
+root.report_callback_exception = report_callback_exception
+if a.selftest and a.selftest.startswith("say:"):                 # e.g. --iface lo0 --selftest "say:hello": exercises the Say path, no robot
+    say_text.set(a.selftest[4:]); root.after(1500, say)
+    def geometry_report():
+        print(f"screen {SW}x{SH}, window {root.winfo_width()}x{root.winfo_height()}, control pane height {ctrl.winfo_height()}")
+        for name, w in (("trajectory list", lb), ("record block", rf), ("say row", sf), ("log", out), ("hint", hint)):
+            print(f"  {name:16s} mapped={bool(w.winfo_ismapped())} y={w.winfo_y()} h={w.winfo_height()}")
+    root.after(4000, geometry_report)
+    root.after(9000, lambda: (print(out.get("1.0", "end")), print("window alive after say"), root.destroy()))
+elif a.selftest:
     rname.set(a.selftest); rsec.set("3")
     root.after(1500, lambda: start_recording("record"))
     def watch():
@@ -323,4 +368,14 @@ if a.selftest:
         else:
             root.after(200, watch)
     root.after(2000, watch)
-root.mainloop()
+def note(msg):                                                     # why did the window end? (/tmp/reins_ui_crash.log)
+    try: open("/tmp/reins_ui_crash.log", "a").write(time.strftime("%F %T ") + msg + "\n")
+    except Exception: pass
+for _sig in (signal.SIGHUP, signal.SIGTERM):
+    signal.signal(_sig, lambda n, f: (note(f"signal {signal.Signals(n).name} received, window closing"), sys.exit(128 + n)))
+try:
+    root.mainloop()
+    note("mainloop ended normally (window closed)")
+except BaseException as e:
+    import traceback; msg = traceback.format_exc()
+    sys.stderr.write(msg); note(f"mainloop ended by {type(e).__name__}: {e}\n{msg}"); raise
