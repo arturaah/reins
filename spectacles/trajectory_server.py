@@ -39,13 +39,14 @@ def trajectory(phase: float = 0.0) -> dict:
     }
 
 
-async def handler(websocket):
+async def handler(websocket, static=False):
     print(f"Lens connected: {websocket.remote_address}", flush=True)
     phase = 0.0
     try:
         while True:
             await websocket.send(json.dumps(trajectory(phase)))
-            phase += 0.18
+            if not static:
+                phase += 0.18
             await asyncio.sleep(0.25)
     except Exception as exc:
         print(f"Lens disconnected: {exc}", flush=True)
@@ -55,9 +56,11 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--static", action="store_true", help="hold fixed neutral-hand paths for alignment checks")
     args = parser.parse_args()
-    async with serve(handler, args.host, args.port):
-        print(f"Mock R1 trajectory feed: ws://{args.host}:{args.port}", flush=True)
+    async with serve(lambda websocket: handler(websocket, args.static), args.host, args.port):
+        mode = "static" if args.static else "animated"
+        print(f"{mode} R1 trajectory feed: ws://{args.host}:{args.port}", flush=True)
         await asyncio.Future()
 
 

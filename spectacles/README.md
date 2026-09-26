@@ -34,6 +34,10 @@ On this Mac, run from the project directory:
 python3 trajectory_server.py --host 0.0.0.0 --port 8765
 ```
 
+For an alignment check with fixed paths, add `--static`. This holds both
+paths at the model's neutral hand starts and leaves their endpoints unchanged;
+it does not represent measured robot motion.
+
 The server requires Python 3.10+ and the `websockets` package (already installed on this Mac). It emits four updates per second. This checkout first tries `ws://172.20.10.8:8765` (this Mac's current iPhone-hotspot address), then `ws://127.0.0.1:8765` through an optional **wired ADB reverse tunnel**. The hotspot address may change when devices reconnect: check `ipconfig getifaddr en0`, update `websocketUrl` in `Assets/Scene.scene` or the script Inspector, and resend the Lens. Both the Mac and Spectacles must be on the same hotspot for wireless updates. With the Spectacles attached by USB, `adb reverse tcp:8765 tcp:8765` can provide a fallback, but is not needed for the direct hotspot route. The Lens uses its built-in animated mock until a feed arrives, then holds the last received path if both routes disconnect. On-device access to local `ws://` requires the project's enabled Experimental APIs flag; Lens Studio's ordinary desktop preview does not expose this WebSocket API.
 
 The included server is an **animated trajectory test**, not robot telemetry. Both hands start at the model's neutral hand sites; their planned endpoints change shape roughly every nine seconds while their starting points stay fixed. It can verify that the Lens receives live plan updates over Wi-Fi, but it cannot show measured hand movement or shorten a path as the robot moves.
