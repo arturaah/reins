@@ -45,4 +45,5 @@ path.write_text(json.dumps({"schema_version": 1, "name": a.name, "recorded_at": 
     "keyframes": [{"time_s": t, "joint_targets_rad": q} for t, q in rec]}, indent=1) + "\n")
 span = {mj: max(q[mj] for _, q in rec) - min(q[mj] for _, q in rec) for _, mj in ARMS}
 print(f"saved {len(rec)} samples over {rec[-1][0]} s to {path.relative_to(ROOT)}")
-print("range of motion (rad): " + ", ".join(f"{mj.replace('_joint','')}={v:.2f}" for mj, v in span.items() if v > 0.02) or "range of motion: none, arms were still")
+moved = ", ".join(f"{mj.replace('_joint','')}={v:.2f}" for mj, v in span.items() if v > 0.02)
+print(f"range of motion (rad): {moved}" if moved else "range of motion: none, the arms were still")
