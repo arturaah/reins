@@ -105,7 +105,8 @@
           }
         },
         {"$ref": "#/$defs/preset_step"},
-        {"$ref": "#/$defs/walk_step"}
+        {"$ref": "#/$defs/walk_step"},
+        {"$ref": "#/$defs/grip_step"}
       ]
     },
 
@@ -166,6 +167,20 @@
         "path": {"$ref": "#/$defs/path2"}
       }
     },
+    "grip_step": {
+      "description": "Provisional: close or open a hand on an object. The R1 A5 has no fingers; the sim attaches or releases the object kinematically.",
+      "type": "object",
+      "required": ["step_id", "kind", "description", "effector", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {"$ref": "#/$defs/id"},
+        "kind": {"const": "grip"},
+        "description": {"$ref": "#/$defs/text"},
+        "effector": {"enum": ["left_hand", "right_hand"]},
+        "action": {"enum": ["close", "open"]},
+        "object": {"type": "string", "minLength": 1, "description": "What the hand closes on or lets go of"}
+      }
+    },
     "plan": {
       "type": "object",
       "required": ["plan_id", "revision", "command_id", "summary", "steps"],
@@ -190,7 +205,8 @@
           "items": {"oneOf": [
             {"$ref": "#/$defs/arm_step"},
             {"$ref": "#/$defs/preset_step"},
-            {"$ref": "#/$defs/walk_step"}
+            {"$ref": "#/$defs/walk_step"},
+            {"$ref": "#/$defs/grip_step"}
           ]}
         }
       }

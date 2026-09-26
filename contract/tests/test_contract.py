@@ -65,6 +65,17 @@ def test_rejects_nan():
         validate(m)
 
 
+def test_grip_step_between_arm_steps():
+    m = _plan_message()
+    grip = {"step_id": "g1", "kind": "grip", "description": "Close the left hand on the cup",
+            "effector": "left_hand", "action": "close", "object": "cup"}
+    m["plan"]["steps"].append(grip)
+    validate(m)
+    grip["effector"] = "head"
+    with pytest.raises(ContractError, match="effector"):
+        validate(m)
+
+
 def test_approving_a_stale_revision_must_be_refused():
     messages = read_jsonl(CONTRACT / "examples/session_reach.jsonl")
     without_error = [m for m in messages if m["type"] != "error"]

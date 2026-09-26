@@ -200,7 +200,7 @@ What reviewers see and what the streamer runs. Both get the same object.
 - `preview.effector_paths` are the predicted hand paths from the MuJoCo replay:
   the lines people see in the preview and the glasses.
 - Step kinds: `arm` (q(t) on `rt/arm_sdk`), `preset` (a named arm action),
-  and `walk` (provisional, below).
+  and `walk` and `grip` (provisional, below).
 
 ### `walk` steps (provisional)
 
@@ -220,6 +220,21 @@ With `path_update` (core → all: `plan_id`, `revision`, `step_id`, `path`,
 "self-driving line". Replans that stay within `corridor_half_width_m` of the
 approved path and keep the same goal need no new approval. Anything else halts
 the robot and proposes a new revision.
+
+### `grip` steps (provisional)
+
+Close or open a hand on an object, between the arm steps that bring the hand
+there and take it away. The R1 A5 has no fingers, so nothing on the robot runs
+this yet. The sim in `harness/` attaches the object to the hand kinematically
+if the hand is within 3 cm of it, and refuses otherwise:
+
+```json
+{"step_id": "s2", "kind": "grip", "description": "Close the left hand on the red cube",
+ "effector": "left_hand", "action": "close", "object": "red_cube"}
+```
+
+`action` is `close` or `open`. `object` is optional and names what the planner
+means to hold or let go of.
 
 ## Changing the contract
 
