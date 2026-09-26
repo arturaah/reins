@@ -71,6 +71,7 @@ perception:
   grid_cols: 8               # A..H
   grid_rows: 6               # 1..6
   hand_marker: false         # needs context_camera below
+  wrist_optional: true       # no wrist frame: keep going with the context view only, and tell the model
   context_url: http://localhost:8081/cam
   wrist_urls: {left: "http://localhost:8080/cam/0", right: "http://localhost:8080/cam/2"}
   context_camera: null       # {fx, fy, cx, cy, pos_m: [x,y,z], quat_wxyz: [w,x,y,z]} in the robot frame, for the marker

@@ -65,14 +65,16 @@ class Episode:
             stage = stages[stage_i]
             state = self.ex.sync()
             packet = self.per.capture(state.p)
-            if packet.missing and not self.ex.backend.dry_run and self.ex.backend.name != "mock":
-                return self.finish({"success": False, "reason": f"camera missing: {packet.missing}", "steps": step})
+            wrist_missing = any("WRIST" in m for m in packet.missing)
+            fatal = [m for m in packet.missing if "WRIST" not in m or not self.per.wrist_optional]
+            if fatal and not self.ex.backend.dry_run and self.ex.backend.name != "mock":
+                return self.finish({"success": False, "reason": f"camera missing: {fatal}", "steps": step})
             decision, resp, prompt, action = None, None, None, None
             if queue:                                                   # open-loop chunk, no VLM call
                 action = queue.pop(0); wrist = False
                 self.log(f"step {step}: chunk -> {action.raw}")
             else:
-                prompt = self.build_prompt(task, stage, state, history, recovery, last_result)
+                prompt = self.build_prompt(task, stage, state, history, recovery, last_result, wrist_missing)
                 decision, resp = self.ask(prompt, packet.images)
                 if decision is None:
                     failed_steps += 1
@@ -120,7 +122,7 @@ class Episode:
         return self.finish({"success": False, "reason": "max steps", "steps": int(lp["max_steps"])})
 
     # -- pieces ------------------------------------------------------------------------------------------
-    def build_prompt(self, task, stage, state, history, recovery, last):
+    def build_prompt(self, task, stage, state, history, recovery, last, wrist_missing=False):
         sigma, _ = step_size(self.cfg["steps"], False)
         h = height_above_table_cm(state.p, self.table_z)
         stall = clamped = ik = None
@@ -135,7 +137,7 @@ class Episode:
                 ik = "The last target was unreachable (IK failed); the arm did not move."
         hand = "no hand" if self.cfg["hand"]["type"] == "none" else ("closed" if state.hand_closed else "open")
         pro = proprio_text(h, sigma * 100, hand, stall, clamped, ik, holding=state.hand_closed)
-        return controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm)
+        return controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing)
 
     def ask(self, prompt, images):
         resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA)

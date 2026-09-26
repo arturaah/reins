@@ -53,8 +53,7 @@ Hand now: {hand_state}
 {recovery}
 {proprio}
 
-IMAGES: CONTEXT VIEW = the fixed camera on the robot's head looking at the workspace; {wrist_label} = the camera on
-the moving arm. The end effector is the {arm} hand tip ({ee_desc}).
+{images_line}
 
 DIRECTION (these conventions matter more than the action names):
 Is TARGET inside the {wrist_label}?
@@ -138,11 +137,20 @@ def mem_text(history):
     return "Recent moves, newest first: " + (", ".join(history) if history else "none") if history is not None else ""
 
 
-def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=False, vocab=None):
+IMAGES_LINE = ("IMAGES: CONTEXT VIEW = the fixed camera on the robot's head looking at the workspace; {wrist_label} = the camera on\n"
+               "the moving arm. The end effector is the {arm} hand tip ({ee_desc}).")
+IMAGES_LINE_NO_WRIST = ("IMAGES: only the CONTEXT VIEW (the fixed camera on the robot's head) is available this step; there is NO wrist\n"
+                        "view, so judge everything from the context view, answer WRIST: NO, and take the direction of LARGEST deviation\n"
+                        "of the hand tip from the TARGET. The end effector is the {arm} hand tip ({ee_desc}).")
+
+
+def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=False, vocab=None, wrist_missing=False):
     """stage: dict with target, affordance, motion, description, completion. proprio: text. history: list newest first."""
     hand = cfg["hand"]["type"]
     chunk = cfg["loop"]["chunk_max"]
     wrist_label = f"{arm.upper()} WRIST VIEW"
+    ee_desc = "the point 13 cm beyond the wrist" if hand == "none" else "between the fingers"
+    images_line = (IMAGES_LINE_NO_WRIST if wrist_missing else IMAGES_LINE).format(wrist_label=wrist_label, arm=arm, ee_desc=ee_desc)
     vocab = vocab or "MV_FWD, MV_BACK, MV_LEFT, MV_RIGHT, MV_UP, MV_DOWN, ROTATE_CW, ROTATE_CCW, STILL, DONE" + \
         ("" if hand == "none" else ", GRASP, RELEASE")
     contract = (OUTPUT_CONTRACT_DUAL if dual else OUTPUT_CONTRACT).format(vocab=vocab)
@@ -151,8 +159,7 @@ def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=Fa
         affordance=stage.get("affordance", ""), description=stage.get("description", ""),
         completion=stage.get("completion", ""), hand_state=proprio.get("hand_state", "no hand"),
         mem_text=mem_text(history), recovery=("Recovery: " + recovery) if recovery else "",
-        proprio=proprio.get("text", ""), wrist_label=wrist_label, arm=arm,
-        ee_desc="the point 13 cm beyond the wrist" if hand == "none" else "between the fingers",
+        proprio=proprio.get("text", ""), wrist_label=wrist_label, arm=arm, images_line=images_line,
         wrist_rules=WRIST_RULES_DEFAULT, rotation=ROTATION_FRAGMENT, mem_rules=MEM_RULES,
         hand_block=HAND_BLOCK_NONE if hand == "none" else HAND_BLOCK_GRIPPER.format(affordance=stage.get("affordance", "")),
         variable_step=WRIST_MARKER, action_chunk=ACTION_CHUNK.format(n=chunk) if chunk > 1 and not dual else "",

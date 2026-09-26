@@ -119,6 +119,7 @@ class Perception:
         self.grid, self.cols, self.rows = bool(p["grid"]), int(p["grid_cols"]), int(p["grid_rows"])
         self.marker = bool(p["hand_marker"]) and context_camera is not None
         self.context_camera = context_camera
+        self.wrist_optional = bool(p.get("wrist_optional", False))
 
     def capture(self, hand_tip=None):
         frames = self.cameras.frames()
@@ -126,6 +127,8 @@ class Perception:
         for label, im in frames.items():
             if im is None:
                 missing.append(label)
+                if self.wrist_optional and "WRIST" in label:
+                    continue                                   # send the context view alone; the prompt says so
                 im = placeholder(self.width, self.width * 9 // 16, f"{label}: NO IMAGE")
             src_w = im.width
             im = resize(im, self.width)

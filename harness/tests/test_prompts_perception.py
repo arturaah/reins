@@ -49,11 +49,18 @@ class FakeCams:
 
 
 def test_perception_packet_labels_and_missing(cfg):
+    cfg["perception"]["wrist_optional"] = False
     per = Perception(cfg, "right", FakeCams())
     pk = per.capture(np.array([0.3, -0.1, 0.8]))
     assert [l for l, _ in pk.images] == ["CONTEXT VIEW", "RIGHT WRIST VIEW"]
     assert pk.missing == ["RIGHT WRIST VIEW"]
     assert Image.open(io.BytesIO(pk.images[0][1])).size == (640, 360)
+    cfg["perception"]["wrist_optional"] = True
+    pk = Perception(cfg, "right", FakeCams()).capture(np.array([0.3, -0.1, 0.8]))
+    assert [l for l, _ in pk.images] == ["CONTEXT VIEW"] and pk.missing == ["RIGHT WRIST VIEW"]
+    p = controller_prompt("t", {"id": "s", "target": "x", "completion": "y"}, {"text": "", "hand_state": "no hand"}, [], None,
+                          cfg, "right", wrist_missing=True)
+    assert "NO wrist" in p and "RIGHT WRIST VIEW = the camera" not in p
 
 
 def test_recorder_round_trip(cfg, tmp_path):
