@@ -1,0 +1,17 @@
+{"type": "hello", "id": "g-1", "t": 1790000000.0, "role": "operator", "name": "mujoco-review", "protocol": "reins/0.1"}
+{"type": "welcome", "id": "k-1", "t": 1790000000.01, "ref": "g-1", "protocol": "reins/0.1", "session_id": "sess-2", "state": {"state": "idle"}}
+{"type": "command", "id": "g-2", "t": 1790000001.0, "command_id": "c-2", "text": "Go to the counter"}
+{"type": "state", "id": "k-2", "t": 1790000001.01, "state": "planning"}
+{"type": "command", "id": "k-3", "t": 1790000001.02, "ref": "g-2", "command_id": "c-2", "text": "Go to the counter"}
+{"type": "goals", "id": "v-1", "t": 1790000003.0, "ref": "k-3", "command_id": "c-2", "summary": "Walk to the counter", "source": {"planner": "vlm-harness", "model": "claude-opus-5-5"}, "steps": [{"step_id": "s1", "kind": "walk", "description": "Walk to the counter, passing the table on its right", "goal": {"frame": "map", "x": 1.8, "y": 1.8, "yaw": 1.5708}}]}
+{"type": "plan_proposed", "id": "k-4", "t": 1790000003.1, "ref": "v-1", "plan": {"plan_id": "p-2", "revision": 1, "command_id": "c-2", "summary": "Walk to the counter", "source": {"planner": "vlm-harness", "model": "claude-opus-5-5"}, "steps": [{"step_id": "s1", "kind": "walk", "description": "Walk to the counter, passing the table on its right", "goal": {"frame": "map", "x": 1.8, "y": 1.8, "yaw": 1.5708}, "corridor_half_width_m": 0.4, "path": {"frame": "map", "points": [[0, 0], [1.2, 0], [1.8, 0.8], [1.8, 1.8]]}}]}}
+{"type": "state", "id": "k-5", "t": 1790000003.11, "state": "proposed", "plan_id": "p-2", "revision": 1}
+{"type": "decision", "id": "g-3", "t": 1790000005.0, "plan_id": "p-2", "revision": 1, "decision": "approve"}
+{"type": "state", "id": "k-6", "t": 1790000005.01, "state": "executing", "plan_id": "p-2", "revision": 1, "step_id": "s1"}
+{"type": "execute", "id": "k-7", "t": 1790000005.02, "ref": "g-3", "plan": {"plan_id": "p-2", "revision": 1, "command_id": "c-2", "summary": "Walk to the counter", "source": {"planner": "vlm-harness", "model": "claude-opus-5-5"}, "steps": [{"step_id": "s1", "kind": "walk", "description": "Walk to the counter, passing the table on its right", "goal": {"frame": "map", "x": 1.8, "y": 1.8, "yaw": 1.5708}, "corridor_half_width_m": 0.4, "path": {"frame": "map", "points": [[0, 0], [1.2, 0], [1.8, 0.8], [1.8, 1.8]]}}]}}
+{"type": "path_update", "id": "k-8", "t": 1790000007.0, "plan_id": "p-2", "revision": 1, "step_id": "s1", "within_corridor": true, "path": {"frame": "map", "points": [[0.9, 0.0], [1.3, 0.15], [1.85, 0.8], [1.8, 1.8]]}}
+{"type": "abort", "id": "g-4", "t": 1790000007.5, "reason": "Someone stepped into the path"}
+{"type": "state", "id": "k-9", "t": 1790000007.51, "state": "halting", "plan_id": "p-2", "revision": 1}
+{"type": "halt", "id": "k-10", "t": 1790000007.52, "ref": "g-4", "reason": "Operator abort: Someone stepped into the path"}
+{"type": "done", "id": "x-1", "t": 1790000008.4, "plan_id": "p-2", "revision": 1, "outcome": "halted", "detail": "Stopped 0.9 m along the path"}
+{"type": "state", "id": "k-11", "t": 1790000008.41, "state": "idle"}

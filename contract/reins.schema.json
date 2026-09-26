@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/arturaah/reins/contract/reins.schema.json",
+  "title": "Reins contract v0.1",
+  "description": "One WebSocket message. See contract/README.md for semantics.",
+  "oneOf": [
+    {"$ref": "#/$defs/hello"},
+    {"$ref": "#/$defs/welcome"},
+    {"$ref": "#/$defs/heartbeat"},
+    {"$ref": "#/$defs/error"},
+    {"$ref": "#/$defs/command"},
+    {"$ref": "#/$defs/goals"},
+    {"$ref": "#/$defs/plan_rejected"},
+    {"$ref": "#/$defs/plan_proposed"},
+    {"$ref": "#/$defs/decision"},
+    {"$ref": "#/$defs/state"},
+    {"$ref": "#/$defs/execute"},
+    {"$ref": "#/$defs/halt"},
+    {"$ref": "#/$defs/abort"},
+    {"$ref": "#/$defs/progress"},
+    {"$ref": "#/$defs/robot_state"},
+    {"$ref": "#/$defs/path_update"},
+    {"$ref": "#/$defs/done"}
+  ],
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "required": ["type", "id", "t"],
+      "properties": {
+        "type": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
+        "t": {"type": "number", "description": "Sender Unix time, seconds"},
+        "ref": {"type": "string", "description": "id of the message this replies to"}
+      }
+    },
+
+    "id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "text": {"type": "string", "minLength": 1},
+    "frame": {"enum": ["robot", "map"]},
+    "joint_name": {"type": "string", "pattern": "^[a-z0-9_]+_joint$"},
+    "vec3": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+    "vec2": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+    "quat_wxyz": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+    "times_s": {"type": "array", "items": {"type": "number", "minimum": 0}, "minItems": 2},
+    "effector": {"enum": ["left_hand", "right_hand", "head"]},
+    "role": {"enum": ["operator", "viewer", "planner", "executor"]},
+    "core_state": {"enum": ["idle", "planning", "proposed", "executing", "halting"]},
+
+    "path3": {
+      "type": "object",
+      "required": ["frame", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "frame": {"$ref": "#/$defs/frame"},
+        "points": {"type": "array", "items": {"$ref": "#/$defs/vec3"}, "minItems": 2},
+        "times_s": {"$ref": "#/$defs/times_s"}
+      }
+    },
+    "path2": {
+      "type": "object",
+      "required": ["frame", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "frame": {"$ref": "#/$defs/frame"},
+        "points": {"type": "array", "items": {"$ref": "#/$defs/vec2"}, "minItems": 2}
+      }
+    },
+    "pose2": {
+      "type": "object",
+      "required": ["frame", "x", "y"],
+      "additionalProperties": false,
+      "properties": {
+        "frame": {"$ref": "#/$defs/frame"},
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "yaw": {"type": "number"}
+      }
+    },
+
+    "effector_goal": {
+      "type": "object",
+      "required": ["effector", "time_s", "position_m", "frame"],
+      "additionalProperties": false,
+      "properties": {
+        "effector": {"$ref": "#/$defs/effector"},
+        "time_s": {"type": "number", "exclusiveMinimum": 0},
+        "position_m": {"$ref": "#/$defs/vec3"},
+        "quat_wxyz": {"$ref": "#/$defs/quat_wxyz"},
+        "frame": {"$ref": "#/$defs/frame"}
+      }
+    },
+    "goal_step": {
+      "description": "What the planner asks for; the core turns reach steps into arm steps with IK.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["step_id", "kind", "description", "goals"],
+          "additionalProperties": false,
+          "properties": {
+            "step_id": {"$ref": "#/$defs/id"},
+            "kind": {"const": "reach"},
+            "description": {"$ref": "#/$defs/text"},
+            "goals": {"type": "array", "items": {"$ref": "#/$defs/effector_goal"}, "minItems": 1}
+          }
+        },
+        {"$ref": "#/$defs/preset_step"},
+        {"$ref": "#/$defs/walk_step"}
+      ]
+    },
+
+    "trajectory": {
+      "type": "object",
+      "required": ["joint_names", "times_s", "positions_rad"],
+      "additionalProperties": false,
+      "properties": {
+        "joint_names": {"type": "array", "items": {"$ref": "#/$defs/joint_name"}, "minItems": 1, "uniqueItems": true},
+        "times_s": {"$ref": "#/$defs/times_s"},
+        "positions_rad": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 1}, "minItems": 2}
+      }
+    },
+    "arm_step": {
+      "type": "object",
+      "required": ["step_id", "kind", "description", "trajectory"],
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {"$ref": "#/$defs/id"},
+        "kind": {"const": "arm"},
+        "description": {"$ref": "#/$defs/text"},
+        "trajectory": {"$ref": "#/$defs/trajectory"},
+        "preview": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "effector_paths": {
+              "type": "object",
+              "propertyNames": {"$ref": "#/$defs/effector"},
+              "additionalProperties": {"$ref": "#/$defs/path3"}
+            }
+          }
+        }
+      }
+    },
+    "preset_step": {
+      "type": "object",
+      "required": ["step_id", "kind", "description", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {"$ref": "#/$defs/id"},
+        "kind": {"const": "preset"},
+        "description": {"$ref": "#/$defs/text"},
+        "action": {"type": "string", "minLength": 1, "description": "Name of an R1 arm action-service action"}
+      }
+    },
+    "walk_step": {
+      "description": "Provisional: walking is not in the approved control architecture yet.",
+      "type": "object",
+      "required": ["step_id", "kind", "description", "goal"],
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {"$ref": "#/$defs/id"},
+        "kind": {"const": "walk"},
+        "description": {"$ref": "#/$defs/text"},
+        "goal": {"$ref": "#/$defs/pose2"},
+        "corridor_half_width_m": {"type": "number", "exclusiveMinimum": 0},
+        "path": {"$ref": "#/$defs/path2"}
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": ["plan_id", "revision", "command_id", "summary", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "command_id": {"$ref": "#/$defs/id"},
+        "summary": {"$ref": "#/$defs/text"},
+        "source": {
+          "type": "object",
+          "properties": {"planner": {"type": "string"}, "model": {"type": "string"}}
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"max_joint_vel_rad_s": {"type": "number", "exclusiveMinimum": 0}}
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"oneOf": [
+            {"$ref": "#/$defs/arm_step"},
+            {"$ref": "#/$defs/preset_step"},
+            {"$ref": "#/$defs/walk_step"}
+          ]}
+        }
+      }
+    },
+
+    "hello": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["role", "name", "protocol"],
+      "properties": {
+        "type": {"const": "hello"},
+        "role": {"$ref": "#/$defs/role"},
+        "name": {"$ref": "#/$defs/text"},
+        "protocol": {"const": "reins/0.1"}
+      }
+    }]},
+    "welcome": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["protocol", "session_id", "state"],
+      "properties": {
+        "type": {"const": "welcome"},
+        "protocol": {"const": "reins/0.1"},
+        "session_id": {"$ref": "#/$defs/id"},
+        "state": {"$ref": "#/$defs/state_payload"}
+      }
+    }]},
+    "heartbeat": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "properties": {"type": {"const": "heartbeat"}}
+    }]},
+    "error": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["code", "message"],
+      "properties": {
+        "type": {"const": "error"},
+        "code": {"enum": ["bad_message", "not_allowed", "stale_revision", "invalid_plan", "busy"]},
+        "message": {"type": "string"}
+      }
+    }]},
+
+    "command": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["command_id", "text"],
+      "properties": {
+        "type": {"const": "command"},
+        "command_id": {"$ref": "#/$defs/id"},
+        "text": {"$ref": "#/$defs/text"},
+        "feedback": {
+          "type": "object",
+          "required": ["plan_id", "revision", "text"],
+          "additionalProperties": false,
+          "properties": {
+            "plan_id": {"$ref": "#/$defs/id"},
+            "revision": {"$ref": "#/$defs/revision"},
+            "text": {"$ref": "#/$defs/text"}
+          }
+        }
+      }
+    }]},
+    "goals": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["command_id", "summary", "steps"],
+      "properties": {
+        "type": {"const": "goals"},
+        "command_id": {"$ref": "#/$defs/id"},
+        "summary": {"$ref": "#/$defs/text"},
+        "source": {"type": "object"},
+        "steps": {"type": "array", "items": {"$ref": "#/$defs/goal_step"}, "minItems": 1}
+      }
+    }]},
+    "plan_rejected": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["command_id", "reasons"],
+      "properties": {
+        "type": {"const": "plan_rejected"},
+        "command_id": {"$ref": "#/$defs/id"},
+        "reasons": {"type": "array", "items": {"$ref": "#/$defs/text"}, "minItems": 1}
+      }
+    }]},
+    "plan_proposed": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["plan"],
+      "properties": {"type": {"const": "plan_proposed"}, "plan": {"$ref": "#/$defs/plan"}}
+    }]},
+
+    "decision": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["plan_id", "revision", "decision"],
+      "properties": {
+        "type": {"const": "decision"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "decision": {"enum": ["approve", "decline"]},
+        "feedback": {"$ref": "#/$defs/text"}
+      }
+    }]},
+    "state_payload": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {"$ref": "#/$defs/core_state"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "step_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "state": {"allOf": [{"$ref": "#/$defs/envelope"}, {"$ref": "#/$defs/state_payload"}, {
+      "properties": {"type": {"const": "state"}}
+    }]},
+
+    "execute": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["plan"],
+      "properties": {"type": {"const": "execute"}, "plan": {"$ref": "#/$defs/plan"}}
+    }]},
+    "halt": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["reason"],
+      "properties": {"type": {"const": "halt"}, "reason": {"$ref": "#/$defs/text"}}
+    }]},
+    "abort": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["reason"],
+      "properties": {"type": {"const": "abort"}, "reason": {"$ref": "#/$defs/text"}}
+    }]},
+    "progress": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["plan_id", "revision", "step_id", "time_s"],
+      "properties": {
+        "type": {"const": "progress"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "step_id": {"$ref": "#/$defs/id"},
+        "time_s": {"type": "number", "minimum": 0}
+      }
+    }]},
+    "robot_state": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["joint_positions_rad"],
+      "properties": {
+        "type": {"const": "robot_state"},
+        "joint_positions_rad": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/joint_name"},
+          "additionalProperties": {"type": "number"}
+        },
+        "effectors": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/effector"},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["frame", "position_m"],
+            "properties": {"frame": {"$ref": "#/$defs/frame"}, "position_m": {"$ref": "#/$defs/vec3"}}
+          }
+        },
+        "blend_weight": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    }]},
+    "path_update": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "description": "Provisional, for walk steps.",
+      "required": ["plan_id", "revision", "step_id", "path", "within_corridor"],
+      "properties": {
+        "type": {"const": "path_update"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "step_id": {"$ref": "#/$defs/id"},
+        "path": {"$ref": "#/$defs/path2"},
+        "within_corridor": {"type": "boolean"}
+      }
+    }]},
+    "done": {"allOf": [{"$ref": "#/$defs/envelope"}, {
+      "required": ["plan_id", "revision", "outcome"],
+      "properties": {
+        "type": {"const": "done"},
+        "plan_id": {"$ref": "#/$defs/id"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "outcome": {"enum": ["succeeded", "halted", "failed"]},
+        "detail": {"type": "string"}
+      }
+    }]}
+  }
+}
