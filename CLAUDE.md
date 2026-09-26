@@ -72,8 +72,15 @@ Steps:
    ```
    No router. Wi-Fi stays as is and keeps internet on `en0`.
 5. `ping -c 3 192.168.123.164`, then `ssh unitree@192.168.123.164`.
-6. DDS from the Mac: pass `en6` as the network interface to the SDK's channel factory. On the Jetson the interface is `eth10`.
+6. Python SDK on the Mac (verified, Apple Silicon, Python 3.10):
+   ```
+   uv python install 3.10 && uv venv --python 3.10 .venv
+   uv pip install --python .venv/bin/python "cyclonedds==0.10.2" numpy
+   uv pip install --python .venv/bin/python --no-deps "git+https://github.com/unitreerobotics/unitree_sdk2_python"
+   .venv/bin/python tools/lowstate_peek.py en6
+   ```
+   Pass `en6` (or whatever `networksetup -listallhardwareports` shows) as the interface. `tools/lowstate_peek.py` is subscribe-only and is the standard "can this machine see the robot" check. On the Jetson the interface is `eth10`.
 
-Status 2026-09-26, evening. Working topology: the body's Ethernet cable plugged straight into the Mac's USB-C Ethernet adapter. Link 1000BASE-T, controller 192.168.123.161 answers ping in 0.6 ms. The Jetson module's internal switch is faulty: through it the link ran at 100 Mb/s and was one-way (controller frames arrived, nothing reached the controller; capture evidence in the knowledge worklog). With the body cable on the Mac, the Jetson at .164 is off the robot network. To use both, put a small gigabit switch between body cable, Jetson RJ45 and Mac; report the module switch to Unitree. Next unverified step: subscribe-only DDS read of rt/lowstate from the Mac.
+Status 2026-09-26, evening, all verified: body Ethernet cable straight into the Mac's USB-C adapter, 1000BASE-T, controller .161 pings in 0.6 ms, and `tools/lowstate_peek.py en6` receives rt/lowstate at about 1 kHz from the Mac with no Jetson involved. The Jetson module's internal switch is faulty (100 Mb/s, one-way: controller frames arrive, nothing reaches the controller; capture evidence in the knowledge worklog). With the body cable on the Mac, the Jetson at .164 is off the robot network; to use both, put a small gigabit switch between body cable, Jetson RJ45 and Mac, and report the module switch to Unitree. Next unverified step: first `rt/arm_sdk` stream, which moves the robot and needs Artur's explicit go.
 
 Rule for agents: any command that sends anything to the robot (ping, SSH, DDS subscribe or publish) is proposed as a question and run only after Artur approves it. Mac-local checks need no approval.
