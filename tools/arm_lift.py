@@ -171,8 +171,12 @@ def main():
         jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, mj)
         lo, hi = model.jnt_range[jid]
         for t, f in zip(plan.times, plan.frames):
-            if not (lo + LIMIT_MARGIN <= f[s] <= hi - LIMIT_MARGIN):
-                sys.exit(f"ABORT: {names[s]} = {f[s]:+.3f} at t={t}s outside [{lo:.3f}, {hi:.3f}] with margin")
+            if not (lo <= f[s] <= hi):
+                sys.exit(f"ABORT: {names[s]} = {f[s]:+.3f} at t={t}s outside the joint range [{lo:.3f}, {hi:.3f}]")
+            clamped = float(np.clip(f[s], lo + LIMIT_MARGIN, hi - LIMIT_MARGIN))   # inside the range but in the margin band: pull to the band edge
+            if clamped != f[s]:
+                print(f"note: {names[s]} {f[s]:+.3f} at t={t}s pulled to {clamped:+.3f} to keep the {LIMIT_MARGIN} rad margin from the limit")
+                f[s] = clamped
     ts = np.arange(0.0, plan.duration + 1e-9, 0.01)
     qs = np.array([[plan.at(t)[s] for s in moving] for t in ts])
     vel = np.abs(np.diff(qs, axis=0)) / 0.01 if len(ts) > 1 else np.zeros((1, len(moving)))
