@@ -12,15 +12,19 @@ from websockets.asyncio.server import serve
 
 def trajectory(phase: float = 0.0) -> dict:
     # Robot base frame: x forward, y left, z up; all distances in metres.
-    # Approximate standing R1 hands begin near x=0.08, y=+/-0.23, z=0.68.
+    # Exact neutral hand preview sites from the fixed-base R1 MuJoCo model.
+    # Keep the first point fixed so changing plans never fake hand motion.
     hands = {}
     for name, side in (("left", 1), ("right", -1)):
+        wave = phase + (math.pi if name == "right" else 0.0)
+        reach = 0.24 + 0.07 * math.sin(wave)
+        lateral = 0.06 + 0.035 * math.cos(wave)
+        rise = 0.18 + 0.07 * math.cos(wave + 0.5)
         hands[name] = [
             [
-                round(0.08 + 0.42 * t, 4),
-                round(side * (0.23 + 0.10 * t), 4),
-                round(0.68 + 0.22 * math.sin(math.pi * t * 0.7 + phase)
-                      + (0.04 if name == "right" else 0.0), 4),
+                round(0.2909 + reach * t, 4),
+                round(side * (0.1386 + lateral * t), 4),
+                round(0.771 + rise * t + 0.025 * math.sin(math.pi * t) * t, 4),
             ]
             for t in (i / 29 for i in range(30))
         ]
@@ -41,7 +45,7 @@ async def handler(websocket):
     try:
         while True:
             await websocket.send(json.dumps(trajectory(phase)))
-            phase += 0.05
+            phase += 0.18
             await asyncio.sleep(0.25)
     except Exception as exc:
         print(f"Lens disconnected: {exc}", flush=True)
