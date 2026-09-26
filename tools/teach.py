@@ -1,8 +1,10 @@
 """Kinesthetic teaching: make both arms compliant, move them by hand, record, replay later.
 
 While this runs, the arm topic is streamed at 50 Hz with low stiffness and a
-"clutch": a joint's target follows the measured angle whenever someone pushes
-it (error over 0.04 rad) and holds where it was left otherwise. Waist and head
+"clutch": a joint's target follows the measured angle while it is being moved
+(error over 0.05 rad and speed over 0.15 rad/s) and holds where it was left
+otherwise, so a released arm settles instead of sagging away under gravity.
+Expect a few degrees of droop at full extension with the soft gains. Waist and head
 are held at their measured pose with normal gains. Both arms are recorded at
 20 Hz into recordings/NAME.json in the sim contract format.
 
@@ -28,13 +30,13 @@ from arm_lift import JOINTS, State, ROOT, FSM_NAMES, FSM_ARM_OK, RATE_HZ
 
 ARM = [j for j in JOINTS if j[1].startswith(("left", "right"))]
 OTHER = [j for j in JOINTS if j not in ARM]
-CLUTCH = 0.04
+CLUTCH, V_MOVE = 0.05, 0.15
 
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 ap.add_argument("iface"); ap.add_argument("name")
 ap.add_argument("--seconds", type=float, default=30.0)
-ap.add_argument("--kp", type=float, default=15.0, help="arm stiffness while teaching (Unitree's normal is 30-50)")
-ap.add_argument("--kd", type=float, default=1.0)
+ap.add_argument("--kp", type=float, default=20.0, help="arm stiffness while teaching (Unitree's normal is 30-50)")
+ap.add_argument("--kd", type=float, default=1.5)
 a = ap.parse_args()
 
 ChannelFactoryInitialize(0, a.iface)
@@ -83,8 +85,8 @@ try:
         if now - st.t_last > 0.5:
             print("ABORT: lowstate stale"); release(1.0); sys.exit(2)
         for s, *_ in ARM:
-            qm = st.msg.motor_state[s].q
-            if abs(qm - q[s]) > CLUTCH: q[s] = qm            # pushed: follow
+            ms = st.msg.motor_state[s]
+            if abs(ms.q - q[s]) > CLUTCH and abs(ms.dq) > V_MOVE: q[s] = ms.q     # being moved: follow
         send(1.0)
         if t - rec_last >= 0.05:
             rec_last = 0.0 if not rec else t
