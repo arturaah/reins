@@ -16,4 +16,4 @@ Where we add value is the interaction between the VLM and the human. Before the 
 
 ## Status
 
-A first simulation-only preview is available in [`sim/`](sim/README.md). It loads Unitree R1, predicts a named-joint plan, draws the planned hand path, and exports world-frame points for future AR rendering. It does not command physical hardware.
+A first simulation-only preview is available in [`sim/`](sim/README.md). It loads Unitree R1, predicts a named-joint plan, and draws the planned hand path. A separate [Spectacles AR prototype](spectacles/README.md) displays mock or WebSocket-fed hand paths aligned with shoulder tracking cards on the R1. The AR prototype currently has its own demo trajectory feed; integrating it with the Reins contract remains to be done. Neither preview commands physical hardware.

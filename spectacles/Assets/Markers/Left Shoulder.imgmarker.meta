@@ -1,0 +1,16 @@
+- !<AssetImportMetadata/01ff6d99-211f-4a48-a433-306ece0395cb>
+  ImportedAssetIds:
+    ImageMarker: !<reference> 76a06f2f-b5d1-4b35-9cef-025b5a1e2e67
+  ImporterName: ImageMarkerImporter
+  PrimaryAsset: !<reference> 76a06f2f-b5d1-4b35-9cef-025b5a1e2e67
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    {}
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>R1 shoulder tag screen test</title>
+<style>
+  html,body{margin:0;min-height:100%;background:#fff;color:#111;font:18px system-ui,sans-serif}
+  body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;box-sizing:border-box}
+  #tag{width:140mm;height:140mm;object-fit:contain;image-rendering:pixelated;display:block}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center}
+  button{font:inherit;padding:8px 16px;border:1px solid #555;border-radius:6px;background:#eee;cursor:pointer}
+  button.active{background:#cceef5}
+  #note{max-width:720px;text-align:center;font-size:15px;line-height:1.4}
+</style>
+<img id="tag" src="../Assets/Markers/Left%20Shoulder%20Tracking%20Card.png" alt="R1 left shoulder tracking card with AprilTag 36h11 ID 0">
+<div class="controls"><button id="left" class="active">ID 0 — left shoulder</button><button id="right">ID 1 — right shoulder</button><button id="full">Full screen</button></div>
+<div id="note">Point Spectacles at the whole 14 cm card, including its patterned border. The AprilTag inside is 10 cm. Keep the screen upright; check physical size with a ruler if you need accurate alignment.</div>
+<script>
+const tag=document.getElementById('tag');
+function choose(side){
+  tag.src=side==='left'?'../Assets/Markers/Left%20Shoulder%20Tracking%20Card.png':'../Assets/Markers/Right%20Shoulder%20Tracking%20Card.png';
+  tag.alt=side==='left'?'R1 left shoulder tracking card with AprilTag 36h11 ID 0':'R1 right shoulder tracking card with AprilTag 36h11 ID 1';
+  document.getElementById('left').classList.toggle('active',side==='left');
+  document.getElementById('right').classList.toggle('active',side==='right');
+}
+document.getElementById('left').onclick=()=>choose('left');
+document.getElementById('right').onclick=()=>choose('right');
+document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen();
+</script>
+</html>

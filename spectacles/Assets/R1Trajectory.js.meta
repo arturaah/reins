@@ -1,0 +1,66 @@
+- !<AssetImportMetadata/d3815382-90b7-430e-b3cb-ee064a32ff55>
+  ImportedAssetIds:
+    JavaScriptAsset: !<reference> a6704a1f-5068-4160-8cc6-cedf2fdc3052
+  ImporterName: JavaScriptAssetImporter
+  PrimaryAsset: !<reference> a6704a1f-5068-4160-8cc6-cedf2fdc3052
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    JavaScriptAsset: !<own> a8a20ddf-a690-475f-97e3-d1b62cbbc5d4
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<ScriptAssetData/a8a20ddf-a690-475f-97e3-d1b62cbbc5d4>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: ce0f308b-da27-4d67-97f3-c90bc8a35ad1
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    allowTemporaryAnchor: false
+    cameraObject: false
+    internetModule: false
+    leftMarker: false
+    leftMaterial: false
+    pathRadiusCm: false
+    rightMarker: false
+    rightMaterial: false
+    tagDetectedSound: false
+    tagForwardM: false
+    tagHeightM: false
+    tagSideM: false
+    websocketUrl: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - internetModule: !<reference.InternetModule> 00000000-0000-0000-0000-000000000000
+      leftMaterial: !<reference.Material> 00000000-0000-0000-0000-000000000000
+      rightMaterial: !<reference.Material> 00000000-0000-0000-0000-000000000000
+      tagDetectedSound: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      cameraObject: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      leftMarker: !<reference.MarkerTrackingComponent> 00000000-0000-0000-0000-000000000000
+      rightMarker: !<reference.MarkerTrackingComponent> 00000000-0000-0000-0000-000000000000
+      websocketUrl: "ws://172.20.10.8:8765"
+      tagForwardM: 0.040000
+      tagSideM: 0.160000
+      tagHeightM: 1.020000
+      pathRadiusCm: 0.650000
+      allowTemporaryAnchor: true
+  ScriptTypes:
+    -
+      {}

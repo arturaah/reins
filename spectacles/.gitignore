@@ -1,0 +1,5 @@
+Cache/
+PluginsUserPreferences/
+Workspaces/
+*.esproj.*.lock
+__pycache__/

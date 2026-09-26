@@ -1,0 +1,56 @@
+# R1 hand trajectories on Spectacles
+
+This Lens draws two planned hand paths in AR. It reads trajectories in the R1 `robot_base` frame, detects printed shoulder markers, and converts the paths into the Spectacles world-tracked space. The robot can be powered off: both the included WebSocket server and the Lens have animated mock trajectories. The paths are **visual plans only**; nothing here sends motion commands to the R1.
+
+Open `R1 Hand Path Preview.esproj` in Lens Studio 5.15.4. The scene, script, Internet Module, marker assets, World-tracked camera, and cyan/orange materials are already wired. No manual scene setup is needed.
+
+## Print and place the tags
+
+Print `Print/left-shoulder-id-0-tracking-card.svg` and `Print/right-shoulder-id-1-tracking-card.svg` at **100% / actual size**, with no page scaling. The full tracking card is 140 mm across and the AprilTag core is 100 mm; verify both with a ruler. Tape ID 0 to the robot's left shoulder and ID 1 to its right shoulder, as seen from the robot's perspective. Put both on forward-facing, approximately vertical surfaces, upright as labeled. Keep the entire card flat and visible. The distinctive border gives Lens Studio's image tracker more features than the bare AprilTag. The bare SVGs are retained as references but are not the images configured in the Lens.
+
+These are AprilTag **36h11** images used inside Lens Studio **image markers**. Lens Studio is matching each full tracking card, not decoding an AprilTag ID at runtime. The ID, image, and print size are easy to replace together later. Snap's image-marker tracker recognizes one image at a time; either visible shoulder is enough for this implementation.
+
+## Coordinates and alignment
+
+- Trajectory messages use metres in `robot_base`: **+x forward, +y robot-left, +z up**.
+- The marker's +x is image-right, +y image-up, and +z points out of its front. For forward-facing upright tags, the script maps robot `[x,y,z]` in metres to marker `[y,z,x]` in centimetres.
+- Assumed marker centres in `robot_base`: left `[0.04,+0.16,1.02]` m; right `[0.04,-0.16,1.02]` m. These are estimates based on the R1's approximately 1.23 m standing height, **not measured shoulder offsets**. Change `tagForwardM`, `tagSideM`, and `tagHeightM` in the controller's script inputs after measuring the mounted tags.
+- On detection, the Lens computes `T_world_robot = T_world_tag × inverse(T_robot_tag)` and places both paths under that world-space robot anchor. The camera has Device Tracking in World mode, so the paths should remain at the robot while the wearer walks around. The last calibrated pose is retained when a marker leaves view; sighting a tag again corrects accumulated drift. This behavior still needs an on-glasses walking test.
+- Before the first tag sighting, a temporary mock anchor appears about 1.5 m ahead of the wearer. It is replaced by the tag-based anchor as soon as either tag is recognized. Set `allowTemporaryAnchor` false to show paths only after marker detection.
+
+The mock path starts around `[0.08,±0.23,0.68]` m, near the assumed hands, and arcs forward toward `x≈0.50` m. Cyan is left; orange is right. `pathRadiusCm` controls tube thickness.
+
+## Trajectory feed
+
+On this Mac, run from the project directory:
+
+```sh
+python3 trajectory_server.py --host 0.0.0.0 --port 8765
+```
+
+The server requires Python 3.10+ and the `websockets` package (already installed on this Mac). It emits four updates per second. The script currently points at `ws://127.0.0.1:8765` for a **wired ADB reverse tunnel**. With the Spectacles attached by USB, run `adb reverse tcp:8765 tcp:8765` before previewing the Lens. Run `adb reverse --list` to confirm the tunnel. A wireless setup can instead point `websocketUrl` at the Mac's LAN address (`ipconfig getifaddr en0`), but both devices must be on a network that permits client-to-client traffic. The Lens uses its built-in animated mock if no feed arrives. On-device access to local `ws://` requires the project's enabled Experimental APIs flag; Lens Studio's ordinary desktop preview does not expose this WebSocket API.
+
+Example message:
+
+```json
+{
+  "type": "trajectory", "version": 1, "id": "plan-1",
+  "frame": "robot_base", "units": "m",
+  "hands": {
+    "left": [[0.08, 0.23, 0.68], [0.50, 0.33, 0.90]],
+    "right": [[0.08, -0.23, 0.72], [0.50, -0.33, 0.94]]
+  }
+}
+```
+
+Each hand needs 2–512 finite `[x,y,z]` points. A real R1 planner can send the same schema; the Lens does not need the robot online to test alignment. This is currently a **standalone demo feed**. Reins' `contract/` uses `plan_proposed` messages, so a bridge must extract hand paths and convert them to the robot frame before using the production core.
+
+## Device status and first walking test
+
+Lens Studio imports this scene and runs the renderer without script errors in desktop preview. The Mac's ADB sees the wired Spectacles, and Lens Studio reports a successful wired connection. **The Lens was sent and successfully started on Spectacles** using the direct Preview Lens button. The on-device log confirms `WebSocket connected to ws://127.0.0.1:8765` and `live trajectory received (30 points per hand)` through the USB tunnel; the user saw both trajectory lines. Both tracking cards have been detected on Spectacles, with `R1 AR: APRILTAG DETECTED` in the device log. On detection, the wearer heard the three-note sound and saw the large head-fixed `TAG FOUND` cue after correcting the camera-direction placement. Lens Studio logs the shoulder. A lost tag logs the event and the Lens holds the last world pose. World stability and the assumed shoulder offsets still need testing after mounting the cards on the robot. Lens Studio's connection handshake still reports OS version `UNKNOWN` despite the user's reported 5.64.453, but the direct send worked.
+
+With the USB tunnel active, use Lens Studio's **Preview Lens → Send to Spectacles**. With the robot off, hold a printed tracking card at roughly shoulder height or mount it on a stand. Move the glasses laterally and around the card: the cyan/orange paths should remain in the same place. Cover the card, walk a short distance, then expose it again to observe relocalization. If the paths appear mirrored or point into the robot, check that both prints are upright and forward-facing before adjusting the coordinate mapping. When USB-C is removed, the Lens keeps drawing its local mock trajectory, but the live Mac WebSocket feed via `adb reverse` stops; wireless live trajectories need a reachable Wi-Fi host/port configured in `websocketUrl`.
+
+Snap references: [marker tracking](https://developers.snap.com/lens-studio/features/ar-tracking/world/marker-tracking), [world tracking](https://developers.snap.com/lens-studio/features/ar-tracking/world/tracking-modes), [WebSocket API](https://developers.snap.com/spectacles/about-spectacles-features/apis/web-socket), [connecting Spectacles](https://developers.snap.com/spectacles/get-started/start-building/connecting-lens-studio-to-spectacles), [Unitree R1 dimensions](https://www.unitree.com/mobile/R1/).
+
+The status cue uses a Canvas with ScreenTransform/Text, as in Snap's [Canvas guide](https://developers.snap.com/lens-studio/lens-studio-workflow/scene-set-up/2d/canvas-component). Its placement uses the camera's `back` vector because Snap's [Spectacles CameraProvider API](https://developers.snap.com/lens-studio/api/lens-scripting/interfaces/Packages_SpectaclesInteractionKit_Providers_CameraProvider_CameraProvider.html) says this is the direction in front of the Lens Studio camera. Using `forward` had placed the visual behind the wearer.
