@@ -1,24 +1,31 @@
-"""Lift one R1 arm joint a little and put it back, through rt/arm_sdk.
+"""Move R1 arm joints through rt/arm_sdk: one joint, or a keyframe plan.
 
 Dry run (default): subscribes to rt/lowstate, asks the controller its FSM id,
 builds the trajectory from the measured pose, checks joint limits and speed,
-writes a plan for sim/preview.py and runs the headless MuJoCo preview.
-Publishes nothing.
+prints the hand path per keyframe from forward kinematics, and writes the
+resolved plan for sim/preview.py. Publishes nothing.
 
---execute: streams the same trajectory at 50 Hz with the blend weight ramped
-0 -> 1 before and 1 -> 0 after, watching the measured joint the whole time.
+--execute: streams the trajectory at 50 Hz with the blend weight ramped 0 -> 1
+before and 1 -> 0 after, watching every moving joint the whole time.
 
-    .venv/bin/python tools/arm_lift.py en6                 # dry run
-    .venv/bin/python tools/arm_lift.py en6 --execute       # moves the robot
-    options: --joint left_shoulder_pitch --delta -0.25 --move-s 2 --hold-s 1
+    .venv/bin/python tools/arm_lift.py en6                          # one-joint dry run
+    .venv/bin/python tools/arm_lift.py en6 --execute                # moves the robot
+    .venv/bin/python tools/arm_lift.py en6 --plan tools/plans/cup_grab_right.json [--execute]
+    one-joint options: --joint left_shoulder_pitch --delta -0.25 --move-s 2 --hold-s 1
 
-Protocol facts (from the vendored C++ SDK, robots/r1/r1_pub.h and defines.h):
-the message is the hg LowCmd on topic rt/arm_sdk, the weight is mode_pr in
-0..100, and joints use the controller's 35-slot layout, not the 26-motor one.
+Plan files use the sim contract (schema_version 1, keyframes with MuJoCo joint
+names in radians, first keyframe at t=0). The t=0 values are replaced by the
+measured pose so every plan starts where the arm actually is, and a return to
+the measured pose is appended over --return-s seconds. Joints a plan does not
+name are held at their measured angle.
+
+Protocol facts (vendored C++ SDK, robots/r1/r1_pub.h and defines.h): hg LowCmd
+on rt/arm_sdk, weight = mode_pr in 0..100, controller's 35-slot joint layout.
 """
 import argparse, json, sys, time
 from pathlib import Path
 import numpy as np
+import mujoco
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber
 from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
@@ -31,7 +38,7 @@ ROBOT_API_ID_LOCO_GET_FSM_MODE = 7002   # in the C++ r1_loco_api.hpp, missing fr
 ROOT = Path(__file__).resolve().parents[1]
 MJCF = ROOT / "sim/models/r1/R1_fixed_base.xml"
 
-# slot, name, mujoco joint (None = not in the sim model), kp, kd  -- order and gains as in
+# slot, name, mujoco joint (None = not in the sim model), kp, kd -- order and gains as in
 # unitree_sdk2/example/r1/high_level/r1_arm_sdk_dds_example.cpp
 JOINTS = [
     (15, "left_shoulder_pitch",  "left_shoulder_pitch_joint",  50.0, 2.0),
@@ -49,6 +56,7 @@ JOINTS = [
     (30, "head_yaw",             None,                         15.0, 1.0),
 ]
 BY_NAME = {j[1]: j for j in JOINTS}
+BY_MJ = {j[2]: j for j in JOINTS if j[2]}
 RATE_HZ, RAMP_S, MAX_VEL, MAX_ERR, LIMIT_MARGIN = 50.0, 1.0, 0.5, 0.6, 0.05
 # FSM ids from unitree_sdk2/include/unitree/robot/r1/loco/r1_loco_client.hpp
 FSM_NAMES = {0: "ZeroTorque (motors unpowered)", 1: "Damp", 4: "StandUp (position lock)", 811: "Start (balance control)"}
@@ -66,23 +74,57 @@ class State:
         self.msg, self.count, self.t_last = m, self.count + 1, time.time()
 
 
-def target_at(t, q0, q1, move_s, hold_s):
-    if t < move_s:                 return q0 + (q1 - q0) * ease(t / move_s)
-    if t < move_s + hold_s:        return q1
-    if t < 2 * move_s + hold_s:    return q1 + (q0 - q1) * ease((t - move_s - hold_s) / move_s)
-    return q0
+class Plan:
+    """times[i] and frames[i] = {slot: q}; every frame names the same slots."""
+    def __init__(self, times, frames):
+        self.times, self.frames, self.slots = times, frames, sorted(frames[0])
+    @property
+    def duration(self): return self.times[-1]
+    def at(self, t):
+        if t >= self.duration: return dict(self.frames[-1])
+        i = max(k for k, tk in enumerate(self.times) if tk <= t)
+        t0, t1 = self.times[i], self.times[i + 1]
+        r = ease((t - t0) / (t1 - t0)) if t1 > t0 else 1.0
+        return {s: self.frames[i][s] + (self.frames[i + 1][s] - self.frames[i][s]) * r for s in self.slots}
+
+
+def build_plan(a, q_meas):
+    if a.plan:
+        src = json.loads(Path(a.plan).read_text())
+        assert src.get("schema_version") == 1, "plan schema_version must be 1"
+        kfs = sorted(src["keyframes"], key=lambda f: f["time_s"])
+        assert kfs[0]["time_s"] == 0.0, "first keyframe must be at t=0"
+        names = set(kfs[0]["joint_targets_rad"])
+        for f in kfs:
+            assert set(f["joint_targets_rad"]) == names, "keyframes must name the same joints"
+        unknown = names - set(BY_MJ)
+        assert not unknown, f"joints not on the arm topic or not in the sim model: {sorted(unknown)}"
+        slots = {n: BY_MJ[n][0] for n in names}
+        times = [float(f["time_s"]) for f in kfs] + [float(kfs[-1]["time_s"]) + a.return_s]
+        frames = [{slots[n]: float(v) for n, v in f["joint_targets_rad"].items()} for f in kfs]
+        frames[0] = {s: q_meas[s] for s in slots.values()}            # start where the arm is
+        frames.append({s: q_meas[s] for s in slots.values()})         # and come back
+        label = src.get("name", Path(a.plan).name)
+    else:
+        slot = BY_NAME[a.joint][0]
+        q0, q1 = q_meas[slot], q_meas[slot] + a.delta
+        times = [0.0, a.move_s, a.move_s + a.hold_s, 2 * a.move_s + a.hold_s]
+        frames = [{slot: q0}, {slot: q1}, {slot: q1}, {slot: q0}]
+        label = f"{a.joint} {a.delta:+.2f} rad"
+    return Plan(times, frames), label
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("iface")
+    ap.add_argument("--plan", help="keyframe plan JSON (sim contract, MuJoCo joint names)")
+    ap.add_argument("--return-s", type=float, default=2.5, help="seconds for the appended return to the measured pose")
     ap.add_argument("--joint", default="left_shoulder_pitch", choices=sorted(BY_NAME))
-    ap.add_argument("--delta", type=float, default=-0.25, help="radians to add to the measured angle")
+    ap.add_argument("--delta", type=float, default=-0.25, help="radians to add to the measured angle (one-joint mode)")
     ap.add_argument("--move-s", type=float, default=2.0)
     ap.add_argument("--hold-s", type=float, default=1.0)
     ap.add_argument("--execute", action="store_true", help="actually publish to rt/arm_sdk")
     a = ap.parse_args()
-    slot, name, mj_name, kp, kd = BY_NAME[a.joint]
 
     ChannelFactoryInitialize(0, a.iface)
     st = State()
@@ -106,60 +148,62 @@ def main():
     except Exception as e:
         print(f"fsm query failed: {e}")
 
-    # plan + checks
-    import mujoco
-    model = mujoco.MjModel.from_xml_path(str(MJCF))
-    q0 = q_meas[slot]; q1 = q0 + a.delta
-    if mj_name:
-        jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, mj_name)
-        lo, hi = model.jnt_range[jid]
-        if not (lo + LIMIT_MARGIN <= q1 <= hi - LIMIT_MARGIN):
-            sys.exit(f"ABORT: target {q1:.3f} outside {mj_name} range [{lo:.3f}, {hi:.3f}] with margin")
-    vel = abs(a.delta) / a.move_s
-    if vel > MAX_VEL:
-        sys.exit(f"ABORT: {vel:.2f} rad/s exceeds cap {MAX_VEL}")
-    total = 2 * a.move_s + a.hold_s
-    print(f"\nplan: {name} (slot {slot}) {q0:+.3f} -> {q1:+.3f} rad over {a.move_s}s, hold {a.hold_s}s, back over {a.move_s}s; "
-          f"peak {vel:.2f} rad/s; {RATE_HZ:.0f} Hz; weight ramp {RAMP_S}s each side; total {total + 2*RAMP_S:.1f}s")
-    print("held joints (slot name measured):")
-    for s, n, _, k, d in JOINTS:
-        tag = "  <-- moves" if s == slot else ""
-        print(f"  {s:2d} {n:20s} {q_meas[s]:+.3f}  kp={k:g} kd={d:g}{tag}")
+    plan, label = build_plan(a, q_meas)
+    moving = plan.slots
+    names = {s: n for s, n, *_ in JOINTS}
 
-    # preview plan for sim/preview.py (mujoco joint names; head is not in the sim model)
-    times = [0.0, a.move_s, a.move_s + a.hold_s, total]
-    frames = []
-    for t in times:
-        tgt = {}
-        for s, n, mj, *_ in JOINTS:
-            if mj: tgt[mj] = round(float(target_at(t, q0, q1, a.move_s, a.hold_s) if s == slot else q_meas[s]), 6)
-        frames.append({"time_s": t, "joint_targets_rad": tgt})
-    plan_path = ROOT / "sim/plans/arm_lift_dryrun.json"
-    plan_path.write_text(json.dumps({"schema_version": 1, "name": f"{name} {a.delta:+.2f} rad lift", "duration_s": total, "keyframes": frames}, indent=1) + "\n")
-    # forward kinematics at the start and peak poses (no physics, no transient)
+    # limits and speed
+    model = mujoco.MjModel.from_xml_path(str(MJCF))
+    for s in moving:
+        mj = BY_NAME[names[s]][2]
+        jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, mj)
+        lo, hi = model.jnt_range[jid]
+        for t, f in zip(plan.times, plan.frames):
+            if not (lo + LIMIT_MARGIN <= f[s] <= hi - LIMIT_MARGIN):
+                sys.exit(f"ABORT: {names[s]} = {f[s]:+.3f} at t={t}s outside [{lo:.3f}, {hi:.3f}] with margin")
+    peak = 0.0
+    for i in range(1, len(plan.times)):
+        dt = plan.times[i] - plan.times[i - 1]
+        for s in moving:
+            v = abs(plan.frames[i][s] - plan.frames[i - 1][s]) / dt * (np.pi / 2)   # cosine ease peak factor
+            if v > MAX_VEL:
+                sys.exit(f"ABORT: {names[s]} needs {v:.2f} rad/s between t={plan.times[i-1]} and {plan.times[i]}; cap {MAX_VEL}")
+            peak = max(peak, v)
+    print(f"\nplan '{label}': {len(plan.times)} keyframes, {plan.duration:.1f} s, {len(moving)} joints move, "
+          f"peak {peak:.2f} rad/s; {RATE_HZ:.0f} Hz; weight ramp {RAMP_S}s each side; total {plan.duration + 2*RAMP_S:.1f}s")
+
+    # forward kinematics per keyframe (no physics)
     data = mujoco.MjData(model)
-    def hand_at(q_slot):
+    side = "right" if all(names[s].startswith("right") for s in moving) else "left"
+    site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, f"{side}_hand_preview")
+    def fk(frame):
         data.qpos[:] = 0.0
         for s_, n_, mj, *_ in JOINTS:
             if mj:
-                data.qpos[model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, mj)]] = q_slot if s_ == slot else q_meas[s_]
+                data.qpos[model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, mj)]] = frame.get(s_, q_meas[s_])
         mujoco.mj_forward(model, data)
-        side = "left" if name.startswith("left") else "right"
-        return data.site_xpos[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, f"{side}_hand_preview")].copy()
-    h0, h1 = hand_at(q0), hand_at(q1)
-    print(f"\nkinematic check: hand xyz {h0.round(3)} -> {h1.round(3)} m; rise {100*(h1[2]-h0[2]):+.1f} cm, forward {100*(h1[0]-h0[0]):+.1f} cm")
-    print(f"plan written to {plan_path.relative_to(ROOT)}  (view: mjpython sim/preview.py --plan {plan_path.relative_to(ROOT)} --preview-only)")
+        return data.site_xpos[site].copy(), data.ncon
+    h0, ncon0 = fk(plan.frames[0])
+    print(f"keyframes ({side} hand xyz in m, relative to start; contacts vs {ncon0} at rest):")
+    print("   t    " + "  ".join(f"{names[s][:14]:>14s}" for s in moving) + "     dx     dy     dz  contacts")
+    for t, f in zip(plan.times, plan.frames):
+        h, ncon = fk(f)
+        d = h - h0
+        print(f"  {t:4.1f}  " + "  ".join(f"{f[s]:+14.3f}" for s in moving) + f"  {d[0]:+.3f} {d[1]:+.3f} {d[2]:+.3f}  {ncon:5d}" + ("  <-- new contacts!" if ncon > ncon0 else ""))
+    print("held joints: " + ", ".join(f"{names[s]}={q_meas[s]:+.2f}" for s, *_ in JOINTS if s not in moving))
+
+    resolved = ROOT / "sim/plans/arm_lift_dryrun.json"
+    resolved.write_text(json.dumps({"schema_version": 1, "name": label, "duration_s": plan.duration,
+        "keyframes": [{"time_s": t, "joint_targets_rad": {BY_NAME[names[s]][2]: round(f[s], 6) for s in moving}}
+                      for t, f in zip(plan.times, plan.frames)]}, indent=1) + "\n")
+    print(f"resolved plan written to {resolved.relative_to(ROOT)} (view: mjpython sim/preview.py --plan {resolved.relative_to(ROOT)} --preview-only)")
 
     if fsm not in FSM_ARM_OK:
         print(f"\nNOTE: controller is in FSM {fsm} = {FSM_NAMES.get(fsm, 'unknown')}. The arm topic only takes effect in "
               f"{sorted(FSM_ARM_OK)}; --execute is refused in this state.")
         if a.execute: sys.exit(3)
-
     if not a.execute:
-        cmd = unitree_hg_msg_dds__LowCmd_()
-        cmd.mode_pr = 100; mc = cmd.motor_cmd[slot]; mc.q, mc.dq, mc.tau, mc.kp, mc.kd = q1, 0.0, 0.0, kp, kd
-        print(f"\nDRY RUN, nothing published. At peak the message would carry: mode_pr={cmd.mode_pr} (weight 1.0), "
-              f"motor_cmd[{slot}] q={mc.q:+.3f} dq=0 tau=0 kp={mc.kp:g} kd={mc.kd:g}; other 12 joints held at measured q.")
+        print("\nDRY RUN, nothing published. Messages would carry mode_pr=100 (weight 1.0) and, per joint, q from the plan, dq=0, tau=0, kp/kd from Unitree's example.")
         sub.Close(); return
 
     # ---- execute ----
@@ -168,45 +212,47 @@ def main():
     for s, n, _, k, d in JOINTS:
         mc = cmd.motor_cmd[s]; mc.q, mc.dq, mc.tau, mc.kp, mc.kd = q_meas[s], 0.0, 0.0, k, d
 
-    def send(weight, q_cmd):
+    def send(weight, targets):
         cmd.mode_pr = int(round(np.clip(weight, 0.0, 1.0) * 100))
-        cmd.motor_cmd[slot].q = float(q_cmd)
+        for s, q in targets.items(): cmd.motor_cmd[s].q = float(q)
         cmd.crc = crc.Crc(cmd); pub.Write(cmd)
 
-    def release(q_cmd, seconds=RAMP_S):
+    def release(targets, seconds=RAMP_S):
         t_r = time.time()
         while (el := time.time() - t_r) < seconds:
-            send(1.0 - el / seconds, q_cmd); time.sleep(1.0 / RATE_HZ)
-        send(0.0, q_cmd)
+            send(1.0 - el / seconds, targets); time.sleep(1.0 / RATE_HZ)
+        send(0.0, targets)
 
     print("\nEXECUTE: ramping weight up")
-    dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; q_cmd = q0
+    dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0)
     try:
         while True:
             now = time.time(); t = now - t_start
             if t < RAMP_S:
-                w, q_cmd = t / RAMP_S, q0
-            elif t < RAMP_S + total:
-                w, q_cmd = 1.0, target_at(t - RAMP_S, q0, q1, a.move_s, a.hold_s)
+                w, targets = t / RAMP_S, plan.at(0.0)
+            elif t < RAMP_S + plan.duration:
+                w, targets = 1.0, plan.at(t - RAMP_S)
             else:
                 break
-            send(w, q_cmd)
-            q_now = st.msg.motor_state[slot].q
+            send(w, targets)
+            errs = {s: st.msg.motor_state[s].q - targets[s] for s in moving}
+            worst = max(errs, key=lambda s: abs(errs[s]))
             if now - st.t_last > 0.5:
-                print("ABORT: lowstate stale"); release(q_cmd, 0.5); sys.exit(2)
-            if abs(q_now - q_cmd) > MAX_ERR:
+                print("ABORT: lowstate stale"); release(targets, 0.5); sys.exit(2)
+            if abs(errs[worst]) > MAX_ERR:
                 err_since = err_since or now
                 if now - err_since > 0.3:
-                    print(f"ABORT: tracking error {q_now - q_cmd:+.2f} rad"); release(q_cmd, 0.5); sys.exit(2)
+                    print(f"ABORT: {names[worst]} lags by {errs[worst]:+.2f} rad"); release(targets, 0.5); sys.exit(2)
             else:
                 err_since = None
             if int(t / 0.5) != int((t - dt) / 0.5):
-                print(f"  t={t:4.1f}s weight={w:.2f} cmd={q_cmd:+.3f} meas={q_now:+.3f}")
+                print(f"  t={t:4.1f}s w={w:.2f}  worst lag {names[worst]} {errs[worst]:+.3f}  " +
+                      " ".join(f"{names[s][:8]}={targets[s]:+.2f}" for s in moving[:5]))
             time.sleep(max(0.0, dt - (time.time() - now)))
-        print("ramping weight down"); release(q_cmd)
-        print(f"done. final measured {st.msg.motor_state[slot].q:+.3f} rad (started {q0:+.3f})")
+        print("ramping weight down"); release(targets)
+        print("done. final vs start: " + ", ".join(f"{names[s]} {st.msg.motor_state[s].q:+.3f}/{q_meas[s]:+.3f}" for s in moving))
     except KeyboardInterrupt:
-        print("\ninterrupted: releasing"); release(q_cmd, 0.5); sys.exit(130)
+        print("\ninterrupted: releasing"); release(targets, 0.5); sys.exit(130)
     finally:
         sub.Close()
 
