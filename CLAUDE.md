@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Reins is a VLM-agnostic harness for robot control: the model's plan is surfaced for human review before any actuator fires. See README.md. Status: the first simulation-only trajectory preview lives in `sim/`; no hardware harness exists yet.
+Reins is a VLM-agnostic harness for robot control: the model's plan is surfaced for human review before any actuator fires. See README.md. Status: simulation only. Trajectory previews live in `sim/`, and an LLM drives the simulated R1 with per-plan review in `harness/`. No hardware harness exists yet.
 
 Target hardware: Unitree R1 EDU humanoid. 26 DoF on the A5 arm variant (7-DoF arms on A7), Jetson Orin NX onboard at 192.168.123.164, DDS over the 192.168.123.x subnet.
 
@@ -12,6 +12,7 @@ Target hardware: Unitree R1 EDU humanoid. 26 DoF on the A5 arm variant (7-DoF ar
 
 - `unitree_sdk2/` is a plain vendored copy of https://github.com/unitreerobotics/unitree_sdk2 at upstream commit 63096d0, minus its `.github/` workflows. Edit in place and commit here. It is deliberately not a submodule and is never synced with upstream. R1 code lives in `unitree_sdk2/example/r1/` (`high_level/`, `low_level/`, `audio/`).
 - `contract/` defines the messages between the harness parts (VLM harness, core/IK, review surfaces such as the MuJoCo preview and Spectacles, and the `rt/arm_sdk` streamer): `README.md` is the spec, `reins.schema.json` the source of truth, `examples/` full sessions, `reins_contract.py` a validator. Change all four together and run `python3 -m pytest contract`.
+- `harness/` is the LLM-in-the-loop sim: tools → contract plans → human review → kinematic execution in MuJoCo, built on `loco/`'s `SimLoco`. Models sit behind the `Brain` interface in `harness/reins_harness/brains.py`. Run `python3 -m pytest harness/tests`.
 - In this workspace, project knowledge lives one level up at `../.knowledge/reins/` (index.md, concepts/, worklog/). The R1 ecosystem survey is `concepts/r1-edu-ecosystem.md`; read it before researching R1 repos again.
 
 ## Building the SDK

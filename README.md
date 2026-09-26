@@ -17,3 +17,5 @@ Where we add value is the interaction between the VLM and the human. Before the 
 ## Status
 
 A first simulation-only preview is available in [`sim/`](sim/README.md). It loads Unitree R1, predicts a named-joint plan or a walking path, draws the planned hand or floor path, and exports world-frame points for future AR rendering. It does not command physical hardware.
+
+[`harness/`](harness/README.md) lets an LLM drive the R1 in that simulation: walk, pick up and put down objects through tools. Every motion is proposed as a plan and reviewed by a human before it runs. Declining with feedback sends the feedback back to the model. Simulation only.

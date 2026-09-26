@@ -1,0 +1,5 @@
+__pycache__/
+.pytest_cache/
+sessions/
+*.gif
+MUJOCO_LOG.TXT
