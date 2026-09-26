@@ -211,7 +211,10 @@ def main():
     resolved = ROOT / "sim/plans/arm_lift_dryrun.json"
     resolved.write_text(json.dumps({"schema_version": 1, "name": label, "duration_s": plan.duration,
         "keyframes": [{"time_s": t, "joint_targets_rad": {BY_NAME[names[s]][2]: round(f[s], 6) for s in moving}}
-                      for t, f in zip(plan.times, plan.frames)]}, indent=1) + "\n")
+                      for t, f in zip(plan.times, plan.frames)],
+        # measured pose of the joints that stay put, so spectacles/plan_feed.py draws both hands where they are
+        "held_joints_rad": {mj: round(q_meas[s], 6) for s, _, mj, *_ in JOINTS if mj and s not in moving}},
+        indent=1) + "\n")
     print(f"resolved plan written to {resolved.relative_to(ROOT)} (view: mjpython sim/preview.py --plan {resolved.relative_to(ROOT)} --preview-only)")
 
     if fsm not in FSM_ARM_OK:

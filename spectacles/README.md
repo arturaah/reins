@@ -46,6 +46,17 @@ Example message:
 }
 ```
 
+### Real plans instead of the mock
+
+`plan_feed.py` serves any Reins plan file (schema_version 1, MuJoCo joint names: `sim/plans/`, `tools/plans/`, `recordings/`) in the same message format, on the same port. It poses the fixed-base R1 model along the plan (forward kinematics, no physics) and sends both hand-tip paths in `robot_base`, which is the model's world frame (pelvis pinned 0.74 m above the floor origin). It never talks to the robot. From the repository root:
+
+```sh
+.venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json
+.venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json --print   # one message, no server
+```
+
+To see what the robot would actually do, run `tools/arm_lift.py IFACE --plan ...` without `--execute`. That dry run only subscribes and publishes nothing. It writes the resolved plan, starting from the measured pose and including the measured angles of the joints that stay put, to `sim/plans/arm_lift_dryrun.json`. Serve that file with `plan_feed.py`. The feed re-reads the file when it changes, so the next dry run appears on the glasses without a restart. The Lens is unchanged: stop `trajectory_server.py`, run `plan_feed.py`, keep the `adb reverse` tunnel. The paths are drawn relative to the shoulder cards, so while `previewFromTags` is on each path is shifted to start at its card; for true positions on the robot, turn it off and set the measured card offsets. For reference, the model's shoulder pitch joints sit at `[0.032, ±0.086, 0.986]` m.
+
 Each hand needs 2–512 finite `[x,y,z]` points. A real R1 planner can send the same schema; the Lens does not need the robot online to test alignment. This is currently a **standalone demo feed**. Reins' `contract/` uses `plan_proposed` messages, so a bridge must extract hand paths and convert them to the robot frame before using the production core.
 
 ## Device status and first walking test
