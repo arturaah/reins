@@ -35,6 +35,10 @@ var lastNetworkError = "";
 var liveLogged = false;
 var markerVisibleLastFrame = false;
 var observedTags = {left:null, right:null};
+// Lens Studio's image-marker pose scale follows its configured printed size.
+// A pair of shoulder centres lets us correct for cut-out tags printed smaller
+// or larger than the 10 cm asset setting without changing the robot geometry.
+var worldCmPerRobotCm = 1;
 var statusObject = null;
 var statusVisual = null;
 var statusFrame = null;
@@ -116,7 +120,10 @@ function makeVisual(name, material) {
 
 // Rendering basis: forward -> +y, robot-left -> -x, up -> +z.
 // The basis is built from the two tag centres, not their printed orientations.
-function robotToMarker(p) { return [-p[1] * 100, p[0] * 100, p[2] * 100]; }
+function robotToMarker(p) {
+    var cm = 100 * worldCmPerRobotCm;
+    return [-p[1] * cm, p[0] * cm, p[2] * cm];
+}
 
 function observeMarker(tracker, name) {
     if (!tracker || !tracker.isTracking()) { return null; }
@@ -168,7 +175,17 @@ function calibrateFromBothTags() {
     // Spectacles world has +y vertical. R1 robot-left is right-tag -> left-tag.
     var lateral = [a.x-b.x, 0, a.z-b.z];
     var span = Math.sqrt(lateral[0]*lateral[0]+lateral[2]*lateral[2]);
-    if (span < 12 || span > 50) { return false; } // cm; reject unrelated detections
+    if (span < 8 || span > 60) { return false; } // cm; reject unrelated detections
+    var expectedSpan = 2 * script.tagSideM * 100;
+    if (expectedSpan <= 0) { return false; }
+    var measuredScale = span / expectedSpan;
+    if (measuredScale < 0.35 || measuredScale > 2.5) { return false; }
+    if (Math.abs(measuredScale - worldCmPerRobotCm) > 0.01) {
+        worldCmPerRobotCm = measuredScale;
+        if (latestTrajectory) { applyTrajectory(latestTrajectory); }
+        print("R1 AR: shoulder span " + span.toFixed(1) +
+              " world cm; render scale " + measuredScale.toFixed(2));
+    }
     var leftAxis = unit(lateral), up = [0,1,0];
     var forward = unit(cross(leftAxis, up));
     var rotation = quat.fromRotationMat4(mat4.makeBasis(
