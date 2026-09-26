@@ -12,8 +12,9 @@ before and 1 -> 0 after, watching every moving joint the whole time.
     .venv/bin/python tools/arm_lift.py en6 --execute                # moves the robot
     .venv/bin/python tools/arm_lift.py en6 --plan tools/plans/cup_grab_right.json [--execute]
     one-joint options: --joint left_shoulder_pitch --delta -0.25 --move-s 2 --hold-s 1
-    --record tools/recordings/NAME.json   (with --execute) saves the commanded and measured
-                                          trajectory as a plan, replayable with --plan
+Every --execute run is logged to recordings/<timestamp>_<name>.json with the
+commanded and measured trajectory; replay one with --plan recordings/<file>.json.
+--record PATH overrides the file name.
 
 Plan files use the sim contract (schema_version 1, keyframes with MuJoCo joint
 names in radians, first keyframe at t=0). The t=0 values are replaced by the
@@ -132,7 +133,7 @@ def main():
     ap.add_argument("--move-s", type=float, default=2.0)
     ap.add_argument("--hold-s", type=float, default=1.0)
     ap.add_argument("--execute", action="store_true", help="actually publish to rt/arm_sdk")
-    ap.add_argument("--record", help="with --execute: write commanded+measured trajectory as a replayable plan JSON")
+    ap.add_argument("--record", help="override the recording path (default recordings/<timestamp>_<name>.json)")
     a = ap.parse_args()
 
     ChannelFactoryInitialize(0, a.iface)
@@ -233,16 +234,18 @@ def main():
 
     rec, rec_last = [], -1.0
     def save_recording():
-        if not (a.record and rec): return
+        if not rec: return
+        slug = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")[:40]
+        path = Path(a.record) if a.record else ROOT / "recordings" / f"{time.strftime('%Y%m%d_%H%M%S')}_{slug}.json"
         mj = {s: BY_NAME[names[s]][2] for s in moving}
         out = {"schema_version": 1, "name": f"recording of {label}", "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                "duration_s": round(rec[-1][0], 3),
                "keyframes": [{"time_s": round(t, 3),
                               "joint_targets_rad": {mj[s]: round(c[s], 4) for s in moving},
                               "measured_rad": {mj[s]: round(m[s], 4) for s in moving}} for t, c, m in rec]}
-        Path(a.record).parent.mkdir(parents=True, exist_ok=True)
-        Path(a.record).write_text(json.dumps(out, indent=1) + "\n")
-        print(f"recorded {len(rec)} keyframes over {out['duration_s']} s to {a.record}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, indent=1) + "\n")
+        print(f"recorded {len(rec)} keyframes over {out['duration_s']} s to {path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
 
     print("\nEXECUTE: ramping weight up")
     dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0); ticks = 0
@@ -256,7 +259,7 @@ def main():
             else:
                 break
             send(w, targets); ticks += 1
-            if a.record and t >= RAMP_S and (t - RAMP_S) - rec_last >= 0.05:
+            if t >= RAMP_S and (t - RAMP_S) - rec_last >= 0.05:
                 rec_last = 0.0 if not rec else t - RAMP_S          # first sample is stamped exactly 0
                 rec.append((rec_last, dict(targets), {s: st.msg.motor_state[s].q for s in moving}))
             errs = {s: st.msg.motor_state[s].q - targets[s] for s in moving}
