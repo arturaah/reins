@@ -10,6 +10,8 @@ The Lens now tracks the **bare 36h11 tags**: ID **22** on the robot's left shoul
 
 These are AprilTag **36h11** images used inside Lens Studio **image markers**. Lens Studio matches each tag as an image; it does not decode an AprilTag ID at runtime. The reference images were generated with OpenCV and independently decoded as IDs 22 and 23. Snap's image-marker tracker recognizes one image at a time; either visible shoulder is enough for this implementation.
 
+On detection, a short cue appears above the tag and says `LEFT SHOULDER` or `RIGHT SHOULDER` for four seconds. The sound remains throttled to at most once every two seconds; switching shoulders updates the label immediately. Without USB-C, tag tracking and the local mock still run on the glasses, but `ws://127.0.0.1:8765` is no longer reachable, so the Mac's saved-plan or live trajectory feed stops updating.
+
 For a quick desk test, serve the project directory and open `Print/screen-test.html`. It shows both cards together and has buttons for either card alone. The robot's right card appears on your left when you face the screen. If the screen cannot fit two 14 cm cards, the page reduces them to fit. The default preview half-spacing of 7.1 cm assumes adjacent nominal 14 cm cards with a 2 mm gap; change `previewTagHalfSpacingM` if the displayed or printed centres differ. Screen scaling still makes metric depth approximate.
 
 ## Coordinates and alignment

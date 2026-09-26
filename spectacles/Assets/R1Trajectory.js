@@ -37,6 +37,7 @@ var statusFrame = null;
 var statusTextObject = null;
 var statusText = null;
 var statusUntil = 0;
+var statusPosition = null;
 var notificationAudio = null;
 var lastNotificationAt = -1000;
 var liveRobotCoordinates = false;
@@ -71,8 +72,8 @@ try {
     var textScreen = statusTextObject.createComponent("Component.ScreenTransform");
     textScreen.anchors.setSize(new vec2(1.8, 1.5));
     statusText = statusTextObject.createComponent("Component.Text");
-    statusText.text = "TAG FOUND";
-    statusText.size = 245;
+    statusText.text = "LEFT SHOULDER";
+    statusText.size = 175;
     statusText.horizontalAlignment = HorizontalAlignment.Center;
     statusText.verticalAlignment = VerticalAlignment.Center;
     statusText.textFill.color = new vec4(0.2, 1, 0.9, 1);
@@ -81,18 +82,17 @@ try {
     print("R1 AR: tracking HUD unavailable: " + e);
 }
 
-function showStatus(found) {
+function showStatus(found, side) {
     if (!statusVisual) { return; }
     statusVisual.mainMaterial = found ? script.leftMaterial : script.rightMaterial;
     statusVisual.enabled = true;
     statusFrame.enabled = true;
     statusFrame.mainMaterial = found ? script.leftMaterial : script.rightMaterial;
     if (statusTextObject) {
-        statusText.text = found ? "TAG FOUND" : "TAG LOST";
+        statusText.text = found ? side.toUpperCase() + " SHOULDER" : "TAG LOST";
         statusTextObject.enabled = true;
     }
-    // Shape coordinates are metres in the camera-facing plane. The check is
-    // intentionally much bigger than the old text and stays visible 8 seconds.
+    // Shape coordinates are metres in the camera-facing plane.
     drawTube(found ? [[-0.12,0,0],[-0.04,-0.08,0],[0.14,0.11,0]] :
                      [[-0.11,-0.11,0],[0.11,0.11,0],[-0.11,0.11,0],
                       [0.11,-0.11,0]], statusVisual, function(p) {
@@ -100,7 +100,7 @@ function showStatus(found) {
     }, 1.5);
     drawTube([[-23,-10,0],[23,-10,0],[23,10,0],[-23,10,0],[-23,-10,0]],
         statusFrame, function(p) { return p; }, 0.8);
-    statusUntil = getTime() + 10;
+    statusUntil = getTime() + 4;
 }
 
 function makeVisual(name, material) {
@@ -123,6 +123,9 @@ function useMarker(tracker, side, name) {
     if (!tracker || !tracker.isTracking()) { return false; }
     var t = tracker.getTransform();
     var rotation = t.getWorldRotation();
+    // Keep the brief label just above the recognized tag as the wearer moves.
+    statusPosition = t.getWorldPosition().add(
+        rotation.multiplyVec3(new vec3(0, 18, 3)));
     var localOffset = robotToMarker([script.tagForwardM,
                                      side * markerSideM(), script.tagHeightM]);
     var offsetWorld = rotation.multiplyVec3(
@@ -133,9 +136,12 @@ function useMarker(tracker, side, name) {
     if (!tagAnchored || newlySeen) {
         base.setWorldPosition(basePosition);
         base.setWorldRotation(rotation);
-        if (getTime() - lastNotificationAt > 2) {
+        // Always update the side label on a switch, even during sound cooldown.
+        if (newlySeen) {
             print("R1 AR: APRILTAG DETECTED: " + name + " shoulder; trajectories calibrated");
-            showStatus(true);
+            showStatus(true, name);
+        }
+        if (getTime() - lastNotificationAt > 2) {
             if (notificationAudio) {
                 notificationAudio.play(1);
                 print("R1 AR: tag notification sound played");
@@ -319,12 +325,11 @@ function connect() {
 }
 script.createEvent("UpdateEvent").bind(function(){
     updateAnchor();
-    if (statusObject && script.cameraObject) {
+    if (statusObject && script.cameraObject && statusPosition) {
         var head = script.cameraObject.getTransform();
         var label = statusObject.getTransform();
-        label.setWorldPosition(head.getWorldPosition().add(
-            head.back.uniformScale(100)).add(
-            head.up.uniformScale(-5)));
+        label.setWorldPosition(statusPosition);
+        // Billboard the text towards the wearer while its position stays on the tag.
         label.setWorldRotation(head.getWorldRotation());
     }
     if (statusVisual && getTime() > statusUntil) {
