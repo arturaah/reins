@@ -18,7 +18,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = os.path.join(ROOT, ".venv/bin/python")
 STREAMS = {"head": "http://localhost:8081/cam", "twin": "http://localhost:8082/twin",
            "wrist_l": "http://localhost:8080/cam/0", "wrist_r": "http://localhost:8080/cam/2"}
-SIZES = {"head": (480, 270), "twin": (640, 480), "wrist_l": (236, 133), "wrist_r": (236, 133)}
+SIZES = {}
+def compute_sizes(w, h):
+    cam_w = max(240, int(w * 0.27) - 20); twin_w = max(320, int(w * 0.45) - 20); wrist_w = cam_w // 2 - 6
+    SIZES.update({"head": (cam_w, cam_w * 9 // 16), "wrist_l": (wrist_w, wrist_w * 9 // 16), "wrist_r": (wrist_w, wrist_w * 9 // 16),
+                  "twin": (twin_w, min(twin_w * 3 // 4, max(240, h - 140)))})
+def fit_to(im, box):
+    k = min(box[0] / im.width, box[1] / im.height)
+    return im.resize((max(1, int(im.width * k)), max(1, int(im.height * k)))) if abs(k - 1) > 0.02 else im
 
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 ap.add_argument("--iface", default="en6")
@@ -44,6 +51,8 @@ for k, u in STREAMS.items():
     threading.Thread(target=reader, args=(k, u), daemon=True).start()
 
 root = tk.Tk(); root.title("Reins · R1"); root.configure(bg="#0f1419")
+SW, SH = root.winfo_screenwidth(), root.winfo_screenheight()
+root.geometry(f"{SW}x{SH - 80}+0+0"); compute_sizes(SW, SH - 80)
 style = ttk.Style(); style.theme_use("clam")
 style.configure(".", background="#0f1419", foreground="#c9d1d9", fieldbackground="#161c23")
 style.configure("TButton", padding=6); style.configure("Danger.TButton", foreground="#ff6b6b")
@@ -116,7 +125,7 @@ def refresh():
         jpg = latest.get(name)
         if jpg:
             try:
-                im = Image.open(io.BytesIO(jpg)); im.thumbnail(SIZES[name]); photos[name] = ImageTk.PhotoImage(im)
+                im = fit_to(Image.open(io.BytesIO(jpg)), SIZES[name]); photos[name] = ImageTk.PhotoImage(im)
                 lbl.configure(image=photos[name], text="", width=im.width, height=im.height)
             except Exception:
                 pass
@@ -133,6 +142,12 @@ def poll_status():
         root.after(0, status.configure, {"text": txt})
     threading.Thread(target=fetch, daemon=True).start(); root.after(1000, poll_status)
 
+_resize = {"job": None}
+def on_resize(e):
+    if e.widget is root:
+        if _resize["job"]: root.after_cancel(_resize["job"])
+        _resize["job"] = root.after(150, lambda: compute_sizes(root.winfo_width(), root.winfo_height()))
+root.bind("<Configure>", on_resize)
 root.after(200, refresh); root.after(500, poll_status)
 root.protocol("WM_DELETE_WINDOW", lambda: (abort(), root.destroy()))
 root.mainloop()
