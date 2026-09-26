@@ -16,7 +16,6 @@ ROOT = Path(__file__).resolve().parent
 SCENE = ROOT / "models" / "r1" / "scene_fixed_base.xml"
 DEFAULT_PLAN = ROOT / "plans" / "left_reach.json"
 DEFAULT_OUTPUT = ROOT / "preview.json"
-SITE_NAME = "left_hand_preview"
 SAMPLE_PERIOD = 0.04
 
 
@@ -71,21 +70,17 @@ def apply_pd(model: mujoco.MjModel, data: mujoco.MjData, target: np.ndarray) -> 
         data.ctrl[i] = torque
 
 
-def hand_xyz(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
-    site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, SITE_NAME)
+def hand_xyz(model: mujoco.MjModel, data: mujoco.MjData, side="left") -> np.ndarray:
+    site_name = f"{side}_hand_preview"
+    site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, site_name)
     if site < 0:
-        raise ValueError(f"Missing site: {SITE_NAME}")
+        raise ValueError(f"Missing site: {site_name}")
     return data.site_xpos[site].copy()
-
-
-def joint_xyz(model, data, joint):
-    return data.xanchor[joint].copy()
 
 
 def draw_path(viewer, paths: dict) -> None:
     colors = [np.array(c, dtype=np.float32) for c in
-              ((1, .2, .2, .9), (.2, 1, .2, .9), (.2, .4, 1, .9),
-               (1, .8, .1, .9), (1, .2, 1, .9), (0, 1, 1, .9))]
+              ((0, 1, 1, .55), (1, .35, .1, .55))]
     with viewer.lock():
         scene = viewer.user_scn
         scene.ngeom = 0
@@ -99,29 +94,22 @@ def draw_path(viewer, paths: dict) -> None:
                 geom = scene.geoms[scene.ngeom]
                 mujoco.mjv_initGeom(geom, mujoco.mjtGeom.mjGEOM_LINE,
                                    np.zeros(3), np.zeros(3), np.eye(3).ravel(), color)
-                mujoco.mjv_connector(geom, mujoco.mjtGeom.mjGEOM_LINE, 3.0, start, end)
+                mujoco.mjv_connector(geom, mujoco.mjtGeom.mjGEOM_LINE, 9.0, start, end)
                 scene.ngeom += 1
 
 
-def save_figure(output_path: Path, samples: list, names: list) -> Path:
+def save_figure(output_path: Path, samples: list) -> Path:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig = plt.figure(figsize=(13, 6))
-    ax = fig.add_subplot(121, projection="3d")
-    ax2 = fig.add_subplot(122)
-    times = [s["time_s"] for s in samples]
-    for name in names + ["hand"]:
-        key = "hand_xyz_m" if name == "hand" else "joint_xyz_m"
-        points = np.array([s[key] if name == "hand" else s[key][name] for s in samples])
-        ax.plot(points[:, 0], points[:, 1], points[:, 2], label=name.replace("_joint", ""))
-        if name != "hand":
-            ax2.plot(times, [s["joint_targets_rad"][name] for s in samples],
-                     label=name.replace("_joint", ""))
-    ax.set(xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)", title="Path of each moving joint and hand")
-    ax2.set(xlabel="Time (s)", ylabel="Target angle (rad)", title="Per-joint trajectories")
-    ax.legend(fontsize=7)
-    ax2.legend(fontsize=7)
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    for side, color in (("left", "cyan"), ("right", "orangered")):
+        points = np.array([s["hands_xyz_m"][side] for s in samples])
+        ax.plot(points[:, 0], points[:, 1], points[:, 2],
+                label=f"{side} hand", color=color, linewidth=6, alpha=.55)
+    ax.set(xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)", title="R1 hand trajectories")
+    ax.legend()
     fig.tight_layout()
     path = output_path.with_suffix(".png")
     fig.savefig(path, dpi=160)
@@ -139,7 +127,6 @@ def run(plan_path: Path, output_path: Path, headless: bool, execute: bool) -> No
     steps = round(float(plan["duration_s"]) / model.opt.timestep)
     sample_every = max(1, round(SAMPLE_PERIOD / model.opt.timestep))
     samples = []
-    names = sorted(plan["_joint_ids"])
     cube = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "pickup_cube")
     grasp_time = plan.get("grasp_time_s")
     cube_start = np.array([0.35, 0.16, 0.685])
@@ -161,8 +148,8 @@ def run(plan_path: Path, output_path: Path, headless: bool, execute: bool) -> No
             samples.append({
                 "time_s": round(float(predicted.time), 4),
                 "hand_xyz_m": hand_xyz(model, predicted).round(5).tolist(),
-                "joint_xyz_m": {name: joint_xyz(model, predicted, joint).round(5).tolist()
-                                for name, joint in sorted(plan["_joint_ids"].items())},
+                "hands_xyz_m": {side: hand_xyz(model, predicted, side).round(5).tolist()
+                                for side in ("left", "right")},
                 "cube_xyz_m": predicted.mocap_pos[mocap_id].round(5).tolist() if mocap_id >= 0 else None,
                 "joint_targets_rad": {name: round(float(target[joint]), 5)
                                       for name, joint in sorted(plan["_joint_ids"].items())},
@@ -177,23 +164,25 @@ def run(plan_path: Path, output_path: Path, headless: bool, execute: bool) -> No
         "frame": "mujoco_world",
         "position_units": "m",
         "joint_units": "rad",
-        "tracked_site": SITE_NAME,
+        "tracked_sites": ["left_hand_preview", "right_hand_preview"],
         "samples": samples,
     }
     output_path.write_text(json.dumps(export, indent=2) + "\n")
     points = np.array([s["hand_xyz_m"] for s in samples])
     print(f"Preview: {len(samples)} path points, {np.linalg.norm(np.diff(points, axis=0), axis=1).sum():.3f} m of hand travel")
     print(f"Saved: {output_path}")
-    print(f"Visual: {save_figure(output_path, samples, names)}")
+    print(f"Visual: {save_figure(output_path, samples)}")
     viewer = None
     if not headless:
         from mujoco import viewer as mjviewer
         viewer = mjviewer.launch_passive(model, live)
-        paths = {name: np.array([s["joint_xyz_m"][name] for s in samples]) for name in names}
-        paths["hand"] = points
+        viewer.cam.lookat[:] = [0.25, 0.0, 0.8]
+        viewer.cam.distance = 1.15
+        paths = {side: np.array([s["hands_xyz_m"][side] for s in samples])
+                 for side in ("left", "right")}
         draw_path(viewer, paths)
         viewer.sync()
-        print("A separate colored line shows each moving joint and the hand.")
+        print("Thick translucent cyan and orange paths show the left and right hands.")
     try:
         if not execute:
             print("Preview only. Pass --execute to run this plan in simulation.")
@@ -205,6 +194,8 @@ def run(plan_path: Path, output_path: Path, headless: bool, execute: bool) -> No
             print("Executing in 3 seconds...")
             time.sleep(3)
         live_offset = None
+        live_travel = {side: 0.0 for side in ("left", "right")}
+        previous_hands = {side: hand_xyz(model, live, side) for side in live_travel}
         for _ in range(steps):
             if grasp_time is not None and live.time >= grasp_time and mocap_id >= 0:
                 if live_offset is None:
@@ -212,11 +203,17 @@ def run(plan_path: Path, output_path: Path, headless: bool, execute: bool) -> No
                 live.mocap_pos[mocap_id] = hand_xyz(model, live) + live_offset
             apply_pd(model, live, target_at(model, plan, live.time))
             mujoco.mj_step(model, live)
+            for side in live_travel:
+                current = hand_xyz(model, live, side)
+                live_travel[side] += np.linalg.norm(current - previous_hands[side])
+                previous_hands[side] = current
             if viewer:
                 viewer.sync()
                 time.sleep(model.opt.timestep)
         error = np.linalg.norm(hand_xyz(model, live) - hand_xyz(model, predicted))
         print(f"Simulated execution complete; final prediction error: {error:.6f} m")
+        print("Actual hand travel: " + ", ".join(
+            f"{side} {distance:.3f} m" for side, distance in live_travel.items()))
         if mocap_id >= 0 and grasp_time is not None:
             print(f"Cube lifted to {live.mocap_pos[mocap_id].round(3).tolist()} m (kinematic grasp proxy)")
         if viewer:
@@ -232,6 +229,7 @@ if __name__ == "__main__":
     parser.add_argument("--plan", type=Path, default=DEFAULT_PLAN)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--headless", action="store_true")
-    parser.add_argument("--execute", action="store_true", help="Execute in MuJoCo only")
+    parser.add_argument("--execute", action="store_true", help="Compatibility flag; simulation execution is now the default")
+    parser.add_argument("--preview-only", action="store_true", help="Show paths without moving the simulated robot")
     args = parser.parse_args()
-    run(args.plan, args.output, args.headless, args.execute)
+    run(args.plan, args.output, args.headless, not args.preview_only)

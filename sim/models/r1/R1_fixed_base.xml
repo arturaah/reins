@@ -204,6 +204,7 @@
                   <joint name="right_elbow_joint" pos="0 0 0" axis="0 1 0" range="-0.97564 2.1852" actuatorfrcrange="-33 33"/>
                   <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_elbow_link"/>
                   <body name="right_wrist_roll_link" pos="0.11218 0.03002 -0.011702">
+                    <site name="right_hand_preview" pos="0.13 0 0" size="0.01" rgba="1 0.4 0 1"/>
                     <inertial pos="0.068045 0.001688 0.001392" quat="0.559742 0.411512 0.566917 0.442664" mass="0.324767" diaginertia="0.000717953 0.000704181 0.000156865"/>
                     <joint name="right_wrist_roll_joint" pos="0 0 0" axis="1 0 0" range="-1.9199 1.9199" actuatorfrcrange="-33 33"/>
                     <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_wrist_roll_link"/>

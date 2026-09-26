@@ -16,23 +16,21 @@ python3 sim/preview.py --headless
 mjpython sim/preview.py
 ```
 
-The default plan is `sim/plans/left_reach.json`. The preview does not move the live simulated R1. The script writes `sim/preview.json` and `sim/preview.png`.
+The default plan is `sim/plans/left_reach.json`. The script displays the predicted paths, waits three seconds, then moves the R1 through the plan in MuJoCo. It writes `sim/preview.json` and `sim/preview.png`. Add `--preview-only` to show paths without moving the robot.
 
 For the cube pickup demonstration, generate the inverse-kinematics plan and preview it before running:
 
 ```bash
 python3 sim/plan_pick.py
-python3 sim/preview.py --plan sim/plans/pick_cube.json --headless
-python3 sim/preview.py --plan sim/plans/pick_cube.json --headless --execute
+mjpython sim/preview.py --plan sim/plans/pick_cube.json
 ```
 
-The preview writes both JSON and a PNG. Each moving joint has its own colored 3D trace and target-angle curve; the hand has a separate trace. For a MuJoCo window, replace `python3` with `mjpython` and omit `--headless`. The cube sits on a visual table. At the grasp time, the simulator checks that the wrist-tip site is within 3 cm, then moves the cube with the hand at a fixed offset. The model has no fingers, contact grasp, or grasp force, so this is a **kinematic grasp proxy** rather than a verified physical pickup.
+The preview writes both JSON and a PNG. The MuJoCo viewer shows only the left and right hand trajectories, as thick translucent cyan and orange lines. Both arms then move through their planned paths. The cube sits on a visual table. At the grasp time, the simulator checks that the left wrist-tip site is within 3 cm, then moves the cube with the left hand at a fixed offset. The model has no fingers, contact grasp, or grasp force, so this is a **kinematic grasp proxy** rather than a verified physical pickup.
 
-To run the plan in MuJoCo after preview:
+To run the plan without a window:
 
 ```bash
-python3 sim/preview.py --headless --execute
-mjpython sim/preview.py --execute
+python3 sim/preview.py --headless
 ```
 
 Use `--plan path/to/plan.json` for another plan and `--output path/to/preview.json` to choose the export path.
@@ -41,7 +39,7 @@ Use `--plan path/to/plan.json` for another plan and `--output path/to/preview.js
 
 A plan contains `schema_version: 1`, `duration_s`, and time-ordered keyframes. Each keyframe has `time_s` and a map of **MuJoCo joint names** to target angles in radians. Keyframes must name the same actuated joints, start at zero, and end at `duration_s`. The example plan moves the left shoulder and elbow. All other joints are held at zero by a simple PD controller. Targets interpolate linearly between keyframes.
 
-The export has timed `samples` with `joint_targets_rad`, `joint_xyz_m`, `hand_xyz_m`, and `cube_xyz_m`. Coordinates are in the `mujoco_world` frame and meters. An AR client must calibrate and apply the world-to-glasses transform before drawing the points. The preview follows a site on the left wrist, approximating the hand tip; this R1 model does not include a full hand model.
+The export has timed `samples` with `joint_targets_rad`, `hands_xyz_m`, and `cube_xyz_m`. Coordinates are in the `mujoco_world` frame and meters. An AR client must calibrate and apply the world-to-glasses transform before drawing the points. The preview follows sites on both wrists, approximating the hand tips; this R1 model does not include a full hand model.
 
 ## Scope
 
