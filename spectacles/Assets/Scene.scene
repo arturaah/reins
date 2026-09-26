@@ -228,6 +228,8 @@
     tagForwardM: true
     tagSideM: true
     tagHeightM: true
+    previewFromTags: true
+    previewTagHalfSpacingM: true
     pathRadiusCm: true
     allowTemporaryAnchor: true
   ScriptTypesDefault:
@@ -245,6 +247,8 @@
       tagForwardM: 0.040000
       tagSideM: 0.160000
       tagHeightM: 1.020000
+      previewFromTags: true
+      previewTagHalfSpacingM: 0.071000
       pathRadiusCm: 0.650000
       allowTemporaryAnchor: true
   ScriptTypes:

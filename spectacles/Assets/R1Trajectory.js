@@ -11,6 +11,8 @@
 // @input float tagForwardM = 0.04
 // @input float tagSideM = 0.16
 // @input float tagHeightM = 1.02
+// @input bool previewFromTags = true
+// @input float previewTagHalfSpacingM = 0.071
 // @input float pathRadiusCm = 0.65
 // @input bool allowTemporaryAnchor = true
 
@@ -110,13 +112,17 @@ function makeVisual(name, material) {
 
 // Upright tag on the robot's front: forward -> marker +z, left -> +x, up -> +y.
 function robotToMarker(p) { return [p[1] * 100, p[2] * 100, p[0] * 100]; }
+function previewFromTags() { return script.previewFromTags !== false; }
+function markerSideM() {
+    return previewFromTags() ? (script.previewTagHalfSpacingM || 0.071) : script.tagSideM;
+}
 
 function useMarker(tracker, side, name) {
     if (!tracker || !tracker.isTracking()) { return false; }
     var t = tracker.getTransform();
     var rotation = t.getWorldRotation();
     var localOffset = robotToMarker([script.tagForwardM,
-                                     side * script.tagSideM, script.tagHeightM]);
+                                     side * markerSideM(), script.tagHeightM]);
     var offsetWorld = rotation.multiplyVec3(
         new vec3(localOffset[0], localOffset[1], localOffset[2]));
     var basePosition = t.getWorldPosition().sub(offsetWorld);
@@ -230,8 +236,21 @@ function applyTrajectory(message) {
         !message.hands || !isPath(message.hands.left) || !isPath(message.hands.right)) {
         print("R1 AR: rejected incompatible trajectory"); return;
     }
-    drawTube(message.hands.left,leftVisual);
-    drawTube(message.hands.right,rightVisual);
+    // Desk preview: translate each robot-frame polyline so its first point is
+    // exactly at that shoulder marker. Keep the path shape and input frame.
+    function drawHand(points, visual, side) {
+        if (!previewFromTags()) { drawTube(points, visual); return; }
+        var start = points[0];
+        drawTube(points, visual, function(p) {
+            return robotToMarker([
+                p[0] - start[0] + script.tagForwardM,
+                p[1] - start[1] + side * markerSideM(),
+                p[2] - start[2] + script.tagHeightM
+            ]);
+        });
+    }
+    drawHand(message.hands.left, leftVisual, 1);
+    drawHand(message.hands.right, rightVisual, -1);
 }
 function localMock(phase) {
     var hands={left:[],right:[]};

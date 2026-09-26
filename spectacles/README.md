@@ -10,17 +10,18 @@ Print `Print/left-shoulder-id-0-tracking-card.svg` and `Print/right-shoulder-id-
 
 These are AprilTag **36h11** images used inside Lens Studio **image markers**. Lens Studio is matching each full tracking card, not decoding an AprilTag ID at runtime. The ID, image, and print size are easy to replace together later. Snap's image-marker tracker recognizes one image at a time; either visible shoulder is enough for this implementation.
 
-For a quick desk test, serve the project directory and open `Print/screen-test.html`. It shows both cards together and has buttons for either card alone. If the screen cannot fit two 14 cm cards, the page reduces them to fit and flags the result as a **detection-only test**. The side-by-side screen spacing is not the R1 shoulder spacing; use full-size printed cards on the robot and measured marker centres to test trajectory alignment.
+For a quick desk test, serve the project directory and open `Print/screen-test.html`. It shows both cards together and has buttons for either card alone. The robot's right card appears on your left when you face the screen. If the screen cannot fit two 14 cm cards, the page reduces them to fit. The default preview half-spacing of 7.1 cm assumes adjacent nominal 14 cm cards with a 2 mm gap; change `previewTagHalfSpacingM` if the displayed or printed centres differ. Screen scaling still makes metric depth approximate.
 
 ## Coordinates and alignment
 
 - Trajectory messages use metres in `robot_base`: **+x forward, +y robot-left, +z up**.
 - The marker's +x is image-right, +y image-up, and +z points out of its front. For forward-facing upright tags, the script maps robot `[x,y,z]` in metres to marker `[y,z,x]` in centimetres.
 - Assumed marker centres in `robot_base`: left `[0.04,+0.16,1.02]` m; right `[0.04,-0.16,1.02]` m. These are estimates based on the R1's approximately 1.23 m standing height, **not measured shoulder offsets**. Change `tagForwardM`, `tagSideM`, and `tagHeightM` in the controller's script inputs after measuring the mounted tags.
+- `previewFromTags` is enabled for the desk test: each polyline is translated so its first point emerges from its corresponding tag centre. This preserves the trajectory shape but deliberately overrides the hand's robot-frame start position. Once the tags are on the R1 and their centres are measured, set `previewFromTags` false and use the measured marker offsets to render the original hand positions.
 - On detection, the Lens computes `T_world_robot = T_world_tag × inverse(T_robot_tag)` and places both paths under that world-space robot anchor. The camera has Device Tracking in World mode, so the paths should remain at the robot while the wearer walks around. The last calibrated pose is retained when a marker leaves view; sighting a tag again corrects accumulated drift. This behavior still needs an on-glasses walking test.
 - Before the first tag sighting, a temporary mock anchor appears about 1.5 m ahead of the wearer. It is replaced by the tag-based anchor as soon as either tag is recognized. Set `allowTemporaryAnchor` false to show paths only after marker detection.
 
-The mock path starts around `[0.08,±0.23,0.68]` m, near the assumed hands, and arcs forward toward `x≈0.50` m. Cyan is left; orange is right. `pathRadiusCm` controls tube thickness.
+The mock path starts around `[0.08,±0.23,0.68]` m in the message and arcs forward toward `x≈0.50` m. In preview mode, its first rendered point is moved to its tag. Cyan is left; orange is right. `pathRadiusCm` controls tube thickness.
 
 ## Trajectory feed
 
