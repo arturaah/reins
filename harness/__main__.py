@@ -1,0 +1,233 @@
+"""Command line for the VLM end-effector harness.
+
+    python -m harness sim "move your hand above the block" [--vlm scripted|anthropic] [--realtime]
+    python -m harness dry-run en6 "..."      real joint state and cameras, VLM calls and IK, nothing published
+    python -m harness live en6 "..."         needs `python -m harness.robot.arm_stream en6` running; asks before every move
+    python -m harness packet [--sim | --iface en6]   dump one perception packet (images + proprio text) and exit
+    python -m harness replay RUN_DIR --step N [--vlm anthropic]   rebuild a recorded step's prompt and re-query
+    python -m harness measure-table en6      print the hand tip height from rt/lowstate (subscribe-only)
+Options: --config FILE, --set key.path=value (repeatable), --arm left|right, --profile precision|coarse_fine.
+Keyboard while running: type x + Enter for the e-stop (arms freeze, episode ends); Ctrl-C releases the arms.
+"""
+import argparse
+import json
+import queue
+import sys
+import threading
+import time
+
+from . import config as hcfg
+from .executor import ArmExecutor
+from .kinematics import ArmKinematics
+from .perception import Perception, height_above_table_cm
+from .recorder import Recorder, load_step
+from .safety import SafetyGate
+from .vlm import base as vlm_base
+
+stdin_lines = queue.Queue()
+
+
+def stdin_reader():
+    for line in sys.stdin:
+        stdin_lines.put(line.strip())
+
+
+def make_confirm(gate, backend):
+    """Ask on the terminal before a real move; 'x' at any time is the e-stop."""
+    def confirm(text):
+        print(f"\nSEND? {text}\n  [Enter] send   n Enter skip   x Enter e-stop > ", end="", flush=True)
+        while True:
+            line = stdin_lines.get()
+            if line == "x":
+                gate.estop.set(); backend.freeze(); print("E-STOP set"); return False
+            return line == ""
+    return confirm
+
+
+def estop_watch(gate, backend):
+    """Background: an 'x' line at any moment sets the e-stop (used when --no-confirm)."""
+    while True:
+        if stdin_lines.get() == "x":
+            gate.estop.set(); backend.freeze(); print("E-STOP set: arms frozen, the episode ends after the current step")
+
+
+def parse_overrides(items):
+    out = {}
+    for it in items or []:
+        k, _, v = it.partition("=")
+        try:
+            v = json.loads(v)
+        except json.JSONDecodeError:
+            pass
+        out[k] = v
+    return out
+
+
+def build(cfg, mode, iface=None, log=print):
+    """-> (backend, executor, perception, table_z)"""
+    arm = cfg["robot"]["arm"]
+    kin = ArmKinematics(cfg["robot"]["model"], arm, float(cfg["limits"]["joint_margin_rad"]))
+    if mode == "sim":
+        from .sim.mock_robot import MockBackend
+        from .perception import MockCameras
+        backend = MockBackend(cfg, realtime=cfg.get("_realtime", False))
+        gate = SafetyGate(cfg, kin, None, live=False)
+        cams = MockCameras(backend, arm, int(cfg["perception"]["width_px"]), int(cfg["perception"]["width_px"]) * 9 // 16)
+        per = Perception(cfg, arm, cams, backend.context_camera(int(cfg["perception"]["width_px"]), int(cfg["perception"]["width_px"]) * 9 // 16))
+    else:
+        from .perception import HttpCameras
+        table_z = cfg["workspace"]["table_z_m"]
+        if mode == "dry-run":
+            from .robot.dry_run import DryRunBackend
+            backend = DryRunBackend(iface, log)
+            if table_z is None:
+                log("WARNING: workspace.table_z_m is not measured; the dry run uses the sim table height")
+            gate = SafetyGate(cfg, kin, table_z, live=False)
+        else:
+            from .robot.arm_client import ArmClientBackend
+            backend = ArmClientBackend(cfg, log)
+            gate = SafetyGate(cfg, kin, table_z, live=True)           # refuses without a measured table
+        per = Perception(cfg, arm, HttpCameras(cfg, arm), cfg["perception"].get("context_camera"))
+    ex = ArmExecutor(cfg, kin, gate, backend, arm)
+    return backend, ex, per
+
+
+def run_episode(a, cfg, mode):
+    from .loop import Episode
+    log = print
+    backend, ex, per = build(cfg, mode, a.iface, log)
+    vlm = vlm_base.make(cfg, a.vlm)
+    threading.Thread(target=stdin_reader, daemon=True).start()
+    if mode == "live":
+        if backend.fsm not in (4, 811):
+            sys.exit(f"refusing: FSM {backend.fsm} = {backend.fsm_name}")
+        if not a.no_confirm:
+            ex.confirm = make_confirm(ex.gate, backend)
+        else:
+            threading.Thread(target=estop_watch, args=(ex.gate, backend), daemon=True).start()
+        print("ENGAGE: the streamer takes the arms (weight ramps to 1). Enter to continue, anything else to quit > ", end="", flush=True)
+        if stdin_lines.get() != "":
+            return
+        backend.engage()
+    elif mode == "sim":
+        threading.Thread(target=estop_watch, args=(ex.gate, backend), daemon=True).start()
+    rec = Recorder(cfg, mode, a.task)
+    print(f"recording to {rec.dir}")
+    try:
+        if mode != "sim" or a.start_pose:
+            r = ex.go_to_joints(cfg["robot"]["start_pose_rad"][ex.arm], "start pose")
+            print(f"start pose: {r.feedback}")
+            if not r.ok and mode == "live":
+                return
+        ep = Episode(cfg, vlm, ex, per, rec, log)
+        summary = ep.run(a.task)
+        print(json.dumps(summary, indent=1, default=str))
+    finally:
+        if mode == "live":
+            backend.release()
+
+
+def cmd_packet(a, cfg):
+    mode = "sim" if a.sim else "dry-run"
+    backend, ex, per = build(cfg, mode, a.iface)
+    from .prompts import proprio_text
+    state = ex.sync()
+    pk = per.capture(state.p)
+    rec = Recorder(cfg, "packet", "packet")
+    for label, jpg in pk.images:
+        (rec.dir / f"{label.split()[0].lower()}.jpg").write_bytes(jpg)
+    h = height_above_table_cm(state.p, ex.gate.table_z)
+    pro = proprio_text(h, 1.0, "no hand")
+    (rec.dir / "proprio.txt").write_text(pro["text"] + "\n")
+    print(f"hand tip {state.p.round(3).tolist()} m, wrist roll {state.roll:.2f} rad, table z {ex.gate.table_z}")
+    print(pro["text"])
+    print(f"images: {[(l, len(j) // 1024) for l, j in pk.images]} KB; missing: {pk.missing}")
+    print(f"written to {rec.dir}")
+
+
+def cmd_replay(a, cfg):
+    from .actions import OUTPUT_SCHEMA, parse_decision
+    rec, prompt, images = load_step(a.run_dir, a.step)
+    if prompt is None:
+        sys.exit("that step has no prompt (it was a chunked or DONE step)")
+    print(f"recorded: {rec.get('action')}  feedback: {rec.get('feedback')}")
+    if a.edit:
+        prompt = open(a.edit).read()
+    vlm = vlm_base.make(cfg, a.vlm)
+    resp = vlm.act(prompt, images, OUTPUT_SCHEMA)
+    print(f"{resp.model} {resp.latency_s:.1f} s, {resp.input_tokens}+{resp.output_tokens} tokens, error={resp.error!r}")
+    print(resp.text)
+    try:
+        d = parse_decision(resp.text, (cfg["robot"]["arm"],))
+        print(f"parsed: {d.action(cfg['robot']['arm']).raw}  wrist={d.wrist_visible}  plan={[p.raw for p in d.plan]}")
+    except Exception as e:
+        print(f"parse error: {e}")
+
+
+def cmd_measure(a, cfg):
+    from .robot.lowstate import LowStateReader
+    arm = cfg["robot"]["arm"]
+    kin = ArmKinematics(cfg["robot"]["model"], arm)
+    rd = LowStateReader(a.iface)
+    if not rd.wait():
+        sys.exit("no rt/lowstate")
+    print("hand tip in the robot frame (floor under the pelvis, pelvis at 0.74 m). Ctrl-C to stop.")
+    try:
+        while True:
+            j = rd.joints(); q = kin.q_from_dict(j)
+            p, _ = kin.fk(q, {n: j[n] for n in ("waist_roll_joint", "waist_yaw_joint")})
+            print(f"  {arm} hand tip x={p[0]:+.3f} y={p[1]:+.3f} z={p[2]:.3f} m   (set workspace.table_z_m to z when the tip rests on the table)")
+            if not a.watch:
+                break
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    rd.close()
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="harness", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config"); ap.add_argument("--set", action="append", metavar="KEY=VALUE")
+    ap.add_argument("--arm", choices=["left", "right"]); ap.add_argument("--profile", choices=["precision", "coarse_fine"])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("sim", "dry-run", "live"):
+        p = sub.add_parser(name)
+        if name != "sim":
+            p.add_argument("iface")
+        p.add_argument("task")
+        p.add_argument("--vlm", help="anthropic | openai | scripted (default: config)")
+        if name == "sim":
+            p.add_argument("--realtime", action="store_true"); p.add_argument("--start-pose", action="store_true")
+        if name == "live":
+            p.add_argument("--no-confirm", action="store_true", help="do not ask before each move (e-stop: x + Enter)")
+    p = sub.add_parser("packet"); p.add_argument("--sim", action="store_true"); p.add_argument("--iface")
+    p = sub.add_parser("replay"); p.add_argument("run_dir"); p.add_argument("--step", type=int, required=True)
+    p.add_argument("--vlm"); p.add_argument("--edit", help="use this file as the prompt instead of the recorded one")
+    p = sub.add_parser("measure-table"); p.add_argument("iface"); p.add_argument("--watch", action="store_true")
+    a = ap.parse_args()
+    over = parse_overrides(a.set)
+    if a.arm: over["robot.arm"] = a.arm
+    if a.profile: over["steps.profile"] = a.profile
+    cfg = hcfg.load(a.config, over)
+    if a.cmd == "sim":
+        cfg["_realtime"] = a.realtime
+        a.iface = None; a.no_confirm = True
+        run_episode(a, cfg, "sim")
+    elif a.cmd in ("dry-run", "live"):
+        if a.cmd == "dry-run":
+            a.no_confirm = True; a.start_pose = True
+        else:
+            a.start_pose = True
+        run_episode(a, cfg, a.cmd)
+    elif a.cmd == "packet":
+        if not a.sim and not a.iface:
+            sys.exit("packet needs --sim or --iface")
+        cmd_packet(a, cfg)
+    elif a.cmd == "replay":
+        cmd_replay(a, cfg)
+    elif a.cmd == "measure-table":
+        cmd_measure(a, cfg)
+
+
+if __name__ == "__main__":
+    main()
