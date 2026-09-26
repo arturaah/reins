@@ -9,7 +9,7 @@ Abort sends the tool its interrupt, which ramps the arm weight down.
     tools/start_all.sh            # starts the stream servers, then this window
     .venv/bin/python tools/reins_ui.py [--iface en6]
 """
-import argparse, io, os, signal, subprocess, sys, threading, time, urllib.request
+import argparse, io, os, queue, signal, subprocess, sys, threading, time, urllib.request
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
@@ -31,6 +31,7 @@ ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDe
 ap.add_argument("--iface", default="en6")
 a = ap.parse_args()
 latest = {k: None for k in STREAMS}
+events = queue.Queue()          # ("log", text) or ("status", text); Tk is not thread-safe, so threads never call it
 
 
 def reader(name, url):
@@ -58,9 +59,12 @@ style.configure(".", background="#0f1419", foreground="#c9d1d9", fieldbackground
 style.configure("TButton", padding=6); style.configure("Danger.TButton", foreground="#ff6b6b")
 panes = ttk.PanedWindow(root, orient="horizontal"); panes.pack(fill="both", expand=True)
 
+photos = {}
+def blank(name):
+    w, h = SIZES[name]; photos[name] = ImageTk.PhotoImage(Image.new("RGB", (w, h), (0, 0, 0))); return photos[name]
 def tile(parent, name, title):
     f = ttk.Frame(parent); ttk.Label(f, text=title).pack(anchor="w", padx=6, pady=(6, 0))
-    w, h = SIZES[name]; lbl = tk.Label(f, bg="#000", width=w, height=h, text="waiting for stream…", fg="#666"); lbl.pack(padx=6, pady=4)
+    lbl = tk.Label(f, bg="#000", image=blank(name), compound="center", text="waiting for stream…", fg="#666"); lbl.pack(padx=6, pady=4)
     return f, lbl
 
 cams = ttk.Frame(panes); panes.add(cams, weight=0)
@@ -102,11 +106,12 @@ def run(execute):
         cmd.append("--execute")
     out.delete("1.0", "end"); log("$ " + " ".join(cmd[1:]) + "\n")
     proc["p"] = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    p = proc["p"]
     def pump():
-        for line in proc["p"].stdout:
+        for line in p.stdout:
             if "take sample error" in line: continue
-            root.after(0, log, line)
-        root.after(0, log, f"\n[exit {proc['p'].wait()}]\n")
+            events.put(("log", line))
+        events.put(("log", f"\n[exit {p.wait()}]\n"))
     threading.Thread(target=pump, daemon=True).start()
 
 def abort():
@@ -119,35 +124,48 @@ ttk.Button(btns, text="Execute…", command=lambda: run(True)).pack(side="left",
 ttk.Button(btns, text="Abort", style="Danger.TButton", command=abort).pack(side="left")
 ttk.Label(ctrl, text="Execute asks for confirmation. Abort = Ctrl-C to the tool (weight ramps down).", wraplength=360).pack(anchor="w", padx=6, pady=(0, 6))
 
-photos = {}
 def refresh():
     for name, lbl in (("head", head_lbl), ("twin", twin_lbl), ("wrist_l", wl_lbl), ("wrist_r", wr_lbl)):
         jpg = latest.get(name)
         if jpg:
             try:
                 im = fit_to(Image.open(io.BytesIO(jpg)), SIZES[name]); photos[name] = ImageTk.PhotoImage(im)
-                lbl.configure(image=photos[name], text="", width=im.width, height=im.height)
-            except Exception:
-                pass
+                lbl.configure(image=photos[name], text="")
+            except Exception as e:
+                lbl.configure(text=f"bad frame: {e}"[:60])
         elif lbl.cget("text") == "":
-            lbl.configure(image="", text="stream lost", width=SIZES[name][0], height=SIZES[name][1])
+            lbl.configure(image=blank(name), text="stream lost")
     root.after(66, refresh)
 
-def poll_status():
-    def fetch():
+def status_thread():
+    while True:
         try:
             txt = urllib.request.urlopen("http://localhost:8082/status", timeout=2).read().decode()
         except Exception:
             txt = "twin server (tools/cockpit.py) not reachable"
-        root.after(0, status.configure, {"text": txt})
-    threading.Thread(target=fetch, daemon=True).start(); root.after(1000, poll_status)
+        events.put(("status", txt)); time.sleep(1.0)
+threading.Thread(target=status_thread, daemon=True).start()
+def drain():
+    try:
+        while True:
+            kind, txt = events.get_nowait()
+            if kind == "log": log(txt)
+            else: status.configure(text=txt)
+    except queue.Empty:
+        pass
+    root.after(100, drain)
 
 _resize = {"job": None}
 def on_resize(e):
     if e.widget is root:
         if _resize["job"]: root.after_cancel(_resize["job"])
-        _resize["job"] = root.after(150, lambda: compute_sizes(root.winfo_width(), root.winfo_height()))
+        _resize["job"] = root.after(150, lambda: (compute_sizes(root.winfo_width(), root.winfo_height()), place_sashes()))
+def place_sashes():
+    try:
+        w = root.winfo_width(); panes.sashpos(0, int(w * 0.27)); panes.sashpos(1, int(w * 0.27) + int(w * 0.45))
+    except Exception: pass
 root.bind("<Configure>", on_resize)
-root.after(200, refresh); root.after(500, poll_status)
+root.after(300, place_sashes)
+root.after(200, refresh); root.after(300, drain)
 root.protocol("WM_DELETE_WINDOW", lambda: (abort(), root.destroy()))
 root.mainloop()
