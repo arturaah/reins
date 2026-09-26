@@ -245,7 +245,7 @@
       fallbackWebsocketUrl: "ws://127.0.0.1:8765"
       tagForwardM: 0.030000
       tagSideM: 0.130000
-      tagHeightM: 1.030000
+      tagHeightM: 1.019000
       pathRadiusCm: 0.650000
       allowTemporaryAnchor: false
   ScriptTypes:

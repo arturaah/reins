@@ -6,6 +6,10 @@
   </default>
 
   <asset>
+    <texture name="left_shoulder_tag_texture" type="2d" file="../../../spectacles/Assets/Markers/Left AprilTag 36h11 ID 22.png"/>
+    <texture name="right_shoulder_tag_texture" type="2d" file="../../../spectacles/Assets/Markers/Right AprilTag 36h11 ID 23.png"/>
+    <material name="left_shoulder_tag_material" texture="left_shoulder_tag_texture"/>
+    <material name="right_shoulder_tag_material" texture="right_shoulder_tag_texture"/>
     <mesh name="pelvis_link" file="pelvis_link.STL"/>
     <mesh name="left_hip_pitch_link" file="left_hip_pitch_link.STL"/>
     <mesh name="left_hip_roll_link" file="left_hip_roll_link.STL"/>
@@ -157,6 +161,11 @@
           <geom pos="-0.0049874 0 0.3715" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="head_yaw_link"/>
           <geom pos="-0.0049874 0 0.3715" quat="1 0 0 0" type="mesh" rgba="0.79216 0.81961 0.93333 1" mesh="head_yaw_link"/>
           <body name="left_shoulder_pitch_link" pos="0 0.085688 0.19749" quat="0.99144 0.130561 0 0">
+            <!-- Approximate 5 cm cut-out sticker seen on the blue shoulder cap.
+                 Attached to this moving link: its robot_base pose changes with
+                 shoulder pitch. The small site is the tracked image centre. -->
+            <geom name="left_shoulder_tag_paper" type="box" pos="-0.0025 0.051218 0.0200" size="0.025 0.025 0.0004" material="left_shoulder_tag_material" contype="0" conaffinity="0" density="0" group="1"/>
+            <site name="left_shoulder_tag_center" pos="-0.0025 0.051218 0.01993" size="0.003" rgba="0 1 1 1"/>
             <inertial pos="0.00294386 0.0447687 -0.0228687" quat="0.933514 0.315801 -0.107611 0.131308" mass="0.83795" diaginertia="0.000664554 0.000644431 0.000530845"/>
             <joint name="left_shoulder_pitch_joint" pos="0 0 0" axis="0 1 0" range="-3.1416 2.0944" actuatorfrcrange="-60 60"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="left_shoulder_pitch_link"/>
@@ -186,6 +195,8 @@
             </body>
           </body>
           <body name="right_shoulder_pitch_link" pos="0 -0.085688 0.19749" quat="0.99144 -0.130561 0 0">
+            <geom name="right_shoulder_tag_paper" type="box" pos="-0.0025 -0.051218 0.0200" size="0.025 0.025 0.0004" material="right_shoulder_tag_material" contype="0" conaffinity="0" density="0" group="1"/>
+            <site name="right_shoulder_tag_center" pos="-0.0025 -0.051218 0.01993" size="0.003" rgba="1 0.4 0 1"/>
             <inertial pos="0.00294386 -0.0447687 -0.0228687" quat="0.933514 -0.315801 -0.107611 -0.131308" mass="0.83795" diaginertia="0.000664554 0.000644431 0.000530845"/>
             <joint name="right_shoulder_pitch_joint" pos="0 0 0" axis="0 1 0" range="-3.1416 2.0944" actuatorfrcrange="-60 60"/>
             <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.79216 0.81961 0.93333 1" mesh="right_shoulder_pitch_link"/>

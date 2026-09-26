@@ -12,7 +12,7 @@
 // @input string fallbackWebsocketUrl = ""
 // @input float tagForwardM = 0.03
 // @input float tagSideM = 0.13
-// @input float tagHeightM = 1.03
+// @input float tagHeightM = 1.019
 // @input float pathRadiusCm = 0.65
 // @input bool allowTemporaryAnchor = false
 

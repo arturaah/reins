@@ -58,7 +58,7 @@
       websocketUrl: "ws://172.20.10.8:8765"
       tagForwardM: 0.040000
       tagSideM: 0.160000
-      tagHeightM: 1.020000
+      tagHeightM: 1.019000
       pathRadiusCm: 0.650000
       allowTemporaryAnchor: true
   ScriptTypes:
