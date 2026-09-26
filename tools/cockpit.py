@@ -51,7 +51,8 @@ sub = ChannelSubscriber("rt/lowstate", LowState_); sub.Init(on_msg, 10)
 
 renderer = mujoco.Renderer(model, height=480, width=640)
 cam = mujoco.MjvCamera(); cam.type = mujoco.mjtCamera.mjCAMERA_FREE
-cam.lookat[:] = [0.0, 0.0, 0.75]; cam.distance = 2.6; cam.azimuth = 140; cam.elevation = -12
+cam.lookat[:] = [0.0, 0.0, 0.72]; cam.distance = 2.4; cam.azimuth = 155; cam.elevation = -12   # 180 = facing the camera
+floor = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
 latest = {"jpg": b""}
 
 def render_loop():
@@ -62,6 +63,9 @@ def render_loop():
             data.qpos[0:3] = [0.0, 0.0, 0.78]
             data.qpos[3:7] = quat if quat and abs(sum(v * v for v in quat) - 1) < 0.1 else [1, 0, 0, 0]
             for s, adr in qadr.items(): data.qpos[adr] = q[s]
+            mujoco.mj_forward(model, data)
+            zmin = min(data.geom_xpos[g][2] for g in range(model.ngeom) if g != floor)   # put the lowest point on the floor
+            data.qpos[2] += 0.02 - zmin
             mujoco.mj_forward(model, data)
             renderer.update_scene(data, camera=cam)
             buf = io.BytesIO(); Image.fromarray(renderer.render()).save(buf, "JPEG", quality=75)
