@@ -1,4 +1,5 @@
-.venv/
+preview.json
+preview.png
 __pycache__/
-*.egg-info/
-out/
+.pytest_cache/
+*.gif
