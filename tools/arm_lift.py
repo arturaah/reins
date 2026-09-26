@@ -116,10 +116,10 @@ def build_plan(a, q_meas):
         label = src.get("name", Path(a.plan).name)
     else:
         slot = BY_NAME[a.joint][0]
-        q0, q1 = q_meas[slot], q_meas[slot] + a.delta
+        q0 = q_meas[slot]; q1 = a.to if a.to is not None else q0 + a.delta
         times = [0.0, a.move_s, a.move_s + a.hold_s, 2 * a.move_s + a.hold_s]
         frames = [{slot: q0}, {slot: q1}, {slot: q1}, {slot: q0}]
-        label = f"{a.joint} {a.delta:+.2f} rad"
+        label = f"{a.joint} to {q1:+.2f} rad"
     return Plan(times, frames), label
 
 
@@ -132,6 +132,7 @@ def main():
     ap.add_argument("--kp-scale", type=float, default=1.0, help="multiply Unitree's arm kp (stiffer replay = less gravity droop)")
     ap.add_argument("--joint", default="left_shoulder_pitch", choices=sorted(BY_NAME))
     ap.add_argument("--delta", type=float, default=-0.25, help="radians to add to the measured angle (one-joint mode)")
+    ap.add_argument("--to", type=float, help="absolute target in radians (one-joint mode); overrides --delta")
     ap.add_argument("--move-s", type=float, default=2.0)
     ap.add_argument("--hold-s", type=float, default=1.0)
     ap.add_argument("--execute", action="store_true", help="actually publish to rt/arm_sdk")
