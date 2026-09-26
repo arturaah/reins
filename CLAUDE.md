@@ -11,6 +11,7 @@ Target hardware: Unitree R1 EDU humanoid. 26 DoF on the A5 arm variant (7-DoF ar
 ## Layout
 
 - `unitree_sdk2/` is a plain vendored copy of https://github.com/unitreerobotics/unitree_sdk2 at upstream commit 63096d0, minus its `.github/` workflows. Edit in place and commit here. It is deliberately not a submodule and is never synced with upstream. R1 code lives in `unitree_sdk2/example/r1/` (`high_level/`, `low_level/`, `audio/`).
+- `contract/` defines the messages between the harness parts (VLM harness, core/IK, review surfaces such as the MuJoCo preview and Spectacles, and the `rt/arm_sdk` streamer): `README.md` is the spec, `reins.schema.json` the source of truth, `examples/` full sessions, `reins_contract.py` a validator. Change all four together and run `python3 -m pytest contract`.
 - In this workspace, project knowledge lives one level up at `../.knowledge/reins/` (index.md, concepts/, worklog/). The R1 ecosystem survey is `concepts/r1-edu-ecosystem.md`; read it before researching R1 repos again.
 
 ## Building the SDK
@@ -24,7 +25,7 @@ cd unitree_sdk2 && mkdir -p build && cd build && cmake .. && make
 
 Binaries land in `unitree_sdk2/build/bin/`. Every R1 example takes the network interface connected to the robot (e.g. `eth0`) as an argument; the exact flags are in each file's header comment. To use the SDK from a separate CMake project, `make install` it and copy `unitree_sdk2/example/cmake_sample`.
 
-No tests or linters exist yet.
+The only tests are the contract's (`python3 -m pytest contract`, needs `jsonschema` and `pytest`). No linters.
 
 ## Chosen control method (decision, 2026-09-26)
 
