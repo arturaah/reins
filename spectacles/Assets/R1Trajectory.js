@@ -39,6 +39,7 @@ var statusText = null;
 var statusUntil = 0;
 var notificationAudio = null;
 var lastNotificationAt = -1000;
+var liveRobotCoordinates = false;
 
 try {
     if (script.tagDetectedSound) {
@@ -114,7 +115,8 @@ function makeVisual(name, material) {
 function robotToMarker(p) { return [p[1] * 100, p[2] * 100, p[0] * 100]; }
 function previewFromTags() { return script.previewFromTags !== false; }
 function markerSideM() {
-    return previewFromTags() ? (script.previewTagHalfSpacingM || 0.071) : script.tagSideM;
+    return previewFromTags() && !liveRobotCoordinates ?
+        (script.previewTagHalfSpacingM || 0.071) : script.tagSideM;
 }
 
 function useMarker(tracker, side, name) {
@@ -180,6 +182,9 @@ function isPath(points) {
     return Array.isArray(points) && points.length >= 2 && points.length <= 512 &&
            points.every(isPoint);
 }
+function isTrajectoryPath(points) {
+    return (Array.isArray(points) && points.length === 0) || isPath(points);
+}
 function cross(a, b) {
     return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
 }
@@ -233,13 +238,22 @@ function drawTube(points, visual, pointToCm, radiusOverride) {
 function applyTrajectory(message) {
     if (!message || message.type !== "trajectory" || message.version !== 1 ||
         message.frame !== "robot_base" || message.units !== "m" ||
-        !message.hands || !isPath(message.hands.left) || !isPath(message.hands.right)) {
+        !message.hands || !isTrajectoryPath(message.hands.left) ||
+        !isTrajectoryPath(message.hands.right)) {
         print("R1 AR: rejected incompatible trajectory"); return;
     }
+    liveRobotCoordinates = message.progress_source === "measured_joints";
     // Desk preview: translate each robot-frame polyline so its first point is
     // exactly at that shoulder marker. Keep the path shape and input frame.
     function drawHand(points, visual, side) {
-        if (!previewFromTags()) { drawTube(points, visual); return; }
+        // The feed sends [] when this hand has reached the end of its plan.
+        // Disabling also removes any mesh left from the previous update.
+        visual.enabled = points.length > 0;
+        if (!points.length) { return; }
+        // Live robot positions must never be shifted back to a tag centre.
+        if (!previewFromTags() || liveRobotCoordinates) {
+            drawTube(points, visual); return;
+        }
         var start = points[0];
         drawTube(points, visual, function(p) {
             return robotToMarker([

@@ -48,16 +48,30 @@ Example message:
 
 ### Real plans instead of the mock
 
-`plan_feed.py` serves any Reins plan file (schema_version 1, MuJoCo joint names: `sim/plans/`, `tools/plans/`, `recordings/`) in the same message format, on the same port. It poses the fixed-base R1 model along the plan (forward kinematics, no physics) and sends both hand-tip paths in `robot_base`, which is the model's world frame (pelvis pinned 0.74 m above the floor origin). It never talks to the robot. From the repository root:
+`plan_feed.py` serves any Reins plan file (schema_version 1, MuJoCo joint names: `sim/plans/`, `tools/plans/`, `recordings/`) in the same message format, on the same port. It poses the fixed-base R1 model along the plan (forward kinematics, no physics) and sends both hand-tip paths in `robot_base`, which is the model's world frame (pelvis pinned 0.74 m above the floor origin). The plan feed never commands the robot. From the repository root:
 
 ```sh
 .venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json
 .venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json --print   # one message, no server
 ```
 
-To see what the robot would actually do, run `tools/arm_lift.py IFACE --plan ...` without `--execute`. That dry run only subscribes and publishes nothing. It writes the resolved plan, starting from the measured pose and including the measured angles of the joints that stay put, to `sim/plans/arm_lift_dryrun.json`. Serve that file with `plan_feed.py`. The feed re-reads the file when it changes, so the next dry run appears on the glasses without a restart. The Lens is unchanged: stop `trajectory_server.py`, run `plan_feed.py`, keep the `adb reverse` tunnel. The paths are drawn relative to the shoulder cards, so while `previewFromTags` is on each path is shifted to start at its card; for true positions on the robot, turn it off and set the measured card offsets. For reference, the model's shoulder pitch joints sit at `[0.032, ±0.086, 0.986]` m.
+To see what the robot would actually do, run `tools/arm_lift.py IFACE --plan ...` without `--execute`. That dry run only subscribes and publishes nothing. It writes the resolved plan, starting from the measured pose and including the measured angles of the joints that stay put, to `sim/plans/arm_lift_dryrun.json`. Serve that file with `plan_feed.py`. The feed re-reads the file when it changes, so the next dry run appears on the glasses without a restart. Stop `trajectory_server.py` first and keep the `adb reverse` tunnel. For reference, the model's shoulder pitch joints sit at `[0.032, ±0.086, 0.986]` m.
 
-Each hand needs 2–512 finite `[x,y,z]` points. A real R1 planner can send the same schema; the Lens does not need the robot online to test alignment. This is currently a **standalone demo feed**. Reins' `contract/` uses `plan_proposed` messages, so a bridge must extract hand paths and convert them to the robot frame before using the production core.
+### Live remaining path from measured joints
+
+On Artur's Mac, which has the robot Ethernet connection, `tools/relay.py en6` subscribes to `rt/lowstate` and `rt/arm_sdk` and serves read-only joint snapshots on port 8766. This subscription is separate from `tools/arm_lift.py --execute`, which sends commands. On the Mac serving the Lens, run:
+
+```sh
+.venv/bin/python spectacles/plan_feed.py sim/plans/arm_lift_dryrun.json --state-url ws://ARTUR_MAC_IP:8766
+```
+
+Use the same approved plan file for the feed and the command sender. If the feed runs on Artur's Mac, use `ws://127.0.0.1:8766`; if it runs on this Mac, both Macs need a network path to port 8766. The Lens reads the feed on port 8765 (directly over Wi-Fi, or through the USB `adb reverse` tunnel). It never reads DDS or controls the R1.
+
+When the relay reports active `rt/arm_sdk` commands, the feed matches **measured** joint angles against the plan's joint samples, advances monotonically, computes the current hand locations by forward kinematics, and sends only the remaining hand paths. It sends an empty path for a completed or stationary hand, which hides that line. New plan files reset progress. If state or the network goes stale, the last remaining path is held; it is not advanced using elapsed time or anything seen by Spectacles. Joint-space matching can be ambiguous when a plan revisits the same pose, so an explicit execution progress signal would be needed for those plans.
+
+The Lens ignores `previewFromTags` for measured-state messages so the path starts at the reported hand, not the tag. The tag-to-robot offsets are still estimates until the cards are mounted and measured; set `tagForwardM`, `tagSideM`, and `tagHeightM` to those measurements before evaluating physical alignment.
+
+Each visible hand needs 2–512 finite `[x,y,z]` points; an empty array hides a completed hand. A real R1 planner can send the same schema; the Lens does not need the robot online to test alignment. Reins' `contract/` uses `plan_proposed` messages, so a bridge must extract hand paths and convert them to the robot frame before using the production core.
 
 ## Device status and first walking test
 
