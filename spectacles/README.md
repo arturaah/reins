@@ -10,6 +10,8 @@ Print `Print/left-shoulder-id-0-tracking-card.svg` and `Print/right-shoulder-id-
 
 These are AprilTag **36h11** images used inside Lens Studio **image markers**. Lens Studio is matching each full tracking card, not decoding an AprilTag ID at runtime. The ID, image, and print size are easy to replace together later. Snap's image-marker tracker recognizes one image at a time; either visible shoulder is enough for this implementation.
 
+For a quick desk test, serve the project directory and open `Print/screen-test.html`. It shows both cards together and has buttons for either card alone. If the screen cannot fit two 14 cm cards, the page reduces them to fit and flags the result as a **detection-only test**. The side-by-side screen spacing is not the R1 shoulder spacing; use full-size printed cards on the robot and measured marker centres to test trajectory alignment.
+
 ## Coordinates and alignment
 
 - Trajectory messages use metres in `robot_base`: **+x forward, +y robot-left, +z up**.

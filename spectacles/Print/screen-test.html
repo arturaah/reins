@@ -4,27 +4,48 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>R1 shoulder tag screen test</title>
 <style>
-  html,body{margin:0;min-height:100%;background:#fff;color:#111;font:18px system-ui,sans-serif}
-  body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;box-sizing:border-box}
-  #tag{width:140mm;height:140mm;object-fit:contain;image-rendering:pixelated;display:block}
-  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center}
-  button{font:inherit;padding:8px 16px;border:1px solid #555;border-radius:6px;background:#eee;cursor:pointer}
+  html,body{margin:0;min-height:100%;background:#fff;color:#111;font:16px system-ui,sans-serif}
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh;box-sizing:border-box}
+  #cards{display:flex;align-items:center;gap:2mm;width:max-content}
+  .card{width:min(140mm,calc((100vw - 2mm)/2));height:auto;aspect-ratio:1;object-fit:contain;image-rendering:pixelated;display:block;flex:none}
+  #cards[data-mode="left"] .card,#cards[data-mode="right"] .card{width:min(140mm,95vw)}
+  #cards[data-mode="left"] #right-card,#cards[data-mode="right"] #left-card{display:none}
+  .controls{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:6px;white-space:nowrap;background:#fffffff0;padding:5px;border-radius:7px}
+  button{font:inherit;padding:5px 10px;border:1px solid #555;border-radius:6px;background:#eee;cursor:pointer}
   button.active{background:#cceef5}
-  #note{max-width:720px;text-align:center;font-size:15px;line-height:1.4}
+  #note{position:fixed;top:4px;left:50%;transform:translateX(-50%);max-width:95vw;text-align:center;font-size:12px;line-height:1.2;background:#fffffff0;padding:3px 6px;border-radius:4px}
+  #note.warn{color:#a32310;font-weight:700}
 </style>
-<img id="tag" src="../Assets/Markers/Left%20Shoulder%20Tracking%20Card.png" alt="R1 left shoulder tracking card with AprilTag 36h11 ID 0">
-<div class="controls"><button id="left" class="active">ID 0 — left shoulder</button><button id="right">ID 1 — right shoulder</button><button id="full">Full screen</button></div>
-<div id="note">Point Spectacles at the whole 14 cm card, including its patterned border. The AprilTag inside is 10 cm. Keep the screen upright; check physical size with a ruler if you need accurate alignment.</div>
+<div id="cards" data-mode="both">
+  <img id="left-card" class="card" src="../Assets/Markers/Left%20Shoulder%20Tracking%20Card.png" alt="R1 left shoulder tracking card, AprilTag 36h11 ID 0">
+  <img id="right-card" class="card" src="../Assets/Markers/Right%20Shoulder%20Tracking%20Card.png" alt="R1 right shoulder tracking card, AprilTag 36h11 ID 1">
+</div>
+<div id="note">Both tracking cards are visible. This side-by-side layout tests detection, not robot-space alignment.</div>
+<div class="controls">
+  <button id="both" class="active">Both</button>
+  <button id="left">ID 0 only</button>
+  <button id="right">ID 1 only</button>
+  <button id="full">Full screen</button>
+</div>
 <script>
-const tag=document.getElementById('tag');
-function choose(side){
-  tag.src=side==='left'?'../Assets/Markers/Left%20Shoulder%20Tracking%20Card.png':'../Assets/Markers/Right%20Shoulder%20Tracking%20Card.png';
-  tag.alt=side==='left'?'R1 left shoulder tracking card with AprilTag 36h11 ID 0':'R1 right shoulder tracking card with AprilTag 36h11 ID 1';
-  document.getElementById('left').classList.toggle('active',side==='left');
-  document.getElementById('right').classList.toggle('active',side==='right');
+const cards=document.getElementById('cards');
+const note=document.getElementById('note');
+function checkFit(){
+  const actualWidthPx=140*96/25.4;
+  const smaller=document.getElementById('left-card').getBoundingClientRect().width<actualWidthPx-2;
+  note.classList.toggle('warn',smaller);
+  note.textContent=smaller
+    ? 'Cards fit this window but are smaller than 14 cm. Detection test only; use printed cards on the robot for alignment.'
+    : 'Cards are nominally 14 cm each. This side-by-side layout tests detection only; check physical size with a ruler.';
 }
-document.getElementById('left').onclick=()=>choose('left');
-document.getElementById('right').onclick=()=>choose('right');
+function choose(mode){
+  cards.dataset.mode=mode;
+  for(const id of ['both','left','right']) document.getElementById(id).classList.toggle('active',id===mode);
+  checkFit();
+}
+for(const id of ['both','left','right']) document.getElementById(id).onclick=()=>choose(id);
 document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen();
+window.addEventListener('resize',checkFit);
+checkFit();
 </script>
 </html>
