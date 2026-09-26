@@ -12,6 +12,8 @@ before and 1 -> 0 after, watching every moving joint the whole time.
     .venv/bin/python tools/arm_lift.py en6 --execute                # moves the robot
     .venv/bin/python tools/arm_lift.py en6 --plan tools/plans/cup_grab_right.json [--execute]
     one-joint options: --joint left_shoulder_pitch --delta -0.25 --move-s 2 --hold-s 1
+    --record tools/recordings/NAME.json   (with --execute) saves the commanded and measured
+                                          trajectory as a plan, replayable with --plan
 
 Plan files use the sim contract (schema_version 1, keyframes with MuJoCo joint
 names in radians, first keyframe at t=0). The t=0 values are replaced by the
@@ -124,6 +126,7 @@ def main():
     ap.add_argument("--move-s", type=float, default=2.0)
     ap.add_argument("--hold-s", type=float, default=1.0)
     ap.add_argument("--execute", action="store_true", help="actually publish to rt/arm_sdk")
+    ap.add_argument("--record", help="with --execute: write commanded+measured trajectory as a replayable plan JSON")
     a = ap.parse_args()
 
     ChannelFactoryInitialize(0, a.iface)
@@ -161,14 +164,13 @@ def main():
         for t, f in zip(plan.times, plan.frames):
             if not (lo + LIMIT_MARGIN <= f[s] <= hi - LIMIT_MARGIN):
                 sys.exit(f"ABORT: {names[s]} = {f[s]:+.3f} at t={t}s outside [{lo:.3f}, {hi:.3f}] with margin")
-    peak = 0.0
-    for i in range(1, len(plan.times)):
-        dt = plan.times[i] - plan.times[i - 1]
-        for s in moving:
-            v = abs(plan.frames[i][s] - plan.frames[i - 1][s]) / dt * (np.pi / 2)   # cosine ease peak factor
-            if v > MAX_VEL:
-                sys.exit(f"ABORT: {names[s]} needs {v:.2f} rad/s between t={plan.times[i-1]} and {plan.times[i]}; cap {MAX_VEL}")
-            peak = max(peak, v)
+    ts = np.arange(0.0, plan.duration + 1e-9, 0.01)
+    qs = np.array([[plan.at(t)[s] for s in moving] for t in ts])
+    vel = np.abs(np.diff(qs, axis=0)) / 0.01 if len(ts) > 1 else np.zeros((1, len(moving)))
+    peak = float(vel.max()) if vel.size else 0.0
+    if peak > MAX_VEL:
+        j, k = np.unravel_index(vel.argmax(), vel.shape)
+        sys.exit(f"ABORT: {names[moving[k]]} reaches {peak:.2f} rad/s at t={ts[j]:.2f}s; cap {MAX_VEL}")
     print(f"\nplan '{label}': {len(plan.times)} keyframes, {plan.duration:.1f} s, {len(moving)} joints move, "
           f"peak {peak:.2f} rad/s; {RATE_HZ:.0f} Hz; weight ramp {RAMP_S}s each side; total {plan.duration + 2*RAMP_S:.1f}s")
 
@@ -223,6 +225,19 @@ def main():
             send(1.0 - el / seconds, targets); time.sleep(1.0 / RATE_HZ)
         send(0.0, targets)
 
+    rec, rec_last = [], -1.0
+    def save_recording():
+        if not (a.record and rec): return
+        mj = {s: BY_NAME[names[s]][2] for s in moving}
+        out = {"schema_version": 1, "name": f"recording of {label}", "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+               "duration_s": round(rec[-1][0], 3),
+               "keyframes": [{"time_s": round(t, 3),
+                              "joint_targets_rad": {mj[s]: round(c[s], 4) for s in moving},
+                              "measured_rad": {mj[s]: round(m[s], 4) for s in moving}} for t, c, m in rec]}
+        Path(a.record).parent.mkdir(parents=True, exist_ok=True)
+        Path(a.record).write_text(json.dumps(out, indent=1) + "\n")
+        print(f"recorded {len(rec)} keyframes over {out['duration_s']} s to {a.record}")
+
     print("\nEXECUTE: ramping weight up")
     dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0)
     try:
@@ -235,6 +250,9 @@ def main():
             else:
                 break
             send(w, targets)
+            if a.record and t >= RAMP_S and (t - RAMP_S) - rec_last >= 0.05:
+                rec_last = 0.0 if not rec else t - RAMP_S          # first sample is stamped exactly 0
+                rec.append((rec_last, dict(targets), {s: st.msg.motor_state[s].q for s in moving}))
             errs = {s: st.msg.motor_state[s].q - targets[s] for s in moving}
             worst = max(errs, key=lambda s: abs(errs[s]))
             if now - st.t_last > 0.5:
@@ -249,10 +267,10 @@ def main():
                 print(f"  t={t:4.1f}s w={w:.2f}  worst lag {names[worst]} {errs[worst]:+.3f}  " +
                       " ".join(f"{names[s][:8]}={targets[s]:+.2f}" for s in moving[:5]))
             time.sleep(max(0.0, dt - (time.time() - now)))
-        print("ramping weight down"); release(targets)
+        print("ramping weight down"); release(targets); save_recording()
         print("done. final vs start: " + ", ".join(f"{names[s]} {st.msg.motor_state[s].q:+.3f}/{q_meas[s]:+.3f}" for s in moving))
     except KeyboardInterrupt:
-        print("\ninterrupted: releasing"); release(targets, 0.5); sys.exit(130)
+        print("\ninterrupted: releasing"); release(targets, 0.5); save_recording(); sys.exit(130)
     finally:
         sub.Close()
 
