@@ -21,7 +21,7 @@ VLM tool call ─► skills.plan_* ─► contract walk step ─► preview + ap
 Needs `mujoco numpy pillow` (and `pytest`, `jsonschema` for tests).
 
 ```bash
-mjpython loco/run_sim.py                           # around the table: Enter approves, Backspace declines/aborts
+mjpython loco/run_sim.py                           # around the table: type y/n in the terminal; Enter aborts while walking
 mjpython loco/run_sim.py --to 1.8 1.8 1.5708       # straight line: the table stops it
 python3 loco/run_sim.py --headless --gif walk.gif  # no window, auto-approve
 python3 -m pytest loco/tests

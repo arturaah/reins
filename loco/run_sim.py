@@ -4,15 +4,20 @@
     mjpython loco/run_sim.py --to 1.8 1.8 1.5708               # straight line; hits the table
     python3 loco/run_sim.py --headless --gif loco/walk.gif     # no window, auto-approve
 
-In the viewer: Enter approves the plan, Backspace declines it, or aborts
-while walking. The orange line is the plan, cyan is where the robot went.
+Approve or decline in the terminal: type y (approve) or n (decline) and press
+Enter. While walking, press Enter in the terminal to abort. Closing the viewer
+also declines or aborts. (The viewer's own keys can't be used: MuJoCo keeps
+Enter, Backspace and most letters for itself.) The orange line is the plan,
+cyan is where the robot went.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -25,7 +30,6 @@ from reins_loco.sim import SimLoco, walk_preview  # noqa: E402
 from reins_loco.skills import execute_walk_step, plan_walk_to  # noqa: E402
 
 DEFAULT_PLAN = Path(__file__).resolve().parents[1] / "sim" / "plans" / "walk_around_table.json"
-KEY_ENTER, KEY_BACKSPACE = 257, 259
 TRACE_RGBA = np.array([0.2, 0.9, 1.0, 1.0], dtype=np.float32)
 
 
@@ -84,10 +88,22 @@ def run_headless(sim: SimLoco, step: dict, gif: Path | None) -> FollowResult:
     return result
 
 
+def _terminal_lines() -> "queue.Queue[str]":
+    """Lines typed in the terminal, read on a background thread so the viewer keeps drawing."""
+    lines: "queue.Queue[str]" = queue.Queue()
+
+    def read() -> None:
+        for line in sys.stdin:
+            lines.put(line.strip().lower())
+
+    threading.Thread(target=read, daemon=True).start()
+    return lines
+
+
 def run_viewer(sim: SimLoco, step: dict) -> FollowResult | None:
     from mujoco import viewer as mjviewer
-    keys: list[int] = []
-    viewer = mjviewer.launch_passive(sim.model, sim.data, key_callback=keys.append)
+    viewer = mjviewer.launch_passive(sim.model, sim.data)
+    lines = _terminal_lines()
     trace: list = []
     with viewer:
         viewer.opt.geomgroup[0] = 0
@@ -101,14 +117,22 @@ def run_viewer(sim: SimLoco, step: dict) -> FollowResult | None:
                 decorate(viewer.user_scn, sim, step, trace)
             viewer.sync()
 
-        print("Enter: approve. Backspace: decline.")
-        while viewer.is_running() and not keys:
+        print("Approve this plan? Type y or n in this terminal, then Enter.")
+        answer = None
+        while viewer.is_running() and answer is None:
             refresh()
-            time.sleep(0.05)
-        if not keys or keys.pop() != KEY_ENTER:
+            try:
+                line = lines.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if line in ("y", "yes", "n", "no"):
+                answer = line.startswith("y")
+            else:
+                print("Type y or n, then Enter.")
+        if not answer:
             print("Declined.")
             return None
-        print("Approved. Walking. Backspace aborts.")
+        print("Approved. Walking. Press Enter here to abort.")
 
         def tick(dt: float) -> None:
             end = time.perf_counter() + dt
@@ -118,8 +142,9 @@ def run_viewer(sim: SimLoco, step: dict) -> FollowResult | None:
             time.sleep(max(0.0, end - time.perf_counter()))
 
         result = execute_walk_step(step, sim, tick=tick,
-                                   should_stop=lambda: KEY_BACKSPACE in keys or not viewer.is_running())
+                                   should_stop=lambda: not lines.empty() or not viewer.is_running())
         report(sim, result)
+        print("Close the viewer to exit.")
         while viewer.is_running():
             sim.advance(0.05)  # let it settle to a standstill
             refresh()
