@@ -228,10 +228,8 @@
     tagForwardM: true
     tagSideM: true
     tagHeightM: true
-    previewFromTags: true
-    previewTagHalfSpacingM: true
     pathRadiusCm: true
-    allowTemporaryAnchor: true
+    allowTemporaryAnchor: false
   ScriptTypesDefault:
     {}
   ScriptInputs:
@@ -243,14 +241,13 @@
       cameraObject: !<reference.SceneObject> 00000000-0000-0065-0000-000000000064
       leftMarker: !<reference.MarkerTrackingComponent> 05966156-1950-40d5-a44e-0e7acb1fb60f
       rightMarker: !<reference.MarkerTrackingComponent> fc87db82-173b-4990-b323-d659a40980af
-      websocketUrl: "ws://127.0.0.1:8765"
-      tagForwardM: 0.040000
-      tagSideM: 0.160000
-      tagHeightM: 1.020000
-      previewFromTags: true
-      previewTagHalfSpacingM: 0.071000
+      websocketUrl: "ws://192.168.1.145:8765"
+      fallbackWebsocketUrl: "ws://127.0.0.1:8765"
+      tagForwardM: 0.030000
+      tagSideM: 0.130000
+      tagHeightM: 1.019000
       pathRadiusCm: 0.650000
-      allowTemporaryAnchor: true
+      allowTemporaryAnchor: false
   ScriptTypes:
     "":
       {}

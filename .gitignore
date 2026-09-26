@@ -8,3 +8,5 @@ runs/sim_*
 runs/dry-run_*
 runs/packet_*
 runs/chat_inbox/
+# Generated prompt previews (runtime artifacts)
+sim/plans/prompt_*.json

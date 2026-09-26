@@ -1,5 +1,6 @@
 // R1 hand paths in robot_base metres, anchored by shoulder image markers.
-// Robot: x forward, y left, z up. Marker: x image-right, y up, +z outward.
+// Robot: x forward, y left, z up. Shoulder tags lie flat, facing upward.
+// Seeing both shoulders establishes yaw regardless of each paper's rotation.
 // @input Asset.InternetModule internetModule
 // @input Asset.Material leftMaterial
 // @input Asset.Material rightMaterial
@@ -8,13 +9,12 @@
 // @input Component.MarkerTrackingComponent leftMarker
 // @input Component.MarkerTrackingComponent rightMarker
 // @input string websocketUrl = "ws://127.0.0.1:8765"
-// @input float tagForwardM = 0.04
-// @input float tagSideM = 0.16
-// @input float tagHeightM = 1.02
-// @input bool previewFromTags = true
-// @input float previewTagHalfSpacingM = 0.071
+// @input string fallbackWebsocketUrl = ""
+// @input float tagForwardM = 0.03
+// @input float tagSideM = 0.13
+// @input float tagHeightM = 1.019
 // @input float pathRadiusCm = 0.65
-// @input bool allowTemporaryAnchor = true
+// @input bool allowTemporaryAnchor = false
 
 var root = script.getSceneObject();
 var anchor = global.scene.createSceneObject("R1 robot base (world anchored)");
@@ -22,15 +22,23 @@ anchor.setParent(root);
 var leftVisual = makeVisual("Left hand trajectory", script.leftMaterial);
 var rightVisual = makeVisual("Right hand trajectory", script.rightMaterial);
 var socket = null;
+var socketUrlIndex = 0;
 var reconnectAt = 0;
 var lastReceivedAt = -1000;
 var lastMockAt = -1000;
+var hasReceivedTrajectory = false;
+var latestTrajectory = null;
 var hasAnchor = false;
 var tagAnchored = false;
 var lastTagName = "";
 var lastNetworkError = "";
 var liveLogged = false;
 var markerVisibleLastFrame = false;
+var observedTags = {left:null, right:null};
+// Lens Studio's image-marker pose scale follows its configured printed size.
+// A pair of shoulder centres lets us correct for cut-out tags printed smaller
+// or larger than the 10 cm asset setting without changing the robot geometry.
+var worldCmPerRobotCm = 1;
 var statusObject = null;
 var statusVisual = null;
 var statusFrame = null;
@@ -40,7 +48,6 @@ var statusUntil = 0;
 var statusPosition = null;
 var notificationAudio = null;
 var lastNotificationAt = -1000;
-var liveRobotCoordinates = false;
 
 try {
     if (script.tagDetectedSound) {
@@ -111,36 +118,28 @@ function makeVisual(name, material) {
     return visual;
 }
 
-// Upright tag on the robot's front: forward -> marker +z, left -> +x, up -> +y.
-function robotToMarker(p) { return [p[1] * 100, p[2] * 100, p[0] * 100]; }
-function previewFromTags() { return script.previewFromTags !== false; }
-function markerSideM() {
-    return previewFromTags() && !liveRobotCoordinates ?
-        (script.previewTagHalfSpacingM || 0.071) : script.tagSideM;
+// Rendering basis: forward -> +y, robot-left -> -x, up -> +z.
+// The basis is built from the two tag centres, not their printed orientations.
+function robotToMarker(p) {
+    var cm = 100 * worldCmPerRobotCm;
+    return [-p[1] * cm, p[0] * cm, p[2] * cm];
 }
 
-function useMarker(tracker, side, name) {
-    if (!tracker || !tracker.isTracking()) { return false; }
+function observeMarker(tracker, name) {
+    if (!tracker || !tracker.isTracking()) { return null; }
     var t = tracker.getTransform();
     var rotation = t.getWorldRotation();
+    var pos = t.getWorldPosition();
+    observedTags[name] = {position:pos, time:getTime()};
     // Keep the brief label just above the recognized tag as the wearer moves.
-    statusPosition = t.getWorldPosition().add(
-        rotation.multiplyVec3(new vec3(0, 18, 3)));
-    var localOffset = robotToMarker([script.tagForwardM,
-                                     side * markerSideM(), script.tagHeightM]);
-    var offsetWorld = rotation.multiplyVec3(
-        new vec3(localOffset[0], localOffset[1], localOffset[2]));
-    var basePosition = t.getWorldPosition().sub(offsetWorld);
-    var base = anchor.getTransform();
+    statusPosition = pos.add(
+        rotation.multiplyVec3(new vec3(0, 0, 18)));
     var newlySeen = !markerVisibleLastFrame || lastTagName !== name;
-    if (!tagAnchored || newlySeen) {
-        base.setWorldPosition(basePosition);
-        base.setWorldRotation(rotation);
-        // Always update the side label on a switch, even during sound cooldown.
-        if (newlySeen) {
-            print("R1 AR: APRILTAG DETECTED: " + name + " shoulder; trajectories calibrated");
-            showStatus(true, name);
-        }
+    if (newlySeen) {
+        print("R1 AR: APRILTAG DETECTED: " + name + " shoulder");
+        showStatus(true, name);
+    }
+    if (newlySeen) {
         if (getTime() - lastNotificationAt > 2) {
             if (notificationAudio) {
                 notificationAudio.play(1);
@@ -148,20 +147,76 @@ function useMarker(tracker, side, name) {
             }
             lastNotificationAt = getTime();
         }
-    } else {
-        base.setWorldPosition(vec3.lerp(base.getWorldPosition(), basePosition, 0.15));
-        base.setWorldRotation(quat.slerp(base.getWorldRotation(), rotation, 0.15));
     }
-    hasAnchor = true;
-    tagAnchored = true;
     lastTagName = name;
     markerVisibleLastFrame = true;
+    return pos;
+}
+
+function placeAnchor(position, rotation) {
+    var base = anchor.getTransform();
+    var firstCalibration = !tagAnchored;
+    if (!tagAnchored) {
+        base.setWorldPosition(position);
+        base.setWorldRotation(rotation);
+    } else {
+        base.setWorldPosition(vec3.lerp(base.getWorldPosition(), position, 0.15));
+        base.setWorldRotation(quat.slerp(base.getWorldRotation(), rotation, 0.15));
+    }
+    tagAnchored = true;
+    hasAnchor = true;
+    if (firstCalibration && latestTrajectory) { applyTrajectory(latestTrajectory); }
+}
+
+function calibrateFromBothTags() {
+    var left = observedTags.left, right = observedTags.right;
+    if (!left || !right || Math.abs(left.time-right.time) > 10) { return false; }
+    var a=left.position, b=right.position;
+    // Spectacles world has +y vertical. R1 robot-left is right-tag -> left-tag.
+    var lateral = [a.x-b.x, 0, a.z-b.z];
+    var span = Math.sqrt(lateral[0]*lateral[0]+lateral[2]*lateral[2]);
+    if (span < 8 || span > 60) { return false; } // cm; reject unrelated detections
+    var expectedSpan = 2 * script.tagSideM * 100;
+    if (expectedSpan <= 0) { return false; }
+    var measuredScale = span / expectedSpan;
+    if (measuredScale < 0.35 || measuredScale > 2.5) { return false; }
+    if (Math.abs(measuredScale - worldCmPerRobotCm) > 0.01) {
+        worldCmPerRobotCm = measuredScale;
+        if (latestTrajectory) { applyTrajectory(latestTrajectory); }
+        print("R1 AR: shoulder span " + span.toFixed(1) +
+              " world cm; render scale " + measuredScale.toFixed(2));
+    }
+    var leftAxis = unit(lateral), up = [0,1,0];
+    var forward = unit(cross(leftAxis, up));
+    var rotation = quat.fromRotationMat4(mat4.makeBasis(
+        new vec3(-leftAxis[0],-leftAxis[1],-leftAxis[2]),
+        new vec3(forward[0],forward[1],forward[2]), new vec3(0,1,0)));
+    var centre = new vec3((a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2);
+    var offset=robotToMarker([script.tagForwardM,0,script.tagHeightM]);
+    var origin=centre.sub(rotation.multiplyVec3(new vec3(offset[0],offset[1],offset[2])));
+    var firstPair = !tagAnchored;
+    placeAnchor(origin,rotation);
+    if (firstPair) { print("R1 AR: BOTH SHOULDERS CALIBRATED; robot forward from tag baseline"); }
     return true;
 }
 
 function updateAnchor() {
-    if (useMarker(script.leftMarker, 1, "left")) { return; }
-    if (useMarker(script.rightMarker, -1, "right")) { return; }
+    var left=observeMarker(script.leftMarker,"left");
+    var right=observeMarker(script.rightMarker,"right");
+    if (left || right) {
+        if (!calibrateFromBothTags() && tagAnchored) {
+            // A single visible shoulder can update translation after a pair
+            // established orientation. Rescan both after the robot turns.
+            var name=left ? "left" : "right", pos=left || right;
+            var side=name==="left" ? 1 : -1;
+            var base=anchor.getTransform(), rotation=base.getWorldRotation();
+            var offset=robotToMarker([script.tagForwardM,side*script.tagSideM,
+                                      script.tagHeightM]);
+            placeAnchor(pos.sub(rotation.multiplyVec3(
+                new vec3(offset[0],offset[1],offset[2]))),rotation);
+        }
+        return;
+    }
     if (markerVisibleLastFrame) {
         print("R1 AR: shoulder tag lost; holding last calibrated world pose");
         // Keep the success box visible for its full duration. A momentary
@@ -176,7 +231,7 @@ function updateAnchor() {
     anchor.getTransform().setWorldPosition(
         camera.getWorldPosition().add(camera.back.uniformScale(150)));
     hasAnchor = true;
-    print("R1 AR: temporary anchor set; view either tag to calibrate");
+    print("R1 AR: temporary anchor set; view both shoulder tags to calibrate");
 }
 
 function isPoint(p) {
@@ -248,50 +303,51 @@ function applyTrajectory(message) {
         !isTrajectoryPath(message.hands.right)) {
         print("R1 AR: rejected incompatible trajectory"); return;
     }
-    liveRobotCoordinates = message.progress_source === "measured_joints";
-    // Desk preview: translate each robot-frame polyline so its first point is
-    // exactly at that shoulder marker. Keep the path shape and input frame.
-    function drawHand(points, visual, side) {
+    latestTrajectory = message;
+    function drawHand(points, visual) {
         // The feed sends [] when this hand has reached the end of its plan.
         // Disabling also removes any mesh left from the previous update.
         visual.enabled = points.length > 0;
         if (!points.length) { return; }
-        // Live robot positions must never be shifted back to a tag centre.
-        if (!previewFromTags() || liveRobotCoordinates) {
-            drawTube(points, visual); return;
-        }
-        var start = points[0];
-        drawTube(points, visual, function(p) {
-            return robotToMarker([
-                p[0] - start[0] + script.tagForwardM,
-                p[1] - start[1] + side * markerSideM(),
-                p[2] - start[2] + script.tagHeightM
-            ]);
-        });
+        drawTube(points, visual);
     }
-    drawHand(message.hands.left, leftVisual, 1);
-    drawHand(message.hands.right, rightVisual, -1);
+    drawHand(message.hands.left, leftVisual);
+    drawHand(message.hands.right, rightVisual);
 }
 function localMock(phase) {
     var hands={left:[],right:[]};
     for (var i=0; i<30; i++) {
-        var t=i/29, x=0.08+0.42*t, z=0.68+0.22*Math.sin(Math.PI*t*0.7+phase);
-        hands.left.push([x,0.23+0.10*t,z]);
-        hands.right.push([x,-0.23-0.10*t,z+0.04]);
+        // Start at the neutral hand sites in R1_fixed_base.xml, not at a tag.
+        var t=i/29, x=0.2909+0.25*t;
+        var z=0.771+0.18*t+0.03*t*Math.sin(Math.PI*t+phase);
+        hands.left.push([x,0.1386+0.06*t,z]);
+        hands.right.push([x,-0.1386-0.06*t,z]);
     }
     return {type:"trajectory",version:1,id:"local-mock",frame:"robot_base",
             units:"m",hands:hands};
 }
 function connect() {
     if (!script.internetModule) { return; }
+    var urls = [script.websocketUrl];
+    if (script.fallbackWebsocketUrl &&
+        script.fallbackWebsocketUrl !== script.websocketUrl) {
+        urls.push(script.fallbackWebsocketUrl);
+    }
+    var url = urls[socketUrlIndex % urls.length];
     try {
-        socket=script.internetModule.createWebSocket(script.websocketUrl);
-        socket.onopen=function(){lastNetworkError="";print("R1 AR: WebSocket connected to "+script.websocketUrl);};
+        socket=script.internetModule.createWebSocket(url);
+        socket.onopen=function(){lastNetworkError="";print("R1 AR: WebSocket connected to "+url);};
         socket.onmessage=function(event){
             try {
                 var trajectory = JSON.parse(event.data);
                 applyTrajectory(trajectory);
                 lastReceivedAt=getTime();
+                if (trajectory && trajectory.type === "trajectory" &&
+                    trajectory.frame === "robot_base" && trajectory.hands &&
+                    isTrajectoryPath(trajectory.hands.left) &&
+                    isTrajectoryPath(trajectory.hands.right)) {
+                    hasReceivedTrajectory = true;
+                }
                 if (!liveLogged && trajectory && trajectory.hands &&
                     isPath(trajectory.hands.left) && isPath(trajectory.hands.right)) {
                     print("R1 AR: live trajectory received ("+
@@ -302,13 +358,13 @@ function connect() {
         };
         socket.onerror=function(event){
             if (lastNetworkError!=="connection") {
-                print("R1 AR: WebSocket connection failed at "+script.websocketUrl+
-                      "; using local mock ("+event+")");
+                print("R1 AR: WebSocket connection failed at "+url+
+                      "; trying next route ("+event+")");
                 lastNetworkError="connection";
             }
         };
         socket.onclose=function(event){
-            socket=null;reconnectAt=getTime()+2;
+            socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
             if (event && event.code && event.code!==1000 && !lastNetworkError) {
                 print("R1 AR: WebSocket closed with code "+event.code);
                 lastNetworkError="closed";
@@ -320,6 +376,7 @@ function connect() {
             lastNetworkError="unavailable";
         }
         socket=null;
+        socketUrlIndex++;
         reconnectAt=String(e).indexOf("simulated platform")>=0 ? Infinity : getTime()+2;
     }
 }
@@ -338,8 +395,15 @@ script.createEvent("UpdateEvent").bind(function(){
         if (statusTextObject) { statusTextObject.enabled = false; }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }
-    if (getTime()-lastReceivedAt>1.5 && getTime()-lastMockAt>0.3) {
+    // Keep the last real plan on screen when USB/Wi-Fi drops. Only animate a
+    // mock before any robot-frame trajectory has arrived this Lens session.
+    if (!hasReceivedTrajectory && getTime()-lastReceivedAt>1.5 &&
+        getTime()-lastMockAt>0.3) {
         applyTrajectory(localMock(getTime()*0.3));
         lastMockAt=getTime();
+    }
+    if (!tagAnchored) {
+        leftVisual.enabled = false;
+        rightVisual.enabled = false;
     }
 });

@@ -6,24 +6,25 @@ Open `R1 Hand Path Preview.esproj` in Lens Studio 5.15.4. The scene, script, Int
 
 ## Print and place the tags
 
-The Lens now tracks the **bare 36h11 tags**: ID **22** on the robot's left shoulder and ID **23** on its right shoulder, as seen from the robot's perspective. The checked-in reference images are `Print/left-shoulder-id-22.svg` and `Print/right-shoulder-id-23.svg`; print at 100% for a 100 mm square image, including its white border. The tracker is configured for that 100 mm image height. Measure Jone's actual cut-out tags; if their image height differs, change `MarkerHeight` on both `.imgmarker` assets to the measured centimetres. Mount the tags on flat, forward-facing, roughly vertical surfaces. Optional 140 mm labeled cards are also generated, but the Lens matches only the inner tag image.
+The Lens now tracks the **bare 36h11 tags**: ID **22** on the robot's left shoulder and ID **23** on its right shoulder, as seen from the robot's perspective. The checked-in reference images are `Print/left-shoulder-id-22.svg` and `Print/right-shoulder-id-23.svg`. The robot's cut-out tags have approximately **4 cm black squares**. In the tracked PNG asset, the black square occupies 80% of the full image height, so both `.imgmarker` assets are now configured for a **5 cm full image height**. If the cut-outs are measured more precisely, set `MarkerHeight` to the full image height in centimetres (black-square width divided by 0.8). Mount the tags flat on top of the blue shoulder dots, facing **upward**. Their in-plane paper rotation does not matter once both tag centres have been scanned. The optional 100 mm printable image and 140 mm labeled card are larger reference prints; the robot cut-outs are smaller.
 
-These are AprilTag **36h11** images used inside Lens Studio **image markers**. Lens Studio matches each tag as an image; it does not decode an AprilTag ID at runtime. The reference images were generated with OpenCV and independently decoded as IDs 22 and 23. Snap's image-marker tracker recognizes one image at a time; either visible shoulder is enough for this implementation.
+These are AprilTag **36h11** images used inside Lens Studio **image markers**. Lens Studio matches each tag as an image; it does not decode an AprilTag ID at runtime. The reference images were generated with OpenCV and independently decoded as IDs 22 and 23. Snap's image-marker tracker recognizes one image at a time; scan **both shoulders in sequence** to establish the robot's orientation. Subsequent single-tag sightings update its position; scan both again if the robot turns.
 
-On detection, a short cue appears above the tag and says `LEFT SHOULDER` or `RIGHT SHOULDER` for four seconds. The sound remains throttled to at most once every two seconds; switching shoulders updates the label immediately. Without USB-C, tag tracking and the local mock still run on the glasses, but `ws://127.0.0.1:8765` is no longer reachable, so the Mac's saved-plan or live trajectory feed stops updating.
+On detection, a short cue appears above the tag and says `LEFT SHOULDER` or `RIGHT SHOULDER` for four seconds. The sound remains throttled to at most once every two seconds; switching shoulders updates the label immediately. Without USB-C, tag tracking and the local mock still run on the glasses. Once a real trajectory has arrived, the Lens holds its last received path if the feed disconnects instead of replacing it with the mock. `ws://127.0.0.1:8765` is only reachable through the USB tunnel; wireless updates use the Mac's current LAN address (`192.168.1.145` on the hackathon Wi-Fi). Update `websocketUrl` in the scene when that address changes.
 
-For a quick desk test, serve the project directory and open `Print/screen-test.html`. It shows both cards together and has buttons for either card alone. The robot's right card appears on your left when you face the screen. If the screen cannot fit two 14 cm cards, the page reduces them to fit. The default preview half-spacing of 7.1 cm assumes adjacent nominal 14 cm cards with a 2 mm gap; change `previewTagHalfSpacingM` if the displayed or printed centres differ. Screen scaling still makes metric depth approximate.
+For a quick desk detection test, serve the project directory and open `Print/screen-test.html`. It shows both tags together and has buttons for either tag alone. The robot's right tag appears on your left when you face the screen. The paths use robot-frame positions even during this desk test, so they will not emerge from the printed tags.
 
 ## Coordinates and alignment
 
 - Trajectory messages use metres in `robot_base`: **+x forward, +y robot-left, +z up**.
-- The marker's +x is image-right, +y image-up, and +z points out of its front. For forward-facing upright tags, the script maps robot `[x,y,z]` in metres to marker `[y,z,x]` in centimetres.
-- Assumed marker centres in `robot_base`: left `[0.04,+0.16,1.02]` m; right `[0.04,-0.16,1.02]` m. These are estimates based on the R1's approximately 1.23 m standing height, **not measured shoulder offsets**. Change `tagForwardM`, `tagSideM`, and `tagHeightM` in the controller's script inputs after measuring the mounted tags.
-- `previewFromTags` is enabled for the desk test: each polyline is translated so its first point emerges from its corresponding tag centre. This preserves the trajectory shape but deliberately overrides the hand's robot-frame start position. Once the tags are on the R1 and their centres are measured, set `previewFromTags` false and use the measured marker offsets to render the original hand positions.
-- On detection, the Lens computes `T_world_robot = T_world_tag × inverse(T_robot_tag)` and places both paths under that world-space robot anchor. The camera has Device Tracking in World mode, so the paths should remain at the robot while the wearer walks around. The last calibrated pose is retained when a marker leaves view; sighting a tag again corrects accumulated drift. This behavior still needs an on-glasses walking test.
-- Before the first tag sighting, a temporary mock anchor appears about 1.5 m ahead of the wearer. It is replaced by the tag-based anchor as soon as either tag is recognized. Set `allowTemporaryAnchor` false to show paths only after marker detection.
+- The rendering basis maps robot `[x,y,z]` metres to `[-y,x,z]` centimetres. For the **upward-facing shoulder tags**, the Lens uses the vector from the right tag to the left tag as robot-left, world up as robot-up, and their cross product as robot-forward. This uses the tag centres, so their printed top edges may face different directions. The previous vertical-tag mapping produced a large orientation error.
+- The fixed-base MuJoCo model places the shoulder pitch joints at `[0.0325,±0.0857,0.9865]` m. The visual shoulder shells span approximately `x=-0.004..0.069`, `|y|=0.080..0.177`, `z=0.932..1.025` m. The photos place the stickers on the dark top shoulder caps. We added approximate sticker squares and `left_shoulder_tag_center` / `right_shoulder_tag_center` sites to `sim/models/r1/R1_fixed_base.xml`. In the model's zero-joint pose, their `robot_base` coordinates are `[0.030,+0.130,1.019]` m and `[0.030,-0.130,1.019]` m. This is a model-based estimate, not a measured survey of the robot. The neutral hand sites are `[0.2909,±0.1386,0.7710]` m, so each path starts about **26.1 cm forward and 24.8 cm below** its tag in the zero-joint model. The Lens uses these tag coordinates. The 5 cm marker-image size and 26 cm tag-centre span are still approximate; two-tag calibration applies a residual scale correction when they differ.
+- The stickers sit on the shoulder-pitch links, which are movable. Their `robot_base` coordinates above apply to the model's zero-joint pose. The sites follow the links in MuJoCo; after robot joint telemetry is connected, the calibration should use the measured shoulder and waist joints when the arms or torso move. Until then, rescan both tags in a similar arm pose, or treat a moving-arm calibration as approximate.
+- Planned paths retain their true robot-frame hand positions. The earlier desk test translated each polyline so its first point emerged from a tag; that behavior caused the misplaced paths on the robot and has been removed. The marker-to-robot offset is separate from the hand trajectory.
+- After both tags have been sighted within ten seconds, the Lens computes a robot world anchor from their centres and the estimated tag height. The camera has Device Tracking in World mode, so the paths should remain at the robot while the wearer walks around. The last calibrated pose is retained when a marker leaves view; either tag then corrects translation. This behavior still needs an on-glasses walking test.
+- This scene sets `allowTemporaryAnchor` false and hides both lines until the pair is calibrated, avoiding misleading paths at a random initial position.
 
-The mock path starts around `[0.08,±0.23,0.68]` m in the message and arcs forward toward `x≈0.50` m. In preview mode, its first rendered point is moved to its tag. Cyan is left; orange is right. `pathRadiusCm` controls tube thickness.
+The offline mock starts at the neutral hand sites from the MuJoCo model, `[0.2909,±0.1386,0.771]` m, and reaches forward and upward. It is only a plausible preview, used until a real trajectory arrives; the actual hand start must come from a plan resolved against the robot's measured joints. Cyan is left; orange is right. `pathRadiusCm` controls tube thickness.
 
 ## Trajectory feed
 
@@ -33,7 +34,13 @@ On this Mac, run from the project directory:
 python3 trajectory_server.py --host 0.0.0.0 --port 8765
 ```
 
-The server requires Python 3.10+ and the `websockets` package (already installed on this Mac). It emits four updates per second. The script currently points at `ws://127.0.0.1:8765` for a **wired ADB reverse tunnel**. With the Spectacles attached by USB, run `adb reverse tcp:8765 tcp:8765` before previewing the Lens. Run `adb reverse --list` to confirm the tunnel. A wireless setup can instead point `websocketUrl` at the Mac's LAN address (`ipconfig getifaddr en0`), but both devices must be on a network that permits client-to-client traffic. The Lens uses its built-in animated mock if no feed arrives. On-device access to local `ws://` requires the project's enabled Experimental APIs flag; Lens Studio's ordinary desktop preview does not expose this WebSocket API.
+For an alignment check with fixed paths, add `--static`. This holds both
+paths at the model's neutral hand starts and leaves their endpoints unchanged;
+it does not represent measured robot motion.
+
+The server requires Python 3.10+ and the `websockets` package. It emits four updates per second. The current Lens tries Jonathan's hackathon-Wi-Fi address (`ws://192.168.1.145:8765`), then `ws://127.0.0.1:8765` through a **wired ADB reverse tunnel**. That first address is only a snapshot: it will not point to Artur's Mac. For a wired demo on Artur's Mac, plug the glasses into his Mac and run `adb reverse tcp:8765 tcp:8765`; the fallback URL then reaches his local feed without editing or rebuilding the Lens. To try wireless later, put Artur's Mac and the glasses on the same hotspot, set `websocketUrl` in the Lens Inspector to Artur's hotspot IP, save, and resend the Lens. The Lens uses its built-in animated mock until a feed arrives, then holds the last received path if both routes disconnect. On-device access to local `ws://` requires the project's enabled Experimental APIs flag; Lens Studio's ordinary desktop preview does not expose this WebSocket API.
+
+The included server is an **animated trajectory test**, not robot telemetry. Both hands start at the model's neutral hand sites; their planned endpoints change shape roughly every nine seconds while their starting points stay fixed. It can verify that the Lens receives live plan updates over Wi-Fi, but it cannot show measured hand movement or shorten a path as the robot moves.
 
 Example message:
 
@@ -57,6 +64,32 @@ Example message:
 .venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json --print   # one message, no server
 ```
 
+### One-Mac wired demo on Artur's robot Mac
+
+Artur does **not** need Lens Studio to serve trajectories or read robot joints. The already-sent Lens can use USB to his Mac while it remains running on the glasses. Lens Studio is needed only to install, resend, or edit the Lens. The robot stays on its Ethernet link; the Mac's Wi-Fi or hotspot is independent of the wired USB feed.
+
+From Artur's copy of this repository, with the R1 on its existing Ethernet interface (replace `en6` if his interface differs):
+
+```sh
+# Once per USB connection, with the glasses plugged into Artur's Mac:
+adb devices
+adb reverse tcp:8765 tcp:8765
+
+# Terminal 1: read robot pose and serve remaining hand paths; no robot commands:
+.venv/bin/python spectacles/plan_feed.py tools/plans/cup_grab_right.json --robot-iface en6
+```
+
+`adb` is supplied by Homebrew's `android-platform-tools` if it is missing. The Python environment needs `mujoco`, `numpy`, `websockets`, and `unitree_sdk2py` as used by the existing robot tools. The feed prints `listening on en6, domain 0` when DDS starts, `loaded ...` when the plan is valid, and `Lens connected: ...` when the glasses reach it. The `rt/lowstate` readings must arrive before the path can shorten; a plan file can still be shown without robot state. The current plan is re-read whenever its file changes.
+
+To start from the robot's actual measured arm pose, first dry-run the plan on Artur's Mac with the existing command tool, then serve its resolved output instead:
+
+```sh
+.venv/bin/python tools/arm_lift.py en6 --plan tools/plans/cup_grab_right.json
+.venv/bin/python spectacles/plan_feed.py sim/plans/arm_lift_dryrun.json --robot-iface en6
+```
+
+The dry run and feed above only read the robot; neither publishes a movement command. If a separate controller later sends the corresponding `rt/arm_sdk` command, the feed uses measured `rt/lowstate` joints to shorten the path. If that controller writes a new plan JSON file, the feed reloads it and updates the glasses. There is no need to run `tools/relay.py` when `--robot-iface` is used on the robot-side Mac. `--state-url` remains available when the feed runs on a different computer.
+
 To see what the robot would actually do, run `tools/arm_lift.py IFACE --plan ...` without `--execute`. That dry run only subscribes and publishes nothing. It writes the resolved plan, starting from the measured pose and including the measured angles of the joints that stay put, to `sim/plans/arm_lift_dryrun.json`. Serve that file with `plan_feed.py`. The feed re-reads the file when it changes, so the next dry run appears on the glasses without a restart. Stop `trajectory_server.py` first and keep the `adb reverse` tunnel. For reference, the model's shoulder pitch joints sit at `[0.032, ±0.086, 0.986]` m.
 
 ### Live remaining path from measured joints
@@ -71,7 +104,7 @@ Use the same approved plan file for the feed and the command sender. If the feed
 
 When the relay reports active `rt/arm_sdk` commands, the feed matches **measured** joint angles against the plan's joint samples, advances monotonically, computes the current hand locations by forward kinematics, and sends only the remaining hand paths. It sends an empty path for a completed or stationary hand, which hides that line. New plan files reset progress. If state or the network goes stale, the last remaining path is held; it is not advanced using elapsed time or anything seen by Spectacles. Joint-space matching can be ambiguous when a plan revisits the same pose, so an explicit execution progress signal would be needed for those plans.
 
-The Lens ignores `previewFromTags` for measured-state messages so the path starts at the reported hand, not the tag. The tag-to-robot offsets are still estimates until the cards are mounted and measured; set `tagForwardM`, `tagSideM`, and `tagHeightM` to those measurements before evaluating physical alignment.
+The path starts at the reported hand, not the tag. The tag-to-robot offsets are still estimates until the papers are measured on the robot; set `tagForwardM`, `tagSideM`, and `tagHeightM` to those measurements before evaluating physical alignment.
 
 Each visible hand needs 2–512 finite `[x,y,z]` points; an empty array hides a completed hand. A real R1 planner can send the same schema; the Lens does not need the robot online to test alignment. Reins' `contract/` uses `plan_proposed` messages, so a bridge must extract hand paths and convert them to the robot frame before using the production core.
 
@@ -79,7 +112,7 @@ Each visible hand needs 2–512 finite `[x,y,z]` points; an empty array hides a 
 
 Lens Studio imports this scene and runs the renderer without script errors in desktop preview. The Mac's ADB sees the wired Spectacles, and Lens Studio reports a successful wired connection. The ID 22/23 bare-tag version was sent and successfully started on Spectacles; the Lens received the live saved-plan trajectory over USB. Jonathan confirmed that **both physical tags were detected on Spectacles**. A lost tag holds the last world pose. World stability, physical tag dimensions, and assumed shoulder offsets still need testing after mounting the tags on the robot.
 
-With the USB tunnel active, use Lens Studio's **Preview Lens → Send to Spectacles**. With the robot off, hold a printed tag at roughly shoulder height or mount it on a stand. Move the glasses laterally and around the tag: the cyan/orange paths should remain in the same place. Cover the tag, walk a short distance, then expose it again to observe relocalization. If the paths appear mirrored or point into the robot, check that both tags are upright and forward-facing before adjusting the coordinate mapping. When USB-C is removed, the Lens keeps drawing its local mock trajectory, but the live Mac WebSocket feed via `adb reverse` stops; wireless live trajectories need a reachable Wi-Fi host/port configured in `websocketUrl`.
+Use Lens Studio's **Preview Lens → Send to Spectacles**, then scan the left and right robot-mounted tags within ten seconds. The cyan/orange paths should begin near the model's hand sites, below and forward of the tags, and remain fixed around the robot as you walk. Cover both tags, walk a short distance, then expose one again to observe translation correction; scan both again if the robot turns. When USB-C is removed, the Lens keeps drawing its last received trajectory and world anchor. For continuing joint-position and trajectory updates, the wireless WebSocket route must be reachable; otherwise the displayed plan stays frozen. Restarting the Lens without a feed starts the local mock again.
 
 Snap references: [marker tracking](https://developers.snap.com/lens-studio/features/ar-tracking/world/marker-tracking), [world tracking](https://developers.snap.com/lens-studio/features/ar-tracking/world/tracking-modes), [WebSocket API](https://developers.snap.com/spectacles/about-spectacles-features/apis/web-socket), [connecting Spectacles](https://developers.snap.com/spectacles/get-started/start-building/connecting-lens-studio-to-spectacles), [Unitree R1 dimensions](https://www.unitree.com/mobile/R1/).
 
