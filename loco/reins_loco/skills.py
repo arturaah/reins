@@ -133,8 +133,9 @@ def ensure_walking(loco: Loco) -> int:
 
 def execute_walk_step(step: dict, loco: Loco, tick: Callable[[float], None] = time.sleep,
                       timeout: float = 120.0,
-                      should_stop: Callable[[], bool] = lambda: False) -> FollowResult:
-    """Walk an approved contract `walk` step."""
+                      should_stop: Callable[[], bool] = lambda: False,
+                      pos_tolerance: float = 0.08) -> FollowResult:
+    """Walk an approved contract `walk` step, arriving within `pos_tolerance` metres of the goal."""
     if step.get("kind") != "walk":
         raise ValueError("not a walk step")
     if step["goal"]["frame"] != "map" or step.get("path", {}).get("frame", "map") != "map":
@@ -147,5 +148,5 @@ def execute_walk_step(step: dict, loco: Loco, tick: Callable[[float], None] = ti
     points = [[start.x, start.y], *points[1:]] if len(points) > 1 else [[start.x, start.y], points[0]]
     goal = step["goal"]
     points[-1] = [goal["x"], goal["y"]]
-    follower = PathFollower(points, goal.get("yaw"), loco.limits)
+    follower = PathFollower(points, goal.get("yaw"), loco.limits, pos_tolerance=pos_tolerance)
     return drive(loco, follower, tick=tick, timeout=timeout, should_stop=should_stop)

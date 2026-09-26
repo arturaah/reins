@@ -36,11 +36,16 @@ STRIDE = walk_preview.STRIDE
 
 class SimLoco:
     def __init__(self, scene: Path = SCENE_ROOM, start: Pose2 = Pose2(0, 0, 0),
-                 limits: Limits = Limits()):
+                 limits: Limits = Limits(), model: mujoco.MjModel | None = None,
+                 poser: walk_preview.Poser | None = None, footprint: float = FOOTPRINT_RADIUS):
+        """`model` overrides `scene` for callers that build their own; `poser` lets
+        them pose more of the robot than the base and gait; `footprint` is the
+        radius kept clear of obstacles."""
         self.limits = limits
-        self.model = mujoco.MjModel.from_xml_path(str(scene))
+        self.footprint = footprint
+        self.model = model if model is not None else mujoco.MjModel.from_xml_path(str(scene))
         self.data = mujoco.MjData(self.model)
-        self.poser = walk_preview.Poser(self.model)
+        self.poser = poser or walk_preview.Poser(self.model)
         self.obstacles = _obstacles(self.model)
         self.time = 0.0
         self._fsm = FSM_DAMP
@@ -102,7 +107,7 @@ class SimLoco:
     def clearance(self, pose: Pose2 | None = None) -> float:
         """Distance from the footprint edge to the nearest obstacle (inf if none)."""
         p = pose or self._pose
-        return min((ob.distance(p.x, p.y) for ob in self.obstacles), default=math.inf) - FOOTPRINT_RADIUS
+        return min((ob.distance(p.x, p.y) for ob in self.obstacles), default=math.inf) - self.footprint
 
     def _set_fsm(self, fsm: int) -> int:
         self._fsm = fsm
