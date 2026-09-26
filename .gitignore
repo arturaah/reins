@@ -2,3 +2,8 @@
 __pycache__/
 sim/arm_lift_preview.json
 sim/plans/arm_lift_dryrun.json
+
+# VLM harness episode logs: sim and dry runs are throwaway; live runs are kept
+runs/sim_*
+runs/dry-run_*
+runs/packet_*
