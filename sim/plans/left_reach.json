@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "name": "left arm reach and retract",
+  "duration_s": 4.0,
+  "keyframes": [
+    {"time_s": 0.0, "joint_targets_rad": {"left_shoulder_pitch_joint": 0.0, "left_elbow_joint": 0.0}},
+    {"time_s": 1.0, "joint_targets_rad": {"left_shoulder_pitch_joint": 0.275, "left_elbow_joint": 0.225}},
+    {"time_s": 2.0, "joint_targets_rad": {"left_shoulder_pitch_joint": 0.55, "left_elbow_joint": 0.45}},
+    {"time_s": 3.0, "joint_targets_rad": {"left_shoulder_pitch_joint": 0.275, "left_elbow_joint": 0.225}},
+    {"time_s": 4.0, "joint_targets_rad": {"left_shoulder_pitch_joint": 0.0, "left_elbow_joint": 0.0}}
+  ]
+}

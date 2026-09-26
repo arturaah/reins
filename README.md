@@ -16,4 +16,4 @@ Where we add value is the interaction between the VLM and the human. Before the 
 
 ## Status
 
-Intention only. No code yet.
+A first simulation-only preview is available in [`sim/`](sim/README.md). It loads Unitree R1, predicts a named-joint plan, draws the planned hand path, and exports world-frame points for future AR rendering. It does not command physical hardware.
