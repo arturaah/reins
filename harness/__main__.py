@@ -186,6 +186,7 @@ def cmd_measure(a, cfg):
 
 
 def main():
+    sys.stdout.reconfigure(line_buffering=True)          # progress lines show up live in logs and pipes
     ap = argparse.ArgumentParser(prog="harness", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config"); ap.add_argument("--set", action="append", metavar="KEY=VALUE")
     ap.add_argument("--arm", choices=["left", "right"]); ap.add_argument("--profile", choices=["precision", "coarse_fine"])

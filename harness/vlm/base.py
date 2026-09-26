@@ -41,4 +41,7 @@ def make(cfg, name=None):
     if name == "scripted":
         from .scripted import ScriptedVLM
         return ScriptedVLM()
+    if name == "chat":
+        from .chat import ChatVLM
+        return ChatVLM(cfg)
     raise ValueError(f"unknown vlm provider {name!r}")

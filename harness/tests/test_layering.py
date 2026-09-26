@@ -5,7 +5,7 @@ import sys
 ALGORITHM_MODULES = ["harness.actions", "harness.interpreter", "harness.kinematics", "harness.safety",
                      "harness.executor", "harness.prompts", "harness.perception", "harness.loop",
                      "harness.recorder", "harness.config", "harness.sim.mock_robot", "harness.vlm.base",
-                     "harness.vlm.scripted", "harness.robot.arm_client"]
+                     "harness.vlm.scripted", "harness.vlm.chat", "harness.robot.arm_client"]
 
 
 def test_algorithm_layer_has_no_sdk_import():
