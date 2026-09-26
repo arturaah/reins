@@ -76,7 +76,7 @@ perception:
   context_camera: null       # {fx, fy, cx, cy, pos_m: [x,y,z], quat_wxyz: [w,x,y,z]} in the robot frame, for the marker
 
 vlm:
-  provider: chat             # chat (the Claude session driving this repo answers via runs/chat_inbox) | anthropic | openai | scripted
+  provider: chat             # chat (this Claude session answers via runs/chat_inbox) | claude-cli (claude -p, the Mac's Claude login) | anthropic | openai | scripted
   chat_inbox: runs/chat_inbox
   chat_timeout_s: 900
   model: claude-fable-5-1

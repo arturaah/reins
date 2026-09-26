@@ -15,9 +15,11 @@ algorithm layer ever imports `unitree_sdk2py`.
 `vlm.provider` picks who decides. Default `chat`: the Claude session driving this repo (no API
 key). Each planner or controller call lands in `runs/chat_inbox/<NNN>_<plan|act>/` as
 `prompt.txt`, `context.jpg`, `right.jpg` and `request.json`; the loop blocks until `answer.json`
-is written there with the model's JSON answer, then continues. `anthropic` calls the API with
-`ANTHROPIC_API_KEY`; `scripted` is the test stand-in. First chat-driven sim episode 2026-09-26:
-3 steps, one chunk of two MV_DOWN, DONE, success.
+is written there with the model's JSON answer, then continues. `claude-cli` runs `claude -p` under the
+Mac's Claude login for unattended loops (about 20 to 25 s per step, images read by the CLI's Read
+tool, JSON schema enforced). `anthropic` calls the API with `ANTHROPIC_API_KEY`; `scripted` is the
+test stand-in. First chat-driven sim episode 2026-09-26: 3 steps, one chunk of two MV_DOWN, DONE,
+success.
 
 ## Run
 
@@ -25,7 +27,7 @@ Everything uses the repo venv (`.venv/bin/python`, see CLAUDE.md step 6) plus `a
 `pytest`, `pyyaml`. All numbers live in [config.yaml](config.yaml); override any with `--set key=value`.
 
 ```
-.venv/bin/python -m pytest harness                       # 65 tests, no hardware, about 3 s
+.venv/bin/python -m pytest harness                       # 66 tests, no hardware, about 3 s
 
 # simulation: kinematic mock on the MuJoCo scene, rendered cameras
 MUJOCO_GL=cgl .venv/bin/python -m harness sim "move your hand above the block"        # chat provider

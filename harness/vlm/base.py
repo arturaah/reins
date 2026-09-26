@@ -44,4 +44,7 @@ def make(cfg, name=None):
     if name == "chat":
         from .chat import ChatVLM
         return ChatVLM(cfg)
+    if name == "claude-cli":
+        from .claude_cli import ClaudeCliVLM
+        return ClaudeCliVLM(cfg)
     raise ValueError(f"unknown vlm provider {name!r}")
