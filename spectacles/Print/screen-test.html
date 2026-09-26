@@ -7,8 +7,8 @@
   html,body{margin:0;min-height:100%;background:#fff;color:#111;font:16px system-ui,sans-serif}
   body{display:flex;align-items:center;justify-content:center;min-height:100vh;box-sizing:border-box}
   #cards{display:flex;align-items:center;gap:2mm;width:max-content}
-  .card{width:min(140mm,calc((100vw - 2mm)/2));height:auto;aspect-ratio:1;object-fit:contain;image-rendering:pixelated;display:block;flex:none}
-  #cards[data-mode="left"] .card,#cards[data-mode="right"] .card{width:min(140mm,95vw)}
+  .card{width:min(100mm,calc((100vw - 2mm)/2));height:auto;aspect-ratio:1;object-fit:contain;image-rendering:pixelated;display:block;flex:none}
+  #cards[data-mode="left"] .card,#cards[data-mode="right"] .card{width:min(100mm,95vw)}
   #cards[data-mode="left"] #right-card,#cards[data-mode="right"] #left-card{display:none}
   .controls{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:6px;white-space:nowrap;background:#fffffff0;padding:5px;border-radius:7px}
   button{font:inherit;padding:5px 10px;border:1px solid #555;border-radius:6px;background:#eee;cursor:pointer}
@@ -17,26 +17,26 @@
   #note.warn{color:#a32310;font-weight:700}
 </style>
 <div id="cards" data-mode="both">
-  <img id="right-card" class="card" src="../Assets/Markers/Right%20Shoulder%20Tracking%20Card.png" alt="R1 right shoulder tracking card, AprilTag 36h11 ID 1">
-  <img id="left-card" class="card" src="../Assets/Markers/Left%20Shoulder%20Tracking%20Card.png" alt="R1 left shoulder tracking card, AprilTag 36h11 ID 0">
+  <img id="right-card" class="card" src="../Assets/Markers/Right%20AprilTag%2036h11%20ID%2023.png" alt="R1 right shoulder AprilTag 36h11 ID 23">
+  <img id="left-card" class="card" src="../Assets/Markers/Left%20AprilTag%2036h11%20ID%2022.png" alt="R1 left shoulder AprilTag 36h11 ID 22">
 </div>
-<div id="note">Both tracking cards are visible. This side-by-side layout tests detection, not robot-space alignment.</div>
+<div id="note">Both tags are visible. This side-by-side layout tests detection, not robot-space alignment.</div>
 <div class="controls">
   <button id="both" class="active">Both</button>
-  <button id="left">ID 0 only</button>
-  <button id="right">ID 1 only</button>
+  <button id="left">ID 22 only</button>
+  <button id="right">ID 23 only</button>
   <button id="full">Full screen</button>
 </div>
 <script>
 const cards=document.getElementById('cards');
 const note=document.getElementById('note');
 function checkFit(){
-  const actualWidthPx=140*96/25.4;
+  const actualWidthPx=100*96/25.4;
   const smaller=document.getElementById('left-card').getBoundingClientRect().width<actualWidthPx-2;
   note.classList.toggle('warn',smaller);
   note.textContent=smaller
-    ? 'Cards fit this window but are smaller than 14 cm. Detection test only; use printed cards on the robot for alignment.'
-    : 'Cards are nominally 14 cm each. This side-by-side layout tests detection only; check physical size with a ruler.';
+    ? 'Tags fit this window but are smaller than 10 cm. Detection test only; use measured physical tags on the robot for alignment.'
+    : 'Tags are nominally 10 cm each. This side-by-side layout tests detection only; check physical size with a ruler.';
 }
 function choose(mode){
   cards.dataset.mode=mode;

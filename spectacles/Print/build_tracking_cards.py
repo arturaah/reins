@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Build 14 cm image-tracking cards around unchanged 10 cm AprilTag cores."""
+"""Build 36h11 shoulder tags and optional 14 cm labeled print cards."""
 from pathlib import Path
 import base64
+import cv2
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,7 +13,22 @@ FONT = '/System/Library/Fonts/Supplemental/Arial Black.ttf'
 
 
 def make(side: str, tag_id: int) -> None:
-    core = Image.open(MARKERS / f'{side} AprilTag 36h11 ID {tag_id}.png').convert('RGB')
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+    # Match the earlier assets: 80 mm tag plus a 10 mm white quiet zone on each side.
+    # A 180-degree rotation matches the AprilTag images previously used in this project.
+    tag = np.rot90(cv2.aruco.generateImageMarker(dictionary, tag_id, 800), 2)
+    core = Image.new('RGB', (1000, 1000), 'white')
+    core.paste(Image.fromarray(tag).convert('RGB'), (100, 100))
+    core_path = MARKERS / f'{side} AprilTag 36h11 ID {tag_id}.png'
+    core.save(core_path, optimize=True)
+    core_b64 = base64.b64encode(core_path.read_bytes()).decode('ascii')
+    (PRINT / f'{side.lower()}-shoulder-id-{tag_id}.svg').write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+        f'width="120mm" height="125mm" viewBox="0 0 120 125">'
+        f'<rect width="120" height="125" fill="white"/>'
+        f'<image x="10" y="5" width="100" height="100" xlink:href="data:image/png;base64,{core_b64}"/>'
+        f'<text x="10" y="117" font-family="Arial" font-size="5">R1 {side.upper()} shoulder · tag36h11 ID {tag_id} · 100 mm image</text>'
+        f'</svg>')
     assert core.size == (1000, 1000)
     card = Image.new('RGB', (1400, 1400), 'white')
     draw = ImageDraw.Draw(card)
@@ -60,5 +77,5 @@ def make(side: str, tag_id: int) -> None:
     print(png)
 
 
-make('Left', 0)
-make('Right', 1)
+make('Left', 22)
+make('Right', 23)
