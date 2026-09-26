@@ -1,0 +1,95 @@
+# Every number the harness uses. Metres, radians, seconds unless the key says otherwise.
+# Frames: robot base = floor under the pelvis, x forward, y left, z up (contract/README.md).
+# The fixed-base MuJoCo model pins the pelvis at z=0.74 in this frame.
+
+robot:
+  model: sim/models/r1/scene_fixed_base.xml   # relative to the repo root
+  arm: right                                   # single-arm mode: left | right
+  dual_arm: false
+  hold_head: true                              # keep head pitch/yaw at their measured values while engaged
+  # Where an episode starts: upper arm down, forearm horizontal forward, hand tip 30 cm ahead at 75% reach
+  # (0.30, -0.15, 0.78) m. The controller's own standing pose hangs the arm nearly straight down: hand 14 cm under
+  # table height, at its reach limit, so nothing can be done from there. Not yet executed on the robot.
+  start_pose_rad:
+    right: [-0.05, -0.23, 0.13, 0.0, 0.0]   # shoulder pitch, roll, yaw, elbow, wrist roll
+    left:  [-0.05,  0.23, -0.13, 0.0, 0.0]
+  ee_offset_m: 0.13                          # hand tip = wrist roll link + this along its x (the model's preview site)
+  command_rate_hz: 50
+  weight_ramp_s: 1.0
+
+frames:
+  # Directions of the CONTEXT camera image expressed in the robot base frame.
+  # The head camera looks forward: image-forward (away from the camera) = +x, image-left = +y.
+  # Up/down is gravity (+z). Change these if the context camera moves.
+  view_forward: [1.0, 0.0, 0.0]
+  view_left:    [0.0, 1.0, 0.0]
+
+workspace:
+  table_z_m: null            # robot frame; null = not measured. The live gate refuses to run without it.
+  sim_table_z_m: 0.665       # top of pickup_table in scene_fixed_base.xml
+  table_margin_m: 0.02       # the hand tip never goes below table_z + margin
+  box_min_m: [0.15, -0.60, 0.55]
+  box_max_m: [0.60,  0.60, 1.25]
+
+steps:
+  profile: precision         # coarse_fine | precision
+  coarse_m: 0.04             # wrist camera does not see the target
+  fine_m: 0.02               # wrist camera sees the target
+  rotate_deg: 15.0
+  precision: {step_m: 0.01, rotate_deg: 5.0}
+  max_translation_m: 0.05    # hard cap per unit-mode command, whatever the model asks
+  max_rotation_deg: 20.0
+  param_max_translation_m: 0.20   # MOVE <axis> <cm> is clipped here
+  param_max_rotation_deg: 90.0    # ROTATE <axis> <deg> is clipped here
+
+limits:
+  joint_margin_rad: 0.05
+  max_joint_vel_rad_s: 0.8
+  min_move_s: 0.4
+  settle_vel_rad_s: 0.05
+  settle_timeout_s: 3.0
+  tracking_abort_rad: 0.6
+  ik_tol_m: 0.005
+  ik_iters: 200
+
+hand:
+  type: none                 # none (this R1 has no hand: GRASP/RELEASE pause) | virtual (sim only)
+  pause_s: 1.0
+  grasp_reach_m: 0.03        # sim: an object within this distance of the hand tip is grasped
+
+loop:
+  max_steps: 60
+  history_len: 5
+  chunk_max: 3
+  ik_fail_home_after: 3
+  reprompt_once: true
+
+perception:
+  width_px: 640
+  jpeg_quality: 80
+  grid: true
+  grid_cols: 8               # A..H
+  grid_rows: 6               # 1..6
+  hand_marker: false         # needs context_camera below
+  context_url: http://localhost:8081/cam
+  wrist_urls: {left: "http://localhost:8080/cam/0", right: "http://localhost:8080/cam/2"}
+  context_camera: null       # {fx, fy, cx, cy, pos_m: [x,y,z], quat_wxyz: [w,x,y,z]} in the robot frame, for the marker
+
+vlm:
+  provider: anthropic        # anthropic | openai | scripted
+  model: claude-fable-5-1
+  effort: medium             # low | medium | high | xhigh | max
+  max_tokens: 2000
+  timeout_s: 120
+  retries: 2
+  fallbacks: null            # null: a refusal ends the step. "default": server-side refusal fallback to another model.
+  openai_model: gpt-6-astra
+
+recorder:
+  root: runs
+
+streamer:                    # harness/robot/arm_stream.py, the only process that publishes on rt/arm_sdk
+  host: 127.0.0.1
+  port: 8790
+  heartbeat_s: 0.1
+  watchdog_s: 0.5
