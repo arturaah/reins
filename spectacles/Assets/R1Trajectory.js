@@ -290,6 +290,16 @@ function calibrateFromBothTags() {
     return true;
 }
 
+function calibrationPrompt() {
+    var now = getTime();
+    var leftSeen = observedTags.left && now - observedTags.left.time <= 10;
+    var rightSeen = observedTags.right && now - observedTags.right.time <= 10;
+    if (leftSeen && rightSeen) { return "BOTH TAGS SEEN\nKEEP THEM IN VIEW"; }
+    if (leftSeen) { return "LEFT TAG FOUND\nSCAN RIGHT SHOULDER"; }
+    if (rightSeen) { return "RIGHT TAG FOUND\nSCAN LEFT SHOULDER"; }
+    return "CALIBRATE R1\nSCAN BOTH SHOULDER TAGS";
+}
+
 function updateAnchor() {
     var left=observeMarker(script.leftMarker,"left");
     var right=observeMarker(script.rightMarker,"right");
@@ -608,7 +618,7 @@ script.createEvent("UpdateEvent").bind(function(){
         if (statusTextObject) { statusTextObject.enabled = false; }
     }
     if (reviewObject && script.cameraObject) {
-        reviewObject.enabled = !!pendingReview;
+        reviewObject.enabled = !!pendingReview || !tagAnchored;
         if (reviewObject.enabled) {
             var cameraTransform = script.cameraObject.getTransform();
             var panel = reviewObject.getTransform();
@@ -618,10 +628,10 @@ script.createEvent("UpdateEvent").bind(function(){
             if (reviewChoice && !reviewSent && getTime() - reviewChoiceAt >= 4) {
                 reviewChoice = ""; reviewMessage = "";
             }
-            reviewText.text = "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
+            reviewText.text = !tagAnchored ? calibrationPrompt() :
+                "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
                 String(pendingReview.text || "NEW PATH").slice(0, 38) + "\n" +
-                (reviewMessage || (!tagAnchored ? "SCAN BOTH TAGS FIRST" :
-                 !socketReady ? "WAITING FOR CONNECTION" :
+                (reviewMessage || (!socketReady ? "WAITING FOR CONNECTION" :
                  "RIGHT x2 ACCEPT   LEFT x2 REJECT"));
         }
     }
