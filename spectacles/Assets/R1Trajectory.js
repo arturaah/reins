@@ -66,10 +66,28 @@ var voiceStartedAt = -1;
 var voiceMessage = "";
 var voiceMessageUntil = 0;
 var voicePinchAt = -1000;
+var voiceCancelPinchAt = -1000;
 var voiceCommandId = "";
 var voiceSequence = 0;
 var voiceGestureLockUntil = 0;
 var microphoneBlocked = false;
+var voiceSessionId = 0;
+var voiceUpdateCount = 0;
+
+function speechInternetAvailable() {
+    try {
+        if (global.deviceInfoSystem && global.deviceInfoSystem.isInternetAvailable) {
+            return global.deviceInfoSystem.isInternetAvailable();
+        }
+    } catch (e) { print("R1 AR voice internet check: " + e); }
+    return null;
+}
+function noSpeechNotice() {
+    var internet = speechInternetAvailable();
+    if (internet === false) { voiceNotice("NO INTERNET FOR SPEECH"); }
+    else if (voiceUpdateCount === 0) { voiceNotice("SPEECH SERVICE RETURNED NO WORDS"); }
+    else { voiceNotice("SPEECH RESULT EMPTY"); }
+}
 
 function voiceText() {
     return (voiceFinal.join(" ") + " " + voicePartial).trim();
@@ -89,22 +107,25 @@ function stopVoice(send) {
         return;
     }
     voiceListening = false;
+    voiceSessionId++;
     voiceSendRequestedAt = -1;
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
     voiceNotice("VOICE CANCELLED");
 }
 function startVoice() {
-    if (!tagAnchored) { voiceNotice("SCAN BOTH SHOULDER TAGS FIRST"); return; }
     if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
     if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
     if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
-    voiceFinal = []; voicePartial = ""; voiceSendRequestedAt = -1;
+    if (speechInternetAvailable() === false) { voiceNotice("NO INTERNET FOR SPEECH"); return; }
+    voiceFinal = []; voicePartial = ""; voiceSendRequestedAt = -1; voiceUpdateCount = 0;
+    var sessionId = ++voiceSessionId;
     try {
         var options = AsrModule.AsrTranscriptionOptions.create();
         options.mode = AsrModule.AsrMode.HighAccuracy;
         options.silenceUntilTerminationMs = 1200;
         options.onTranscriptionUpdateEvent.add(function(update) {
-            if (!voiceListening) { return; }
+            if (!voiceListening || sessionId !== voiceSessionId) { return; }
+            voiceUpdateCount++;
             print("R1 AR voice: ASR update final=" + !!update.isFinal +
                   " chars=" + String(update.text || "").length);
             if (update.isFinal) {
@@ -122,28 +143,39 @@ function startVoice() {
             }
         });
         options.onTranscriptionErrorEvent.add(function(code) {
+            if (sessionId !== voiceSessionId) { return; }
             voiceListening = false;
-            microphoneBlocked = true;
-            voiceNotice("SPEECH ERROR " + code);
+            voiceSessionId++;
+            if (code === AsrModule.AsrStatusCode.Unauthenticated) {
+                microphoneBlocked = true;
+                voiceNotice("SPEECH PERMISSION DENIED");
+            } else if (code === AsrModule.AsrStatusCode.NoInternet) {
+                voiceNotice("NO INTERNET FOR SPEECH");
+            } else {
+                voiceNotice("SPEECH SERVICE ERROR " + code);
+            }
+            print("R1 AR voice: ASR error=" + code + " internet=" + speechInternetAvailable());
         });
         voiceListening = true;
         voiceStartedAt = getTime();
         asrModule.startTranscribing(options);
         voiceNotice("LISTENING");
+        print("R1 AR voice: session=" + sessionId + " internet=" + speechInternetAvailable());
     } catch (e) {
         voiceListening = false;
-        microphoneBlocked = true;
-        voiceNotice("MICROPHONE PERMISSION DENIED");
+        voiceSessionId++;
+        voiceNotice("SPEECH START FAILED");
         print("R1 AR voice start failed: " + e);
     }
 }
 function finishVoiceSend() {
     if (!voiceListening) { return; }
     voiceListening = false;
+    voiceSessionId++;
     voiceSendRequestedAt = -1;
     var phrase = voiceText().slice(0, 500);
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
-    if (!phrase) { voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET"); return; }
+    if (!phrase) { noSpeechNotice(); return; }
     if (!socketReady) { voiceNotice("NO NETWORK"); return; }
     voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
     try {
@@ -158,18 +190,26 @@ function voicePinch(side) {
         reviewPinch(side === "right" ? "approve" : "decline");
         return;
     }
-    if (!tagAnchored) {
-        if (side === "right") { voiceNotice("SCAN BOTH SHOULDER TAGS FIRST"); }
-        return;
-    }
     if (side === "left") {
-        if (voiceListening) { stopVoice(false); }
+        if (!voiceListening) { return; }
+        var leftNow = getTime();
+        var leftGap = leftNow - voiceCancelPinchAt;
+        if (leftGap >= 0.08 && leftGap < 2) {
+            voiceCancelPinchAt = -1000;
+            stopVoice(false);
+        } else if (leftGap >= 0.08) {
+            voiceCancelPinchAt = leftNow;
+            voiceNotice("LEFT AGAIN TO CANCEL");
+        }
         return;
     }
     var now = getTime();
     if (now < voiceGestureLockUntil) { return; }
-    if (now - voicePinchAt > 0.25 && now - voicePinchAt < 4) {
+    var rightGap = now - voicePinchAt;
+    if (rightGap < 0.08) { return; }
+    if (rightGap < 2) {
         voicePinchAt = -1000;
+        voiceCancelPinchAt = -1000;
         voiceGestureLockUntil = now + 1.5;
         if (voiceListening) { stopVoice(true); } else { startVoice(); }
     } else {
@@ -579,13 +619,18 @@ function applyTrajectory(message) {
     var incoming = message.review;
     if (incoming && typeof incoming.id === "string" && incoming.id.length >= 16 &&
         (incoming.mode === "live" || incoming.mode === "dry-run" || incoming.mode === "sim")) {
-        if (voiceListening) { stopVoice(false); }
         if (!pendingReview || pendingReview.id !== incoming.id) {
+            // A new proposal takes the gesture and HUD priority immediately.
+            if (voiceListening) { stopVoice(false); }
+            voicePinchAt = -1000;
+            voiceCancelPinchAt = -1000;
+            voiceGestureLockUntil = 0;
             reviewChoice = ""; reviewSent = false; reviewMessage = "";
             print("R1 AR: proposal ready: " + incoming.text);
         }
         pendingReview = incoming;
     } else {
+        if (pendingReview) { voicePinchAt = -1000; voiceCancelPinchAt = -1000; }
         pendingReview = null; reviewChoice = ""; reviewSent = false; reviewMessage = "";
     }
     latestTrajectory = message;
@@ -695,7 +740,7 @@ script.createEvent("UpdateEvent").bind(function(){
             finishVoiceSend();
         } else if (voiceWait > 6) {
             stopVoice(false);
-            voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET");
+            noSpeechNotice();
         }
     }
     if (statusObject && script.cameraObject && statusPosition) {
@@ -729,7 +774,7 @@ script.createEvent("UpdateEvent").bind(function(){
                  "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
                 (voiceListening ? (voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
                  (voiceText() || (getTime() - voiceStartedAt > 3 ? "NO WORDS YET" : "SPEAK NOW")).slice(-55) +
-                 "\nRIGHT x2 SEND   LEFT CANCEL" : voiceMessage);
+                 "\nRIGHT x2 SEND   LEFT x2 CANCEL" : voiceMessage);
         }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }
