@@ -111,9 +111,9 @@ recorder:
 
 locomotion:                  # whole-body steps through the robot's loco service: a velocity for a bounded time, then an explicit stop.
   enabled: false             # off = the model never sees WALK/TURN. The window's "walk" box sets it per session.
-  step_m: 0.50               # WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT (0.30 was too little to see, 2026-09-27)
+  step_m: 1.00               # WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT (0.30 was too little to see, 2026-09-27; Artur: 1 m)
   turn_deg: 30.0             # TURN_LEFT / TURN_RIGHT
-  param_max_walk_m: 1.00     # WALK <cm> cap, also the per-command cap ("walk 1 m forward" is one command)
+  param_max_walk_m: 1.50     # WALK <cm> cap, also the per-command cap ("walk 1 m forward" is one command)
   param_max_turn_deg: 45.0   # TURN <deg> cap
   speed_mps: 0.25
   turn_speed_rps: 0.4

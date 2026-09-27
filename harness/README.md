@@ -168,8 +168,8 @@ more Read with `claude -p`).
 
 Off by default, and on only when the task text itself contains the word "walk": the window then starts the
 streamer and the loop with `locomotion.enabled=true`, and the loop refuses a walk otherwise. That adds WALK_FWD /
-WALK_BACK / WALK_LEFT / WALK_RIGHT (50 cm), TURN_LEFT / TURN_RIGHT (30 deg), `WALK <dir> <cm>` (up to
-100 cm; a task that names a distance is to be walked in one such command) and `TURN <deg>` (up to 45 deg)
+WALK_BACK / WALK_LEFT / WALK_RIGHT (1 m), TURN_LEFT / TURN_RIGHT (30 deg), `WALK <dir> <cm>` (up to
+150 cm; a task that names a distance is to be walked in one such command) and `TURN <deg>` (up to 45 deg)
 to the vocabulary, tells the planner to add an APPROACH stage when the target is beyond the arm's reach,
 and tells the controller to walk only when the target is out of reach and to look again afterwards. A
 step never sits in a plan chunk. The gate (`SafetyGate.vet_walk`) caps each step, keeps a per-episode

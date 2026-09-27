@@ -150,8 +150,8 @@ on the R1: any weight above 0 on `rt/arm_sdk` puts the robot into FSM 816 (ArmSd
 there were refused, and the one sent in 811 moved nothing. The streamer therefore hands the arms back to
 the controller for every step and takes them again afterwards, and logs the controller's answer to the
 velocity command; whether this firmware obeys SDK velocity commands at all is still open (a public
-report gives code 127 for all of them on ai_sport 1.0.2.154). Steps were also raised from 30 to 50 cm,
-with a named distance walked in one sized command of up to 1 m.
+report gives code 127 for all of them on ai_sport 1.0.2.154). Steps were also raised from 30 cm to 1 m
+(Artur's number), with a named distance walked in one sized command of up to 1.5 m.
 
 ## Not done yet
 

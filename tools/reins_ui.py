@@ -153,7 +153,7 @@ def loco_cfg():
         return {"step_cm": float(lo["step_m"]) * 100, "turn_deg": float(lo["turn_deg"]), "max_cm": float(lo["param_max_walk_m"]) * 100,
                 "total_m": float(lo["max_total_m"])}
     except Exception:
-        return {"step_cm": 50.0, "turn_deg": 30.0, "max_cm": 100.0, "total_m": 5.0}
+        return {"step_cm": 100.0, "turn_deg": 30.0, "max_cm": 150.0, "total_m": 5.0}
 LOCO = loco_cfg()
 ttk.Label(aif, text=f"AI control  (VLM: claude -p on this Mac's Claude login, model {vlm_model()}; every Accept / Reject and its feedback is kept for later sessions)",
           wraplength=SIZES["head"][0]).pack(anchor="w")
