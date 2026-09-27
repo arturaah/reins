@@ -610,8 +610,15 @@ elif a.selftest:
 def note(msg):                                                     # why did the window end? (/tmp/reins_ui_crash.log)
     try: open("/tmp/reins_ui_crash.log", "a").write(time.strftime("%F %T ") + msg + "\n")
     except Exception: pass
+def on_signal(n, _f):                                              # the launcher's pkill: take the children down too (SIGINT = release / save)
+    note(f"signal {signal.Signals(n).name} received, window closing")
+    for p in (proc["p"], ai["p"], ai["streamer"]):
+        if p and p.poll() is None:
+            try: p.send_signal(signal.SIGINT)
+            except OSError: pass
+    sys.exit(128 + n)
 for _sig in (signal.SIGHUP, signal.SIGTERM):
-    signal.signal(_sig, lambda n, f: (note(f"signal {signal.Signals(n).name} received, window closing"), sys.exit(128 + n)))
+    signal.signal(_sig, on_signal)
 try:
     root.mainloop()
     note("mainloop ended normally (window closed)")
