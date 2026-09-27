@@ -28,13 +28,14 @@ class ArmState:
 
 @dataclass
 class Proposal:
-    kind: str                          # move | rotate | hand | still | done | unavailable
+    kind: str                          # move | rotate | hand | still | done | unavailable | walk
     p: np.ndarray                      # requested hand tip (before the safety gate)
     roll: float
     mode: str = "unit"                 # unit | param  (which per-step cap applies)
     hand_closed: Optional[bool] = None # for kind == hand
     note: str = ""                     # feedback text for the model when nothing moves
     action: Optional[Action] = None
+    walk: Optional[tuple] = None       # kind == walk: (dx, dy, dyaw) in the body frame (m, m, rad)
 
 
 class Interpreter:
@@ -49,9 +50,17 @@ class Interpreter:
         idx = {"forward": 0, "left": 1, "up": 2}[axis]
         return sign * self.R_view[:, idx]
 
-    def propose(self, state, action, sigma_m, theta_rad):
-        """state: ArmState. sigma_m/theta_rad: the current unit step sizes."""
+    def propose(self, state, action, sigma_m, theta_rad, walk_m=0.2, turn_rad=0.35):
+        """state: ArmState. sigma_m/theta_rad: the current unit step sizes; walk_m/turn_rad: one WALK_* / TURN_* step.
+        Walks are in the body frame (forward = +x, left = +y), not the camera view: the camera rides on the body."""
         p, roll = np.array(state.p, float), float(state.roll)
+        if action.name == "WALK":
+            dist = walk_m if action.amount is None else action.amount
+            d = (dist * action.sign, 0.0) if action.axis == "forward" else (0.0, dist * action.sign)
+            return Proposal("walk", p, roll, action.mode, action=action, walk=(float(d[0]), float(d[1]), 0.0))
+        if action.name == "TURN":
+            ang = turn_rad if action.amount is None else action.amount
+            return Proposal("walk", p, roll, action.mode, action=action, walk=(0.0, 0.0, float(action.sign * ang)))
         if action.name == "MOVE":
             dist = sigma_m if action.amount is None else action.amount
             return Proposal("move", p + dist * self.direction(action.axis, action.sign), roll, action.mode, action=action)

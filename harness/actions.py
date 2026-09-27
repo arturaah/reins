@@ -4,10 +4,13 @@ Unit actions (one per arm and step):
   MV_FWD MV_BACK MV_LEFT MV_RIGHT MV_UP MV_DOWN   translate one step size
   ROTATE_CW [axis] ROTATE_CCW [axis]              rotate one angle step (this arm: wrist roll only)
   GRASP RELEASE STILL DONE
+  WALK_FWD WALK_BACK WALK_LEFT WALK_RIGHT TURN_LEFT TURN_RIGHT   whole-body steps (only when locomotion is enabled)
 Parameterized form (later experiments):
   MOVE <forward|back|left|right|up|down> <cm>     clipped to param_max_translation
   ROTATE <axis> <deg>                             signed, clipped to param_max_rotation
   POINT <down|forward|down45>                     orientation preset (not reachable on a 5-joint arm)
+  WALK <forward|back|left|right> <cm>             clipped to locomotion.param_max_walk_m
+  TURN <deg>                                      positive = left, clipped to locomotion.param_max_turn_deg
 
 Output contract, JSON only:
   {"decision": "<ONE_ACTION>", "reasoning": "<one visual sentence>", "plan": ["MV_FWD", ...]}
@@ -28,6 +31,9 @@ ROTATE_AXES = ("roll", "x", "y", "z")
 POINT_PRESETS = ("down", "forward", "down45")
 SIMPLE = ("GRASP", "RELEASE", "STILL", "DONE")
 UNIT_VOCAB = list(MOVES) + ["ROTATE_CW", "ROTATE_CCW"] + list(SIMPLE)
+WALKS = {"WALK_FWD": ("forward", 1), "WALK_BACK": ("forward", -1), "WALK_LEFT": ("left", 1), "WALK_RIGHT": ("left", -1)}
+TURNS = {"TURN_LEFT": 1, "TURN_RIGHT": -1}
+WALK_VOCAB = list(WALKS) + list(TURNS)
 
 
 class ActionError(ValueError):
@@ -36,7 +42,7 @@ class ActionError(ValueError):
 
 @dataclass(frozen=True)
 class Action:
-    name: str                       # MOVE | ROTATE | GRASP | RELEASE | STILL | DONE | POINT
+    name: str                       # MOVE | ROTATE | GRASP | RELEASE | STILL | DONE | POINT | WALK | TURN
     axis: Optional[str] = None      # MOVE: forward|left|up ; ROTATE: roll|x|y|z ; POINT: preset
     sign: int = 0                   # MOVE/ROTATE direction, +1 or -1
     amount: Optional[float] = None  # MOVE: metres, ROTATE: radians (unsigned); None = one step size
@@ -52,9 +58,12 @@ class Action:
     @property
     def opposite_of(self):
         """The action that undoes this one, for the anti-oscillation rule."""
-        if self.name in ("MOVE", "ROTATE"):
+        if self.name in ("MOVE", "ROTATE", "WALK", "TURN"):
             return Action(self.name, self.axis, -self.sign, self.amount, self.mode)
         return None
+
+    @property
+    def is_walk(self): return self.name in ("WALK", "TURN")
 
     def same_direction(self, other):
         return other is not None and self.name == other.name and self.axis == other.axis and self.sign == other.sign
@@ -115,6 +124,28 @@ def parse_action(token, limits=None):
         if len(args) != 1 or args[0].lower() not in POINT_PRESETS:
             raise ActionError("POINT needs <down|forward|down45>")
         return Action("POINT", args[0].lower(), 0, None, "param", token)
+    if head in WALKS:
+        if args:
+            raise ActionError(f"{head} takes no arguments")
+        axis, sign = WALKS[head]
+        return Action("WALK", axis, sign, None, "unit", token)
+    if head in TURNS:
+        if args:
+            raise ActionError(f"{head} takes no arguments")
+        return Action("TURN", "yaw", TURNS[head], None, "unit", token)
+    if head == "WALK":
+        if len(args) != 2 or args[0].lower() not in ("forward", "back", "left", "right"):
+            raise ActionError("WALK needs <forward|back|left|right> <cm>")
+        axis, sign = PARAM_DIRS[args[0].lower()]
+        cm = _number(args[1], "cm")
+        cap = float(lim.get("param_max_walk_m", 0.40))
+        return Action("WALK", axis, sign * (1 if cm >= 0 else -1), min(abs(cm) / 100.0, cap), "param", token)
+    if head == "TURN":
+        if len(args) != 1:
+            raise ActionError("TURN needs <deg> (positive = left)")
+        deg = _number(args[0], "deg")
+        cap = math.radians(float(lim.get("param_max_turn_deg", 45.0)))
+        return Action("TURN", "yaw", 1 if deg >= 0 else -1, min(abs(math.radians(deg)), cap), "param", token)
     raise ActionError(f"unknown action {head!r}")
 
 
@@ -170,8 +201,8 @@ def parse_decision(text, arms=("right",), limits=None, allow_plan=True):
         if plan and plan[0].key != actions[arms[0]].key:
             raise ActionError('"plan"[0] must equal "decision"')
         for p in plan:
-            if p.name in ("GRASP", "RELEASE", "DONE"):
-                raise ActionError('"plan" may only contain moves, rotations and STILL')
+            if p.name in ("GRASP", "RELEASE", "DONE", "WALK", "TURN"):
+                raise ActionError('"plan" may only contain arm moves, rotations and STILL (a walk needs a fresh look each time)')
     stage_complete = bool(obj.get("stage_complete", False))
     return Decision(actions, reasoning, plan, wrist, stage_complete, text)
 

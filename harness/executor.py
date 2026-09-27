@@ -49,6 +49,7 @@ class ExecResult:
     declined: bool = False             # the operator rejected the move before it was sent
     operator_note: str = ""            # the note they typed with their Accept or Reject, when they gave one
     asked: bool = False                # an operator was asked about this move (confirm was set)
+    walk: Optional[tuple] = None       # a whole-body step that was executed: (dx, dy, dyaw) achieved (odometry) or commanded
 
 
 class Backend:
@@ -58,6 +59,7 @@ class Backend:
     def joints(self) -> dict: raise NotImplementedError
     def velocities(self) -> dict: raise NotImplementedError
     def stream(self, arm, frames, dt): raise NotImplementedError      # blocking, frames: list of 5-vectors
+    def walk(self, vx, vy, vyaw, duration): raise NotImplementedError  # blocking; -> odometry {dx, dy, dyaw} in the pre-walk body frame, or None
     def hand(self, arm, closed) -> str: raise NotImplementedError      # returns feedback text
     def hand_state(self, arm): return None                              # True closed, False open, None unknown
     def engage(self): pass
@@ -92,6 +94,8 @@ class ArmExecutor:
             return ExecResult(False, proposal.note, state.p, state.p, np.zeros(3), np.zeros(3), state.roll, state.roll)
         if proposal.kind == "hand":
             return self._hand(proposal, state)
+        if proposal.kind == "walk":
+            return self._walk(proposal, state)
         j = self.backend.joints()
         q_now = self.kin.q_from_dict(j)
         others = self.others(j)
@@ -113,7 +117,7 @@ class ArmExecutor:
                     f"roll {math.degrees(state.roll):.0f} -> {math.degrees(v.roll):.0f} deg, {v.duration_s:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(dq).max())):.0f} deg" +
                     (f"; {'; '.join(v.clamped)}" if v.clamped else ""))
-            ok, note = self._ask(text, q_now, frames, dt, j); asked = True
+            ok, note = self._ask(text, {"arm": self.arm, "q_now": q_now, "frames": frames, "dt": dt, "joints": j}); asked = True
             if not ok:
                 return self._declined(note, state, requested)
         t0 = time.time()
@@ -126,9 +130,40 @@ class ArmExecutor:
                           self.kin.q_from_dict(after.q), False, timeout, bool(v.clamped), None, False, time.time() - t0, v.clamped,
                           asked=asked, operator_note=note)
 
-    def _ask(self, text, q_now, frames, dt, joints):
-        """-> (accepted, note). confirm may answer True / False, a str (a rejection carrying that note) or (accepted, note)."""
-        ans = self.confirm(text, {"arm": self.arm, "q_now": q_now, "frames": frames, "dt": dt, "joints": joints})
+    def _walk(self, proposal, state):
+        """A whole-body step: gate (caps, budget), confirmation, the backend's loco call, odometry feedback."""
+        v = self.gate.vet_walk(*proposal.walk)
+        zero = np.zeros(3)
+        if not v.ok:
+            return ExecResult(False, v.feedback, state.p, state.p, zero, zero, state.roll, state.roll, clamped=bool(v.clamped), notes=v.clamped)
+        what = (f"walk {math.hypot(v.dx, v.dy) * 100:.0f} cm {'forward' if v.dx > 0 else 'back' if v.dx < 0 else 'left' if v.dy > 0 else 'right'}"
+                if (v.dx or v.dy) else f"turn {math.degrees(abs(v.dyaw)):.0f} deg {'left' if v.dyaw > 0 else 'right'}")
+        text = (f"{proposal.action.raw if proposal.action else 'walk'}: the WHOLE ROBOT steps: {what} at {max(abs(v.vx), abs(v.vy)):.2f} m/s, "
+                f"{math.degrees(abs(v.vyaw)):.0f} deg/s over {v.duration_s:.1f} s" + (f"; {'; '.join(v.clamped)}" if v.clamped else ""))
+        note, asked = "", False
+        if self.confirm is not None:
+            ok, note = self._ask(text, {"walk": (v.dx, v.dy, v.dyaw), "duration": v.duration_s}); asked = True
+            if not ok:
+                return self._declined(note, state, zero)
+        t0 = time.time()
+        odom = self.backend.walk(v.vx, v.vy, v.vyaw, v.duration_s)
+        after = self.sync()
+        if odom:
+            fb = (f"walked {odom['dx'] * 100:.0f} cm forward, {odom['dy'] * 100:.0f} cm left, turned {math.degrees(odom['dyaw']):.0f} deg (odometry); "
+                  "the view has changed, judge the target again")
+            done = (float(odom["dx"]), float(odom["dy"]), float(odom["dyaw"]))
+        else:
+            fb = f"{what} commanded (no odometry available); the view has changed, judge the target again"
+            done = (v.dx, v.dy, v.dyaw)
+        if v.clamped:
+            fb += "; clamped: " + "; ".join(v.clamped)
+        return ExecResult(True, fb, state.p, after.p, zero, zero, state.roll, after.roll, duration_s=time.time() - t0,
+                          clamped=bool(v.clamped), notes=v.clamped, asked=asked, operator_note=note, walk=done)
+
+    def _ask(self, text, preview):
+        """-> (accepted, note). confirm may answer True / False, a str (a rejection carrying that note) or (accepted, note).
+        preview: what would move ({arm, q_now, frames, dt, joints} for an arm move, {walk, duration} for a step)."""
+        ans = self.confirm(text, preview)
         if isinstance(ans, tuple):
             ok, note = bool(ans[0]), str(ans[1] or "")
         elif isinstance(ans, str):
@@ -203,7 +238,7 @@ class ArmExecutor:
         if self.confirm is not None:
             text = (f"{label}: hand {state.p.round(3).tolist()} -> {p_t.round(3).tolist()} m over {duration:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(q_t - q_now).max())):.0f} deg")
-            ok, note = self._ask(text, q_now, frames, 1.0 / self.rate, j); asked = True
+            ok, note = self._ask(text, {"arm": self.arm, "q_now": q_now, "frames": frames, "dt": 1.0 / self.rate, "joints": j}); asked = True
             if not ok:
                 r = self._declined(note, state, p_t - state.p); r.feedback = f"the operator rejected the {label}" + (f": {note}" if note else "")
                 return r

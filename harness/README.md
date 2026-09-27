@@ -101,6 +101,20 @@ before each move, so the recording shows up with ✓ in the window's context lis
 selected as a demonstration for the next session, dry-run it and replayed with `tools/arm_lift.py`
 like a taught skill. A dry-run export is the pretend trajectory (what would have been sent).
 
+## Locomotion (whole-body steps)
+
+Off by default. The window's "walk" box (or `--set locomotion.enabled=true`) adds WALK_FWD /
+WALK_BACK / WALK_LEFT / WALK_RIGHT (20 cm), TURN_LEFT / TURN_RIGHT (20 deg), `WALK <dir> <cm>` (up
+to 40 cm) and `TURN <deg>` (up to 45 deg) to the vocabulary, tells the planner to add an APPROACH
+stage when the target is beyond the arm's reach, and tells the controller to walk only when the
+target is out of reach and to look again afterwards. A step never sits in a plan chunk. The gate
+(`SafetyGate.vet_walk`) caps each step, keeps a per-episode budget (3 m, 360 deg) and turns the
+step into a velocity and a duration; the streamer's `walk` command checks enabled, FSM 811, speed
+and duration again on its own, asks the loco service for that velocity for that long, then sends an
+explicit stop (also on e-stop and Ctrl-C), and reports odometry from `rt/sportmodestate` as the
+achieved (dx, dy, dyaw) in the pre-step frame. Every step is a PROPOSAL behind Accept, shown as
+text (the twin's ghost has nothing to play). In sim the mock shifts the scene under the fixed base.
+
 ## Inference time vs context
 
 Every VLM call appends a line to `stats.path` (`runs/inference_log.jsonl`): latency, the tokens the

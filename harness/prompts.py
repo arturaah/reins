@@ -41,6 +41,16 @@ Return JSON ONLY."""
 
 PLANNER_HAND_RULES_NONE = """- THIS ROBOT HAS NO HAND OR GRIPPER. It can only reach, touch, push and hover. Never plan a GRASP, LIFT or
   RELEASE stage; plan REACH / HOVER / TOUCH / PUSH stages whose completion is a visible spatial relation."""
+PLANNER_LOCOMOTION = """- THE ROBOT CAN WALK for this task. The arm reaches about 45 cm from the shoulder; when the target is farther
+  than that, plan an APPROACH stage first (motion label APPROACH) whose completion is "the target is within arm's reach
+  in the context view", then the arm stages."""
+LOCOMOTION_RULES = """LOCOMOTION: the whole robot can step. WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT move the body {walk_cm:.0f} cm (the
+hand comes along; its position relative to the body does not change), TURN_LEFT / TURN_RIGHT turn the body {turn_deg:.0f} deg,
+or WALK <forward|back|left|right> <cm> and TURN <deg> (positive = left) within the caps. Use them ONLY when the TARGET is
+out of the arm's reach: more than about 40 cm from the hand tip, or the arm keeps reporting unreachable targets. Face the
+TARGET with turns, then WALK_FWD until it is within reach; WALK_BACK when too close. A walk is a single action, never in a
+plan chunk, and the images change afterwards: judge again before the next action. Never walk while the hand is near an
+object or a surface."""
 
 CONTROLLER = """TASK: {task}
 STAGE: {stage}
@@ -74,6 +84,7 @@ ATTENTION:
 {mem_rules}
 - DONE only when "DONE WHEN" is already visible in the images; DONE ends this stage, not the task
 {hand_block}
+{locomotion}
 {variable_step}
 {action_chunk}
 Think one visual sentence, then commit.
@@ -132,6 +143,8 @@ def robot_description(cfg, arm):
 
 def planner_prompt(task, cfg, arm):
     hand_rules = PLANNER_HAND_RULES_NONE if cfg["hand"]["type"] == "none" else ""
+    if (cfg.get("locomotion") or {}).get("enabled", False):
+        hand_rules = (hand_rules + "\n" if hand_rules else "") + PLANNER_LOCOMOTION
     return PLANNER.format(task=task, robot_desc=robot_description(cfg, arm), hand_rules=hand_rules)
 
 
@@ -147,15 +160,19 @@ IMAGES_LINE_NO_WRIST = ("IMAGES: only the CONTEXT VIEW (the fixed camera on the 
                         "of the hand tip from the TARGET. The end effector is the {arm} hand tip ({ee_desc}).")
 
 
-def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=False, vocab=None, wrist_missing=False):
-    """stage: dict with target, affordance, motion, description, completion. proprio: text. history: list newest first."""
+def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=False, vocab=None, wrist_missing=False, locomotion=False):
+    """stage: dict with target, affordance, motion, description, completion. proprio: text. history: list newest first.
+    locomotion: the WALK_* / TURN_* tokens and their rules are offered (locomotion.enabled)."""
     hand = cfg["hand"]["type"]
     chunk = cfg["loop"]["chunk_max"]
+    lo = cfg.get("locomotion") or {}
     wrist_label = f"{arm.upper()} WRIST VIEW"
     ee_desc = "the point 13 cm beyond the wrist" if hand == "none" else "between the fingers"
     images_line = (IMAGES_LINE_NO_WRIST if wrist_missing else IMAGES_LINE).format(wrist_label=wrist_label, arm=arm, ee_desc=ee_desc)
     vocab = vocab or "MV_FWD, MV_BACK, MV_LEFT, MV_RIGHT, MV_UP, MV_DOWN, ROTATE_CW, ROTATE_CCW, STILL, DONE" + \
-        ("" if hand == "none" else ", GRASP, RELEASE")
+        ("" if hand == "none" else ", GRASP, RELEASE") + \
+        (", WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" if locomotion else "")
+    loco_text = LOCOMOTION_RULES.format(walk_cm=float(lo.get("step_m", 0.2)) * 100, turn_deg=float(lo.get("turn_deg", 20.0))) if locomotion else ""
     contract = (OUTPUT_CONTRACT_DUAL if dual else OUTPUT_CONTRACT).format(vocab=vocab)
     return CONTROLLER.format(
         task=task, stage=stage.get("motion") or stage.get("id", ""), target=stage.get("target", ""),
@@ -165,6 +182,7 @@ def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=Fa
         proprio=proprio.get("text", ""), wrist_label=wrist_label, arm=arm, images_line=images_line,
         wrist_rules=WRIST_RULES_DEFAULT, rotation=ROTATION_FRAGMENT, mem_rules=MEM_RULES,
         hand_block=HAND_BLOCK_NONE if hand == "none" else HAND_BLOCK_GRIPPER.format(affordance=stage.get("affordance", "")),
+        locomotion=loco_text,
         variable_step=WRIST_MARKER, action_chunk=ACTION_CHUNK.format(n=chunk) if chunk > 1 and not dual else "",
         output_contract=contract)
 

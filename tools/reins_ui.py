@@ -91,6 +91,8 @@ style.configure("TCombobox", fieldbackground=PANEL, background="#21262d", foregr
 style.map("TCombobox", fieldbackground=[("readonly", PANEL), ("disabled", PANEL)], foreground=[("readonly", FG), ("disabled", DIM)],
           selectbackground=[("readonly", PANEL)], selectforeground=[("readonly", FG)], background=[("active", "#30363d")])
 style.configure("TEntry", fieldbackground=PANEL, foreground=FG, insertcolor=FG)
+style.configure("TCheckbutton", background=BG, foreground=FG, indicatorcolor=PANEL)
+style.map("TCheckbutton", indicatorcolor=[("selected", "#ff6b6b")], background=[("active", BG)])
 for opt, val in (("background", PANEL), ("foreground", FG), ("selectBackground", "#0f766e"), ("selectForeground", "#ffffff")):
     root.option_add(f"*TCombobox*Listbox.{opt}", val)
 panes = ttk.PanedWindow(root, orient="horizontal"); panes.pack(fill="both", expand=True)
@@ -130,6 +132,7 @@ UI_STATE = os.path.join(ROOT, "runs/ui_state.json")     # the AI pane's last set
 ai_arm = tk.StringVar(value="left"); ttk.Combobox(arow, textvariable=ai_arm, values=("left", "right"), state="readonly", width=5).pack(side="left", padx=3)
 ai_stepp = tk.StringVar(value="coarse_fine"); ttk.Combobox(arow, textvariable=ai_stepp, values=("coarse_fine", "precision"), state="readonly", width=10).pack(side="left")
 ttk.Label(arow, text="floor z").pack(side="left", padx=(6, 2)); ai_floor = tk.StringVar(value="0.50"); ttk.Entry(arow, textvariable=ai_floor, width=5).pack(side="left")
+ai_walk = tk.BooleanVar(value=False); ttk.Checkbutton(arow, text="walk", variable=ai_walk).pack(side="left", padx=(6, 0))   # WALK/TURN tokens for the model
 abtns = ttk.Frame(arow); abtns.pack(side="right")
 ttk.Label(aif, text="Context: recordings the model sees as demonstrations (✓ = with a camera contact sheet). Click toggles.",
           wraplength=SIZES["head"][0]).pack(anchor="w", pady=(6, 0))
@@ -386,17 +389,20 @@ def ai_run():
     live = ai_mode.get() == "live"
     demos = [demo_files[i] for i in demo_lb.curselection()]
     save_ui_state()
-    cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}",
-           "live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW,
-           "--spectacles-review", SPECTACLES_REVIEW]
+    cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}"]
+    if ai_walk.get(): cmd += ["--set", "locomotion.enabled=true"]
+    cmd += ["live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW,
+            "--spectacles-review", SPECTACLES_REVIEW]
     if demos: cmd += ["--demos", *demos]
     if live:
+        walk_note = ("\nWALKING IS ON: the model may also step the whole robot (20 cm or 20 deg per step, each behind Accept, 3 m per "
+                     "session). Keep 1 m free around the robot and the remote ready.\n") if ai_walk.get() else ""
         if not messagebox.askokcancel("AI control on the robot",
                 "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session; the head tilts down "
                 "to look at the workspace.\n"
                 f"First proposal: the {ai_arm.get()} arm's start pose (forearm forward). Every move is shown in the twin first and "
-                "sent only when you press Accept; Reject asks the model for something else; Stop releases the arms.\n\n"
-                "Robot standing in FSM 4 or 811, arms clear, remote in hand."):
+                "sent only when you press Accept; Reject asks the model for something else; Stop releases the arms.\n" + walk_note +
+                "\nRobot standing in FSM 4 or 811, arms clear, remote in hand."):
             return
         if not port_open(8790):
             ai_log("starting the arm_sdk streamer (harness.robot.arm_stream, log /tmp/harness_stream.log); it publishes nothing until the session engages\n")
@@ -479,7 +485,7 @@ def save_ui_state():
         os.makedirs(os.path.dirname(UI_STATE), exist_ok=True)
         with open(UI_STATE, "w") as f:
             json.dump({"task": ai_task.get(), "mode": ai_mode.get(), "arm": ai_arm.get(), "profile": ai_stepp.get(), "floor_z": ai_floor.get(),
-                       "context": [demo_files[i] for i in demo_lb.curselection()]}, f)
+                       "walk": bool(ai_walk.get()), "context": [demo_files[i] for i in demo_lb.curselection()]}, f)
     except OSError:
         pass
 def load_ui_state():
@@ -488,7 +494,7 @@ def load_ui_state():
     except (OSError, ValueError):
         st = {}
     ai_task.set(st.get("task", "")); ai_mode.set(st.get("mode", "dry run")); ai_arm.set(st.get("arm", "left"))
-    ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50"))
+    ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50")); ai_walk.set(bool(st.get("walk", False)))
     for i, f in enumerate(demo_files):
         if f in st.get("context", []): demo_lb.selection_set(i)
     ctx_changed(); mode_changed()
@@ -553,9 +559,11 @@ def drain():
             elif kind == "ai_log": ai_log(val)
             elif kind == "ai_proposal":
                 ai["pending"] = True
-                ai_prop.configure(text=("DRY RUN, nothing is sent · " if ai.get("mode") == "dry run" else "LIVE · ") + "PROPOSAL  " + val)
+                walk = val.upper().startswith(("WALK", "TURN"))
+                ai_prop.configure(text=("DRY RUN, nothing is sent · " if ai.get("mode") == "dry run" else "LIVE · ") + ("WHOLE-BODY STEP  " if walk else "PROPOSAL  ") + val)
                 accept_btn.state(["!disabled"]); reject_btn.state(["!disabled"])
-                cockpit(f"/preview?file={PREVIEW}&hold=1")
+                if walk: cockpit("/preview/stop")                          # nothing for the ghost arms to show
+                else: cockpit(f"/preview?file={PREVIEW}&hold=1")
             elif kind == "ai_review_answer":
                 ai["pending"] = False
                 accept_btn.state(["disabled"]); reject_btn.state(["disabled"])

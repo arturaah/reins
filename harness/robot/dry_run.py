@@ -35,6 +35,10 @@ class DryRunBackend(Backend):
         for n, v in zip(names, q):
             self.pretend[n] = float(v)
 
+    def walk(self, vx, vy, vyaw, duration):
+        self.log(f"   would ask the loco service for vx={vx:+.2f} vy={vy:+.2f} m/s, yaw {vyaw:+.2f} rad/s for {duration:.1f} s, then stop")
+        return None
+
     def hand(self, arm, closed):
         return "dry run: no hand on this robot" if True else ""
 

@@ -12,6 +12,7 @@ The live gate refuses to start without a measured table height (workspace.table_
 """
 import math
 import threading
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -28,6 +29,29 @@ class Verdict:
     duration_s: float = 0.0
     clamped: list = field(default_factory=list)   # human-readable clamp notes
     ik_err_m: float = 0.0
+
+    @property
+    def feedback(self):
+        parts = []
+        if not self.ok:
+            parts.append(self.reason)
+        if self.clamped:
+            parts.append("clamped: " + "; ".join(self.clamped))
+        return " ".join(parts)
+
+
+@dataclass
+class WalkVerdict:
+    ok: bool
+    reason: str = ""
+    dx: float = 0.0
+    dy: float = 0.0
+    dyaw: float = 0.0
+    vx: float = 0.0
+    vy: float = 0.0
+    vyaw: float = 0.0
+    duration_s: float = 0.0
+    clamped: list = field(default_factory=list)
 
     @property
     def feedback(self):
@@ -59,6 +83,33 @@ class SafetyGate:
         if np.any(self.box_min >= self.box_max):
             raise ValueError("workspace box_min must be below box_max on every axis")
         self.contacts_baseline = None
+        self.loco = dict(cfg.get("locomotion") or {})
+        self.walked_m, self.turned_rad = 0.0, 0.0            # per-episode budget
+
+    def vet_walk(self, dx, dy, dyaw):
+        """A whole-body step (body frame, m, m, rad) -> velocities and duration for the loco service, or a refusal.
+        Order: e-stop -> enabled -> per-command caps -> episode budget -> speeds."""
+        lo = self.loco
+        if self.estop.is_set():
+            return WalkVerdict(False, "ESTOP: nothing moves")
+        if not lo.get("enabled", False):
+            return WalkVerdict(False, "walking is not enabled for this session: the robot cannot move its body; use the arm only")
+        notes = []
+        cap_m, cap_yaw = float(lo["param_max_walk_m"]), math.radians(float(lo["param_max_turn_deg"]))
+        dist = math.hypot(dx, dy)
+        if dist > cap_m:
+            dx, dy = dx * cap_m / dist, dy * cap_m / dist; notes.append(f"walk capped to {cap_m * 100:.0f} cm"); dist = cap_m
+        if abs(dyaw) > cap_yaw:
+            dyaw = math.copysign(cap_yaw, dyaw); notes.append(f"turn capped to {math.degrees(cap_yaw):.0f} deg")
+        if self.walked_m + dist > float(lo["max_total_m"]):
+            return WalkVerdict(False, f"walking budget for this episode is used up ({float(lo['max_total_m']):.1f} m)", clamped=notes)
+        if self.turned_rad + abs(dyaw) > math.radians(float(lo["max_total_turn_deg"])):
+            return WalkVerdict(False, f"turning budget for this episode is used up ({float(lo['max_total_turn_deg']):.0f} deg)", clamped=notes)
+        v, w = float(lo["speed_mps"]), float(lo["turn_speed_rps"])
+        duration = max(dist / v if dist > 0 else 0.0, abs(dyaw) / w if dyaw else 0.0, 0.3)
+        vx, vy, vyaw = dx / duration, dy / duration, dyaw / duration
+        self.walked_m += dist; self.turned_rad += abs(dyaw)
+        return WalkVerdict(True, "", dx, dy, dyaw, vx, vy, vyaw, duration, notes)
 
     def set_baseline(self, q5, others=None):
         self.contacts_baseline = self.kin.contacts(q5, others)

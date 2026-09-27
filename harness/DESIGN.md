@@ -128,6 +128,15 @@ the Cartesian clamp. The streamer process re-checks joint speed a third time, in
 - No self-collision model with the table exists in the MJCF (table geom has contype 0); the
   contact veto only covers the arm against the body.
 
+## Locomotion (2026-09-27, at Artur's request)
+
+The original ground rule "never command legs or locomotion" is relaxed: with `locomotion.enabled`
+the model may step the whole robot through the loco service's velocity command, bounded per step,
+per episode, and behind the same Accept as an arm move. It stays off by default, is refused outside
+FSM 811 by the streamer itself, and a walk is never part of an open-loop chunk. The camera rides on
+the body, so walks are in the body frame and the prompt says to judge again after each one. Not yet
+executed on the robot.
+
 ## Not done yet
 
 Table measurement, the start-pose move on the robot, calibrated hand marker, dual-arm mode

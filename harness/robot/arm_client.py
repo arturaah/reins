@@ -82,5 +82,12 @@ class ArmClientBackend(Backend):
         if not r.get("engaged"):
             raise RuntimeError(f"the streamer released during the move: {r.get('reason') or 'unknown reason'}")
 
+    def walk(self, vx, vy, vyaw, duration):
+        r = self.call({"cmd": "walk", "vx": float(vx), "vy": float(vy), "vyaw": float(vyaw), "duration": float(duration)},
+                      timeout=float(duration) + 15.0)
+        if not r.get("ok"):
+            raise RuntimeError(f"streamer refused the walk: {r.get('error')}")
+        return r.get("odom")
+
     def hand(self, arm, closed):
         return "this robot has no hand: nothing to grasp with, the arm paused"

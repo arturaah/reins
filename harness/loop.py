@@ -29,6 +29,10 @@ class Episode:
                        "param_max_rotation_deg": cfg["steps"]["param_max_rotation_deg"]}
         self.table_z = executor.gate.table_z
         self.stop_reason = None
+        lo = cfg.get("locomotion") or {}
+        self.loco = bool(lo.get("enabled", False))
+        self.walk_m, self.turn_rad = float(lo.get("step_m", 0.2)), math.radians(float(lo.get("turn_deg", 20.0)))
+        self.limits.update({"param_max_walk_m": lo.get("param_max_walk_m", 0.4), "param_max_turn_deg": lo.get("param_max_turn_deg", 45.0)})
 
     # -- planning -------------------------------------------------------------------------------
     def make_plan(self, task, packet):
@@ -106,7 +110,7 @@ class Episode:
                 continue
             if history and action.opposite_of is not None and self.same_token(history[0], action.opposite_of):
                 recovery = RECOVERY_NOTES["oscillation"]
-            proposal = self.interp.propose(state, action, sigma, theta)
+            proposal = self.interp.propose(state, action, sigma, theta, self.walk_m, self.turn_rad)
             result = self.ex.execute(proposal, state)
             last_result = result
             extra = {}
@@ -121,6 +125,10 @@ class Episode:
             if result.asked and self.feedback is not None and not self.ex.gate.estop.is_set():   # every Accept / Reject is kept (an e-stop is not an answer)
                 self.feedback.add(task, stage["id"], action.raw.upper(), not result.declined, result.operator_note,
                                   hand_tip=state.p, height_cm=height_above_table_cm(state.p, self.table_z), mode=self.ex.backend.name)
+            if result.ok and result.walk is not None and result.feedback:                          # after a step: what the odometry says
+                op_notes.append(result.feedback)
+            if not result.ok and not result.declined and not result.ik_fail and result.feedback:   # refused for another reason: say why
+                op_notes.append(f"Your last action ({action.raw.upper()}) was NOT executed: {result.feedback}")
             if result.declined:                                     # the operator said no: tell the model, drop the chunk
                 queue = []
                 op_notes.append(RECOVERY_NOTES["rejected"].format(token=action.raw.upper(), why=f' with the note "{result.operator_note}"' if result.operator_note else ""))
@@ -157,7 +165,8 @@ class Episode:
                 ik = "The last target was unreachable (IK failed); the arm did not move."
         hand = "no hand" if self.cfg["hand"]["type"] == "none" else ("closed" if state.hand_closed else "open")
         pro = proprio_text(h, sigma * 100, hand, stall, clamped, ik, holding=state.hand_closed)
-        return self.with_context(controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing))
+        return self.with_context(controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing,
+                                                   locomotion=self.loco))
 
     def with_context(self, prompt):
         """Demonstrations, then earlier sessions' operator feedback, then the prompt itself."""

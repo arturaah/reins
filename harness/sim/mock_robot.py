@@ -66,6 +66,8 @@ class MockBackend(Backend):
             self.model.geom_pos[table] = [0.28, 0.20 * self.side, 0.3325]; self.model.geom_size[table] = [0.16, 0.16, 0.3325]
         self.hand_closed = {"left": False, "right": False}
         self.holding = {"left": None, "right": None}           # offset of the cube from the hand tip while held
+        self.table = table
+        self.base = np.zeros(3)                                 # where the (fixed) base would be in the start frame: x, y, yaw
         self.engaged = False
         self.frames_sent = 0
         self._renderer = None
@@ -115,6 +117,25 @@ class MockBackend(Backend):
                 time.sleep(dt)
         for n in names:
             self.vel[n] = 0.0
+
+    def walk(self, vx, vy, vyaw, duration):
+        """The base is pinned in this model, so a step moves the scene the other way: every prop shifts by -(dx, dy) and
+        rotates about the pelvis by -dyaw. A held cube stays with the hand. Returns exact odometry in the pre-step frame."""
+        dx, dy, dyaw = vx * duration, vy * duration, vyaw * duration
+        c, s = np.cos(-dyaw), np.sin(-dyaw)
+        R = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+        move = lambda p: R @ (np.asarray(p, float) - [dx, dy, 0.0])
+        if self.cube_mocap >= 0 and all(off is None for off in self.holding.values()):
+            self.data.mocap_pos[self.cube_mocap] = move(self.cube_pos())
+        self.plate = move(self.plate); self.cube_start = move(self.cube_start)
+        if self.table >= 0:
+            self.model.geom_pos[self.table] = move(self.model.geom_pos[self.table])
+        cy, sy = np.cos(self.base[2]), np.sin(self.base[2])
+        self.base += [cy * dx - sy * dy, sy * dx + cy * dy, dyaw]
+        self._forward()
+        if self.realtime:
+            time.sleep(duration)
+        return {"dx": dx, "dy": dy, "dyaw": dyaw}
 
     def hand(self, arm, closed):
         kind = self.cfg["hand"]["type"]

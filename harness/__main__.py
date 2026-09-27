@@ -51,7 +51,7 @@ def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"
 
     def confirm(text, preview=None):
         proposal = None
-        if preview_file and preview is not None:
+        if preview_file and preview and preview.get("frames"):        # a walk has no arm frames: nothing for the twin's ghost
             plan_path = write_plan(preview_file, preview["arm"], preview["q_now"], preview["frames"], preview["dt"], preview["joints"], text)
             if mailbox:
                 proposal = mailbox.propose(plan_path, text, mode)

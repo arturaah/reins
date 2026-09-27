@@ -13,6 +13,9 @@ over a local TCP socket. Safety it enforces by itself, whatever the client says:
   - waist yaw and head pitch/yaw are held at their measured values with Unitree's gains (robot.hold_head); with
     robot.head_pitch_rad the head pitch is commanded there on engage instead, so the head camera sees the hand
   - arm gains are Unitree's example gains times robot.arm_kp_scale (gravity droop at 1.0 was 2 to 3 cm per 4 cm step)
+  - walk: {"cmd": "walk", "vx", "vy", "vyaw", "duration"} asks the loco service for that velocity for that long, then
+    sends an explicit stop; only with locomotion.enabled in its own config, only in FSM 811, velocities and duration
+    capped by the config on its own; odometry from rt/sportmodestate comes back as {dx, dy, dyaw} in the pre-walk frame
 Commands (one JSON object per line):  {"cmd": "hello"} {"cmd": "state"} {"cmd": "engage"}
   {"cmd": "frames", "arm": "right", "frames": [[q1..q5], ...], "dt": 0.02}   (blocks until streamed)
   {"cmd": "freeze"} {"cmd": "release"} {"cmd": "heartbeat"} (no reply)
@@ -22,6 +25,7 @@ Every other command gets {"ok": false, "error": ...}.
 """
 import argparse
 import json
+import math
 import signal
 import socket
 import sys
@@ -30,7 +34,7 @@ import time
 
 import numpy as np
 
-from unitree_sdk2py.core.channel import ChannelPublisher
+from unitree_sdk2py.core.channel import ChannelPublisher, ChannelSubscriber
 from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_
 from unitree_sdk2py.utils.crc import CRC
@@ -43,6 +47,23 @@ from .lowstate import FSM_ARM_OK, JOINT_TO_SLOT, LowStateReader, query_fsm
 GAINS = {"shoulder_pitch": (50.0, 2.0), "shoulder_roll": (50.0, 2.0), "shoulder_yaw": (40.0, 2.0),
          "elbow": (40.0, 2.0), "wrist_roll": (30.0, 2.0)}
 WAIST_YAW, HEAD = 13, (29, 30)
+
+
+def _loco():
+    """A loco client (SetVelocity / StopMove). Separate so tests can replace it."""
+    from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient
+    lc = LocoClient(); lc.SetTimeout(3.0); lc.Init()
+    return lc
+
+
+def _odom_sub(cb):
+    """Subscribe to rt/sportmodestate (position, yaw) for walk odometry; None when the type is unavailable."""
+    try:
+        from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
+        sub = ChannelSubscriber("rt/sportmodestate", SportModeState_); sub.Init(cb, 10)
+        return sub
+    except Exception:
+        return None
 
 
 class Streamer:
@@ -65,6 +86,10 @@ class Streamer:
                 kp, kd = GAINS[n[len(side) + 1:-len("_joint")]]
                 self.slots[JOINT_TO_SLOT[n]] = (kp * scale, kd)
         self.head_pitch = cfg["robot"].get("head_pitch_rad")          # None: hold the head where it is; else look there on engage
+        self.loco = dict(cfg.get("locomotion") or {})
+        self.walking = False
+        self.odom = {"pos": None, "yaw": None, "t": 0.0}
+        self.odom_sub = _odom_sub(self._on_odom)
         self.slots[WAIST_YAW] = (50.0, 3.0)
         if cfg["robot"]["hold_head"]:
             for s in HEAD: self.slots[s] = (15.0, 1.0)
@@ -80,6 +105,60 @@ class Streamer:
         self.frames_sent = 0
 
     # -- DDS side ---------------------------------------------------------------------------------
+    def _on_odom(self, m):
+        try:
+            self.odom = {"pos": [float(v) for v in m.position[:3]], "yaw": float(m.imu_state.rpy[2]), "t": time.time()}
+        except Exception:
+            pass
+
+    def _odom_now(self):
+        o = self.odom
+        return (list(o["pos"]), o["yaw"]) if o["pos"] is not None and time.time() - o["t"] < 1.0 else None
+
+    def walk(self, vx, vy, vyaw, duration):
+        """-> (error, odometry). The streamer checks everything itself: enabled, FSM 811, caps, then velocity for
+        duration seconds and an explicit stop, whatever happens."""
+        lo = self.loco
+        if not lo.get("enabled", False):
+            return "walking is disabled in the streamer's config (locomotion.enabled)", None
+        fsm, name = query_fsm()
+        if fsm != 811:
+            return f"refused: walking needs FSM 811 (balance control); the robot is in {fsm} = {name}", None
+        v, w = float(lo["speed_mps"]), float(lo["turn_speed_rps"])
+        if abs(vx) > v * 1.05 or abs(vy) > v * 1.05 or abs(vyaw) > w * 1.05:
+            return f"refused: velocity over the cap ({v} m/s, {w} rad/s)", None
+        t_max = max(float(lo["param_max_walk_m"]) / v, math.radians(float(lo["param_max_turn_deg"])) / w) * 1.05 + 0.3
+        if not (0.0 < duration <= t_max):
+            return f"refused: duration {duration:.1f} s over the cap ({t_max:.1f} s)", None
+        before = self._odom_now()
+        lc = _loco()
+        self.walking = True
+        self.log(f"walk: vx={vx:+.2f} vy={vy:+.2f} m/s yaw={vyaw:+.2f} rad/s for {duration:.1f} s")
+        try:
+            lc.SetVelocity(float(vx), float(vy), float(vyaw), float(duration))
+            time.sleep(float(duration))
+        finally:
+            try:
+                lc.StopMove()
+            finally:
+                self.walking = False
+        time.sleep(float(lo.get("settle_s", 1.0)))
+        after = self._odom_now()
+        if before is None or after is None:
+            return "", None
+        (p0, y0), (p1, y1) = before, after
+        dxw, dyw = p1[0] - p0[0], p1[1] - p0[1]
+        c, s = math.cos(-y0), math.sin(-y0)
+        dyaw = (y1 - y0 + math.pi) % (2 * math.pi) - math.pi
+        return "", {"dx": c * dxw - s * dyw, "dy": s * dxw + c * dyw, "dyaw": dyaw}
+
+    def stop_walking(self):
+        if self.walking:
+            try:
+                _loco().StopMove()
+            except Exception as e:
+                self.log(f"stop failed: {e}")
+
     def measured(self):
         m = self.reader.msg
         return {s: float(m.motor_state[s].q) for s in self.slots}
@@ -266,7 +345,12 @@ class Streamer:
             err = self.stream_frames(req["arm"], req["frames"], float(req["dt"]))
             self.log(f"frames: {req.get('arm')} arm, {n} frames over {n * float(req['dt']):.2f} s -> " + (f"REFUSED: {err}" if err else f"streamed in {time.time() - t0:.2f} s"))
             return {**self.state(), "ok": not err, "error": err}
+        if cmd == "walk":
+            err, odom = self.walk(float(req.get("vx", 0.0)), float(req.get("vy", 0.0)), float(req.get("vyaw", 0.0)), float(req.get("duration", 0.0)))
+            self.log("walk -> " + (f"REFUSED: {err}" if err else f"done, odometry {odom}"))
+            return {**self.state(), "ok": not err, "error": err, "odom": odom}
         if cmd == "freeze":
+            self.stop_walking()
             with self.lock:
                 self.targets = self.measured() if not self.engaged else dict(self.targets)
             return {"ok": True, **self.state()}
@@ -284,6 +368,7 @@ def main():
     threading.Thread(target=st.hold_loop, daemon=True).start()
 
     def on_sigint(*_):
+        st.stop_walking()
         if st.engaged:
             signal.signal(signal.SIGINT, lambda *_: print("(already releasing: the weight ramps down first)"))
             st.release("Ctrl-C")
