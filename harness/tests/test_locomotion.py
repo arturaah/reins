@@ -102,7 +102,7 @@ def test_episode_walks_when_allowed_and_prompts_say_so(rig):
                                             {"decision": "WALK forward 50", "reasoning": "WRIST: NO"}, {"decision": "DONE", "reasoning": "WRIST: NO"},
                                             {"decision": "MV_UP", "reasoning": "WRIST: YES"}, {"decision": "DONE", "reasoning": "WRIST: YES"}])
     c0 = backend.cube_pos().copy()
-    s = Episode(cfg, vlm, ex, per, None, log=lambda *_: None).run("go to the block")
+    s = Episode(cfg, vlm, ex, per, None, log=lambda *_: None).run("walk to the block")
     assert s["success"]
     assert "THE ROBOT CAN WALK" in vlm.calls[0][1] and "APPROACH" in vlm.calls[0][1]
     prompts = [c[1] for c in vlm.calls if c[0] == "act"]
@@ -116,6 +116,22 @@ def test_episode_walks_when_allowed_and_prompts_say_so(rig):
     assert ex.gate.walked_m == pytest.approx(0.6)
 
 
+def test_walking_needs_the_word_walk_in_the_task(rig):
+    """Config enabled, but the task does not say walk: no WALK tokens, and a walk the model tries anyway is refused and explained."""
+    cfg, backend, ex, per = rig
+    logs = []
+    vlm = ScriptedVLM(decisions=[{"decision": "WALK_FWD", "reasoning": "WRIST: NO"}, {"decision": "DONE", "reasoning": "WRIST: NO"}])
+    Episode(cfg, vlm, ex, per, None, log=logs.append).run("go to the block")
+    assert np.allclose(backend.base, 0) and ex.gate.walked_m == 0
+    assert "walking stays off" in logs[0]
+    assert "WALK_FWD" not in vlm.calls[0][1] and "THE ROBOT CAN WALK" not in vlm.calls[0][1]
+    acts = [c[1] for c in vlm.calls if c[0] == "act"]
+    assert "WALK_FWD" not in acts[0].split("Choose exactly one action")[1]
+    assert "only allowed when the task text itself says 'walk'" in acts[1]
+    assert Episode.task_allows_walking("Walk to the chair") and Episode.task_allows_walking("please walk, then touch it")
+    assert not Episode.task_allows_walking("walkway inspection") and not Episode.task_allows_walking("hand over the sidewalk sign")
+
+
 def test_prompts_hide_walking_when_disabled(cfg):
     stage = {"id": "s", "target": "t", "affordance": "a", "motion": "REACH", "description": "d", "completion": "c"}
     pro = {"text": "x", "hand_state": "no hand"}
@@ -125,6 +141,7 @@ def test_prompts_hide_walking_when_disabled(cfg):
     p = controller_prompt("task", stage, pro, [], None, cfg, "right", locomotion=True)
     assert "WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" in p and "move the body 20 cm" in p
     assert "THE ROBOT CAN WALK" in planner_prompt("task", cfg, "right")
+    assert "THE ROBOT CAN WALK" not in planner_prompt("task", cfg, "right", locomotion=False)
 
 
 def test_walk_refused_when_disabled_is_reported_to_the_model(cfg, tmp_path):
@@ -134,7 +151,7 @@ def test_walk_refused_when_disabled_is_reported_to_the_model(cfg, tmp_path):
     ex = ArmExecutor(cfg, kin, SafetyGate(cfg, kin, None, live=False), backend, "right")
     per = Perception(cfg, "right", MockCameras(backend, "right", 160, 90))
     vlm = ScriptedVLM(decisions=[{"decision": "WALK_FWD", "reasoning": "WRIST: NO"}, {"decision": "DONE", "reasoning": "WRIST: NO"}])
-    Episode(cfg, vlm, ex, per, None, log=lambda *_: None).run("x")
+    Episode(cfg, vlm, ex, per, None, log=lambda *_: None).run("walk to x")          # the task consents, the config does not
     assert np.allclose(backend.base, 0)
     assert "walking is not enabled" in [c[1] for c in vlm.calls if c[0] == "act"][1]
 

@@ -362,8 +362,17 @@ class Streamer:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("iface"); ap.add_argument("--port", type=int); ap.add_argument("--config")
+    ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="config override, e.g. locomotion.enabled=true")
     a = ap.parse_args()
-    cfg = load(a.config)
+    over = {}
+    for it in a.set or []:
+        k, _, v = it.partition("=")
+        try:
+            v = json.loads(v)
+        except json.JSONDecodeError:
+            pass
+        over[k] = v
+    cfg = load(a.config, over)
     st = Streamer(cfg, a.iface)
     threading.Thread(target=st.hold_loop, daemon=True).start()
 

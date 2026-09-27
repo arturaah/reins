@@ -141,9 +141,10 @@ def robot_description(cfg, arm):
             + " The legs and balance are handled by the robot itself and are not controllable.")
 
 
-def planner_prompt(task, cfg, arm):
+def planner_prompt(task, cfg, arm, locomotion=None):
+    """locomotion: offer walking; None = whatever the config says (the loop passes its per-task decision)."""
     hand_rules = PLANNER_HAND_RULES_NONE if cfg["hand"]["type"] == "none" else ""
-    if (cfg.get("locomotion") or {}).get("enabled", False):
+    if (cfg.get("locomotion") or {}).get("enabled", False) if locomotion is None else locomotion:
         hand_rules = (hand_rules + "\n" if hand_rules else "") + PLANNER_LOCOMOTION
     return PLANNER.format(task=task, robot_desc=robot_description(cfg, arm), hand_rules=hand_rules)
 

@@ -103,7 +103,8 @@ like a taught skill. A dry-run export is the pretend trajectory (what would have
 
 ## Locomotion (whole-body steps)
 
-Off by default. The window's "walk" box (or `--set locomotion.enabled=true`) adds WALK_FWD /
+Off by default, and on only when the task text itself contains the word "walk": the window then starts the
+streamer and the loop with `locomotion.enabled=true`, and the loop refuses a walk otherwise. That adds WALK_FWD /
 WALK_BACK / WALK_LEFT / WALK_RIGHT (20 cm), TURN_LEFT / TURN_RIGHT (20 deg), `WALK <dir> <cm>` (up
 to 40 cm) and `TURN <deg>` (up to 45 deg) to the vocabulary, tells the planner to add an APPROACH
 stage when the target is beyond the arm's reach, and tells the controller to walk only when the

@@ -126,13 +126,14 @@ def vlm_model():
 ttk.Label(aif, text=f"AI control  (VLM: claude -p on this Mac's Claude login, model {vlm_model()}; every Accept / Reject and its feedback is kept for later sessions)",
           wraplength=SIZES["head"][0]).pack(anchor="w")
 ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
+ttk.Label(aif, text="Arm only, unless the task contains the word \"walk\": then the model may also step the whole robot.", foreground="#8b949e",
+          wraplength=SIZES["head"][0]).pack(anchor="w")
 arow = ttk.Frame(aif); arow.pack(fill="x")
 ai_mode = tk.StringVar(value="dry run"); ttk.Combobox(arow, textvariable=ai_mode, values=("dry run", "live"), state="readonly", width=7).pack(side="left")
 UI_STATE = os.path.join(ROOT, "runs/ui_state.json")     # the AI pane's last settings, restored at the next launch
 ai_arm = tk.StringVar(value="left"); ttk.Combobox(arow, textvariable=ai_arm, values=("left", "right"), state="readonly", width=5).pack(side="left", padx=3)
 ai_stepp = tk.StringVar(value="coarse_fine"); ttk.Combobox(arow, textvariable=ai_stepp, values=("coarse_fine", "precision"), state="readonly", width=10).pack(side="left")
 ttk.Label(arow, text="floor z").pack(side="left", padx=(6, 2)); ai_floor = tk.StringVar(value="0.50"); ttk.Entry(arow, textvariable=ai_floor, width=5).pack(side="left")
-ai_walk = tk.BooleanVar(value=False); ttk.Checkbutton(arow, text="walk", variable=ai_walk).pack(side="left", padx=(6, 0))   # WALK/TURN tokens for the model
 abtns = ttk.Frame(arow); abtns.pack(side="right")
 ttk.Label(aif, text="Context: recordings the model sees as demonstrations (✓ = with a camera contact sheet). Click toggles.",
           wraplength=SIZES["head"][0]).pack(anchor="w", pady=(6, 0))
@@ -389,14 +390,15 @@ def ai_run():
     live = ai_mode.get() == "live"
     demos = [demo_files[i] for i in demo_lb.curselection()]
     save_ui_state()
+    walk_ok = bool(re.search(r"\bwalk(s|ed|ing)?\b", task, re.IGNORECASE))     # the word walk in the task is the consent to move the body
     cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}"]
-    if ai_walk.get(): cmd += ["--set", "locomotion.enabled=true"]
+    if walk_ok: cmd += ["--set", "locomotion.enabled=true"]
     cmd += ["live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW,
             "--spectacles-review", SPECTACLES_REVIEW]
     if demos: cmd += ["--demos", *demos]
     if live:
-        walk_note = ("\nWALKING IS ON: the model may also step the whole robot (20 cm or 20 deg per step, each behind Accept, 3 m per "
-                     "session). Keep 1 m free around the robot and the remote ready.\n") if ai_walk.get() else ""
+        walk_note = ("\nThe task says WALK, so the model may also step the whole robot (20 cm or 20 deg per step, each behind Accept, "
+                     "3 m per session). Keep 1 m free around the robot and the remote ready.\n") if walk_ok else ""
         if not messagebox.askokcancel("AI control on the robot",
                 "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session; the head tilts down "
                 "to look at the workspace.\n"
@@ -407,7 +409,8 @@ def ai_run():
         if not port_open(8790):
             ai_log("starting the arm_sdk streamer (harness.robot.arm_stream, log /tmp/harness_stream.log); it publishes nothing until the session engages\n")
             try:
-                ai["streamer"] = subprocess.Popen([PY, "-m", "harness.robot.arm_stream", a.iface], cwd=ROOT, stdout=open("/tmp/harness_stream.log", "ab"),
+                scmd = [PY, "-m", "harness.robot.arm_stream", a.iface] + (["--set", "locomotion.enabled=true"] if walk_ok else [])
+                ai["streamer"] = subprocess.Popen(scmd, cwd=ROOT, stdout=open("/tmp/harness_stream.log", "ab"),
                                                   stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUNBUFFERED": "1"})
             except Exception as ex:
                 ai_log(f"streamer failed to start: {ex}\n"); return
@@ -485,7 +488,7 @@ def save_ui_state():
         os.makedirs(os.path.dirname(UI_STATE), exist_ok=True)
         with open(UI_STATE, "w") as f:
             json.dump({"task": ai_task.get(), "mode": ai_mode.get(), "arm": ai_arm.get(), "profile": ai_stepp.get(), "floor_z": ai_floor.get(),
-                       "walk": bool(ai_walk.get()), "context": [demo_files[i] for i in demo_lb.curselection()]}, f)
+                       "context": [demo_files[i] for i in demo_lb.curselection()]}, f)
     except OSError:
         pass
 def load_ui_state():
@@ -494,7 +497,7 @@ def load_ui_state():
     except (OSError, ValueError):
         st = {}
     ai_task.set(st.get("task", "")); ai_mode.set(st.get("mode", "dry run")); ai_arm.set(st.get("arm", "left"))
-    ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50")); ai_walk.set(bool(st.get("walk", False)))
+    ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50"))
     for i, f in enumerate(demo_files):
         if f in st.get("context", []): demo_lb.selection_set(i)
     ctx_changed(); mode_changed()

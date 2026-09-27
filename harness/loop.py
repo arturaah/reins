@@ -4,12 +4,14 @@ One Episode drives one arm. Every motion goes through ArmExecutor.execute, which
 the SafetyGate: the loop never touches joints. The VLM sees only the active stage.
 """
 import math
+import re
 import time
 
 import numpy as np
 
 from .actions import ActionError, OUTPUT_SCHEMA, parse_decision
 from .demos import demo_images, demos_block
+from .executor import ExecResult
 from .interpreter import Interpreter, step_size
 from .perception import height_above_table_cm
 from .prompts import PLAN_SCHEMA, RECOVERY_NOTES, controller_prompt, parse_plan, planner_prompt, proprio_text
@@ -30,13 +32,14 @@ class Episode:
         self.table_z = executor.gate.table_z
         self.stop_reason = None
         lo = cfg.get("locomotion") or {}
-        self.loco = bool(lo.get("enabled", False))
+        self.loco_cfg = bool(lo.get("enabled", False))
+        self.loco = False                                  # decided per task in run(): enabled AND the task says "walk"
         self.walk_m, self.turn_rad = float(lo.get("step_m", 0.2)), math.radians(float(lo.get("turn_deg", 20.0)))
         self.limits.update({"param_max_walk_m": lo.get("param_max_walk_m", 0.4), "param_max_turn_deg": lo.get("param_max_turn_deg", 45.0)})
 
     # -- planning -------------------------------------------------------------------------------
     def make_plan(self, task, packet):
-        prompt = self.with_context(planner_prompt(task, self.cfg, self.arm))
+        prompt = self.with_context(planner_prompt(task, self.cfg, self.arm, locomotion=self.loco))
         images = self.demo_images + packet.images
         resp = self.vlm.plan(prompt, images, PLAN_SCHEMA); self.stat("plan", resp, prompt, images)
         stages, err = None, resp.error
@@ -58,8 +61,16 @@ class Episode:
         return stages, resp
 
     # -- the loop ------------------------------------------------------------------------------------
+    @staticmethod
+    def task_allows_walking(task):
+        """The operator's explicit consent to whole-body motion is the word walk in the task text itself."""
+        return bool(re.search(r"\bwalk(s|ed|ing)?\b", task or "", re.IGNORECASE))
+
     def run(self, task):
         cfg, lp = self.cfg, self.cfg["loop"]
+        self.loco = self.loco_cfg and self.task_allows_walking(task)
+        if self.loco_cfg and not self.loco:
+            self.log("walking stays off: the task text does not say 'walk'")
         state = self.ex.sync()
         self.ex.gate.set_baseline(self.ex.kin.q_from_dict(state.q), self.ex.others(state.q))
         self.fb_text = self.feedback.block(task) if self.feedback is not None else ""
@@ -111,7 +122,12 @@ class Episode:
             if history and action.opposite_of is not None and self.same_token(history[0], action.opposite_of):
                 recovery = RECOVERY_NOTES["oscillation"]
             proposal = self.interp.propose(state, action, sigma, theta, self.walk_m, self.turn_rad)
-            result = self.ex.execute(proposal, state)
+            if proposal.kind == "walk" and not self.loco:
+                why = ("walking is not enabled for this session: the robot cannot move its body; use the arm" if not self.loco_cfg else
+                       "walking is only allowed when the task text itself says 'walk'; this task does not, so the body stays put: use the arm")
+                result = ExecResult(False, why, state.p, state.p, np.zeros(3), np.zeros(3), state.roll, state.roll)
+            else:
+                result = self.ex.execute(proposal, state)
             last_result = result
             extra = {}
             if result.ik_fail:
