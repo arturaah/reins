@@ -5,7 +5,9 @@ import mujoco
 
 
 class MotionRejected(ValueError):
-    pass
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.details = details or {}
 
 
 def segment_samples(a,b,step=.01):
@@ -36,9 +38,17 @@ class MotionValidator:
         return np.linalg.norm(np.maximum(np.maximum(lo-points,points-hi),0),axis=1)
 
     def check(self, plan, side, obstacles, observation=None):
+        if side not in ('left', 'right') or not 2 <= len(plan.get('keyframes', [])) <= 36001:
+            raise MotionRejected('Invalid arm or trajectory sample count')
         names=list(plan['keyframes'][0]['joint_targets_rad'])
+        if any(set(f['joint_targets_rad']) != set(names) for f in plan['keyframes']):
+            raise MotionRejected('Trajectory joints must match at every sample')
+        for n, v in plan.get('held_joints_rad', {}).items():
+            joint = self.model.joint(n)
+            if n in names or not math.isfinite(v) or (joint.limited and not joint.range[0] <= v <= joint.range[1]):
+                raise MotionRejected('Invalid held joint: ' + n)
         allowed={f'{side}_{j}_joint' for j in ('shoulder_pitch','shoulder_roll','shoulder_yaw','elbow')}
-        if set(names) != allowed:
+        if set(names) not in (allowed, allowed | {f'{side}_wrist_roll_joint'}):
             raise MotionRejected('Generated trajectory must move only the selected A5 arm')
         ts=np.array([f['time_s'] for f in plan['keyframes']],float)
         qs=np.array([[f['joint_targets_rad'][n] for n in names] for f in plan['keyframes']],float)
@@ -55,6 +65,12 @@ class MotionValidator:
         accel=float(np.max(np.abs(np.diff(velocities,axis=0))/((np.diff(ts)[1:]+np.diff(ts)[:-1])/2)[:,None])) if len(velocities)>1 else 0
         if accel>1.51:
             raise MotionRejected('Sampled joint acceleration exceeds 1.5 rad/s²')
+        def collision(message):
+            return MotionRejected(message, {
+                'keyframe_index': i,
+                'hand_position_m': self.data.site_xpos[self.model.site(f'{side}_hand_preview').id].round(4).tolist(),
+                'joint_targets_rad': dict(zip(names, q.tolist())),
+            })
         count=0
         # Model-driven torso box anchored to the waist-yaw body.
         for i in range(len(qs)-1):
@@ -70,27 +86,27 @@ class MotionValidator:
                 other=self.arm('right' if side=='left' else 'left')
                 radius=self.RADIUS+self.MARGIN
                 if np.min(np.linalg.norm(points[:,None]-other[None,:],axis=2))<2*radius:
-                    raise MotionRejected('Self-collision: opposite arm envelope')
+                    raise collision('Self-collision: opposite arm envelope')
                 # Validate against all active native collision contacts involving this arm.
                 for c in self.data.contact:
                     a=self.model.body(self.model.geom_bodyid[c.geom1]).name or ''
                     b=self.model.body(self.model.geom_bodyid[c.geom2]).name or ''
                     arm=lambda n:n.startswith(side+'_') and any(k in n for k in ('shoulder','elbow','wrist'))
                     if c.dist<-.001 and (arm(a) or arm(b)):
-                        raise MotionRejected(f'Self-collision: {a} / {b}')
+                        raise collision(f'Self-collision: {a} / {b}')
                 torso_id=self.model.body('torso_link').id
                 local=(self.arm(side,trim_mount=True)-self.data.xpos[torso_id]) @ self.data.xmat[torso_id].reshape(3,3)
                 torso={'min':[-.085,-.075,-.13],'max':[.075,.075,.16]}
                 if np.min(self.box_distance(local,torso))<radius:
-                    raise MotionRejected('Self-collision: torso envelope')
+                    raise collision('Self-collision: torso envelope')
                 head=self.data.xpos[torso_id]+self.data.xmat[torso_id].reshape(3,3)@np.array([0.,0.,.35])
                 if np.min(np.linalg.norm(points-head,axis=1))<radius+.10:
-                    raise MotionRejected('Self-collision: head envelope')
+                    raise collision('Self-collision: head envelope')
                 if np.min(points[:,2])<radius:
-                    raise MotionRejected('Floor collision')
+                    raise collision('Floor collision')
                 for box in obstacles:
                     if np.min(self.box_distance(points,box))<radius:
-                        raise MotionRejected(f'Collision with {box.get("name","obstacle")}')
+                        raise collision(f'Collision with {box.get("name","obstacle")}')
                 if observation:
                     observation.require_free(points,radius)
                 count+=1

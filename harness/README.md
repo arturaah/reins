@@ -1,5 +1,16 @@
 # harness: the VLM is the policy
 
+The recommended operator interface is now the [dashboard](../tools/dashboard/README.md).
+Its primary planner uses `core/ik.py`; this visual policy is the context-driven
+fallback, with each step compiled and reviewed through the same pipeline.
+The terminal entry points below remain useful for experiments. They also apply
+the shared full-path checks, and the hardware bridge independently validates motion.
+
+Use the dashboard's built-in, paired glasses service for the integrated workflow.
+The older standalone `plan_feed.py --review-file` additionally requires
+`--review-token-file` and the corresponding Lens `reviewToken`.
+
+
 A frontier vision-language model controls one R1 arm zero-shot: each step it sees the head camera
 and the wrist camera plus a short text state, and answers with ONE discrete hand action. Code turns
 that into a bounded hand-tip setpoint, IK turns the setpoint into arm joints, the safety gate vets

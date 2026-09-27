@@ -94,7 +94,7 @@ class Recorder:
                 if first and (d / fname).exists():
                     frames.setdefault(cam, []).append((t, (d / fname).read_bytes()))
             n = max(1, int(round(dur * hz)))
-            for i in range(n + 1):                                   # the move, cosine-eased, one sample per 1/hz
+            for i in range(1 if kfs else 0, n + 1):                                   # the move, cosine-eased, one sample per 1/hz
                 r = 0.5 - 0.5 * math.cos(math.pi * i / n)
                 kfs.append({"time_s": round(t + dur * i / n, 3),
                             "joint_targets_rad": {k: round(before[k] + (after[k] - before[k]) * r, 5) for k in before}})

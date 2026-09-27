@@ -22,8 +22,10 @@ import numpy as np
 from PIL import Image, ImageDraw
 from core.ik import ArmIK, plan_from_waypoints
 from core.action_context import SKILLS, route_intent, gesture_plan, pointing_plan
+from core.object_detection import canonical_label, select_target
 from core.perception import Observation, PerceptionError
 from core.motion_validation import MotionValidator, MotionRejected, slow_acceleration
+from core.generated_motion import TrajectoryRejected, compile_trajectory, motion_context, validate_pose, validate_trajectory
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -73,21 +75,30 @@ def ground_openai(prompt, rgb):
 
 
 class PromptPlanner:
-    def __init__(self, observation_path=None, output_dir=None, preview_pose=None):
+    MAX_TRAJECTORY_ATTEMPTS = 3
+
+    def __init__(self, observation_path=None, output_dir=None, preview_pose=None, detector=None):
         self.observation_path=Path(observation_path) if observation_path else None
         self.output_dir=Path(output_dir) if output_dir else ROOT/'sim/plans'
         self.preview_pose=preview_pose or (lambda: {})
+        self.detector=detector
         self.target_cache=None
         self.last_targets={}
         self.lock=threading.RLock()
-        self.job={'state':'idle','message':'Describe an action. Auto context uses known skills first and vision when a target needs locating.', 'events':[]}
+        self.job={'state':'idle','message':'Choose Generate preview on a motion in chat.', 'events':[]}
         self.image=b''
         self.plan=None
         self.cancelled=threading.Event()
+        self.reviser=None
+        self.reviser_factory=None
+        self.before_submit=None
+        self.on_complete=None
+        self.pose_label=None
 
     def status(self):
         with self.lock:
             return copy.deepcopy({**self.job,'configured':{'observation':bool(self.observation_path),
+              'detector':bool(self.detector and self.detector.available),
               'vision':bool(os.environ.get('OPENAI_API_KEY') and os.environ.get('REINS_VISION_MODEL'))},
               'model':os.environ.get('REINS_VISION_MODEL','Not configured')})
 
@@ -97,16 +108,28 @@ class PromptPlanner:
             self.job.update(state='planning',stage=stage,message=message)
             self.job['events'].append({'stage':stage,'message':message})
 
-    def submit(self, prompt, source="auto"):
+    def motion_context(self):
+        context = motion_context(ArmIK(backend='mujoco'), dict(self.preview_pose()))
+        if self.pose_label: context['pose_source'] = self.pose_label()
+        return context
+
+    def submit(self, prompt, source="auto", trajectory=None, reviser=None):
         if not isinstance(prompt,str) or not 1<=len(prompt.strip())<=1000:
             raise ValueError('Enter a prompt between 1 and 1000 characters')
         if source not in ('auto','camera','demo'): raise ValueError('Unknown observation source')
+        if trajectory is not None:
+            trajectory=validate_trajectory(trajectory)
         with self.lock:
             if self.job['state']=='planning': raise ValueError('A planning request is already running')
+            if self.before_submit: self.before_submit()
+            if trajectory is not None and reviser is None and self.reviser_factory:
+                reviser=self.reviser_factory()
             self.cancelled.clear(); self.image=b''; self.plan=None
+            self.reviser=reviser
             self.job={'id':uuid.uuid4().hex,'revision':1,'prompt':prompt.strip(),'source':source,
+                      'arm':trajectory['arm'] if trajectory else None,
                       'state':'planning','stage':'context','message':'Checking what context this action needs…','events':[]}
-            threading.Thread(target=self._work,args=(prompt.strip(),source),daemon=True).start()
+            threading.Thread(target=self._work,args=(prompt.strip(),source,trajectory,reviser),daemon=True).start()
         return self.status()
 
     def cancel(self):
@@ -115,6 +138,19 @@ class PromptPlanner:
             if self.job['state'] in ('proposed','blocked','previewed'):
                 self.job.update(state='cancelled',message='Proposal dismissed.')
             self.plan=None
+            reviser=self.reviser
+        if reviser is not None and hasattr(reviser,'cancel'):
+            reviser.cancel()
+
+    def show_once(self, proposal_id, display):
+        """Send the current validated proposal to the viewer without saving or replaying it."""
+        with self.lock:
+            if (self.cancelled.is_set() or self.job.get('id') != proposal_id
+                    or self.job['state'] != 'proposed' or not self.plan):
+                raise ValueError('This preview is unavailable or has already been shown.')
+            display(copy.deepcopy(self.plan), proposal_id)
+            self.job.update(state='previewed', message='Shown once in simulation. Ask in chat to create or revise a motion.')
+        return self.status()
 
     def preview(self, proposal_id):
         with self.lock:
@@ -125,7 +161,7 @@ class PromptPlanner:
             self.output_dir.mkdir(parents=True,exist_ok=True)
             path=self.output_dir/f'prompt_{proposal_id}.json'
             temp=path.with_suffix('.tmp'); temp.write_text(json.dumps(plan,indent=2,allow_nan=False)+'\n'); temp.replace(path)
-            self.job.update(state='previewed',message='Loaded in MuJoCo. Physical execution is locked for generated previews.')
+            self.job.update(state='previewed',message='Loaded in MuJoCo. Use the simulation playback controls to pause or replay.')
             return path
 
     def _ground(self, intent, observation, source):
@@ -145,10 +181,19 @@ class PromptPlanner:
             target=copy.deepcopy(cache['target'])
             self.job['context']['vision']='reused'
         else:
-            self.event('identify','Object context is missing or changed; locating the target with vision.')
-            target=ground_openai(f"{intent['skill']} the {selector}",observation.rgb)
+            target=None
+            if self.detector and self.detector.available and canonical_label(selector):
+                self.event('identify','Detecting the named object locally in the calibrated RGB frame.')
+                detected=select_target(self.detector.detect(observation.rgb),selector)
+                if detected:
+                    target={**detected,'arm':'auto','action':intent['skill'],'status':'found',
+                            'explanation':'Unique local detection in this calibrated observation.'}
+                    self.job['context']['vision']='local_detector'
+            if target is None:
+                self.event('identify','Local context is insufficient; locating the described target with the configured vision model.')
+                target=ground_openai(f"{intent['skill']} the {selector}",observation.rgb)
+                self.job['context']['vision']='requested'
             self.target_cache={'selector':selector,'fingerprint':fingerprint,'target':copy.deepcopy(target)}
-            self.job['context']['vision']='requested'
         self.last_targets[memory_source]=selector
         target['arm']=intent['arm'] if intent['arm']!='auto' else target['arm']
         target['action']=intent['skill']
@@ -185,9 +230,93 @@ class PromptPlanner:
                  validation=report,duration=plan['duration_s'],digest=hashlib.sha256(json.dumps(plan,sort_keys=True).encode()).hexdigest(),
                  execution_allowed=False,contact_enabled=False,has_image=False)
 
-    def _work(self,prompt,source):
+    def _generated(self, draft, source, reviser=None):
+        side=draft['arm']
+        self.job['context']={'skill':'generated_trajectory',
+                             'requirements':['joint_pose','workspace_clearance'], 'vision':'not_required'}
+        observation=None
+        if source!='demo' and self.observation_path:
+            self.event('context','Using calibrated depth and measured joints for the generated path.')
+            observation=Observation.load(self.observation_path)
+            pose=observation.pose
+            environment='depth-observed workspace'
+        elif source=='camera':
+            raise ValueError('No calibrated depth source configured. Select Auto context for a simulation-only preview.')
+        else:
+            pose=dict(self.preview_pose()) if source!='demo' else {}
+            environment='simulation only; physical workspace clearance unknown'
+            self.event('context','Compiling newly authored waypoints from the simulation pose; no visual recognition needed.')
+        ik=ArmIK(backend='mujoco')
+        validate_pose(ik,pose,measured=observation is not None)
+        geometry=motion_context(ik,pose)
+        if observation:
+            geometry['pose_source']='measured joint pose from the calibrated observation'
+        original=copy.deepcopy(draft)
+        failures=[]
+        limit=self.MAX_TRAJECTORY_ATTEMPTS if reviser is not None else 1
+        for attempt in range(1,limit+1):
+            with self.lock:
+                self.job.update(attempt=attempt,max_attempts=limit,revision=attempt)
+            self.event('plan',f'Checking trajectory attempt {attempt} of {limit}.')
+            if observation and not -.1 <= time.time()-observation.captured_at <= 3:
+                raise PerceptionError('Observation expired while generating the path. Acquire a fresh observation and retry.')
+            stage='plan'
+            try:
+                plan=compile_trajectory(ik,draft,pose,
+                    progress=lambda message:self.event('plan',f'Attempt {attempt}/{limit}: {message}'))
+                stage='validate'
+                self.event('validate',f'Attempt {attempt}/{limit}: checking joint margins, velocity, acceleration, collisions and workspace clearance.')
+                if observation and not -.1 <= time.time()-observation.captured_at <= 3:
+                    raise PerceptionError('Observation expired while generating the path. Acquire a fresh observation and retry.')
+                report=MotionValidator(ik.model).check(plan,side,[],observation)
+                break
+            except (TrajectoryRejected,MotionRejected) as exc:
+                if self.cancelled.is_set(): raise ValueError('Planning cancelled.') from None
+                failures.append({'attempt':attempt,'stage':stage,'error':str(exc),
+                                 'details':copy.deepcopy(exc.details),'trajectory':copy.deepcopy(draft)})
+                with self.lock:
+                    self.job['failures']=copy.deepcopy(failures)
+                if attempt==limit:
+                    with self.lock:
+                        self.job['retryable']=reviser is None
+                    raise ValueError(f'No valid trajectory after {attempt} attempt(s). Last issue: {exc}') from exc
+                self.event('revise',f'Attempt {attempt}/{limit} rejected: {exc}. Recalculating trajectory {attempt+1}/{limit}…')
+                try:
+                    candidate=reviser(self.job['prompt'],copy.deepcopy(draft),copy.deepcopy(failures),geometry)
+                    if self.cancelled.is_set(): raise ValueError('Planning cancelled.')
+                    candidate=validate_trajectory(candidate)
+                    if any(candidate[key]!=original[key] for key in ('arm','frame','return_to_start')):
+                        raise ValueError('A revised trajectory must preserve the requested arm, frame and return-to-start setting.')
+                except ValueError as repair_error:
+                    raise ValueError(f'Automatic trajectory revision stopped: {repair_error} Last path issue: {exc}') from repair_error
+                draft=candidate
+        report['coverage']=environment
+        plan['preview_only']=True
+        plan['generated_trajectory']=copy.deepcopy(draft)
+        plan['scene_boxes']=[]
+        plan['prompt_proposal']={'id':self.job['id'],'revision':attempt,'source':source,
+            'skill':'generated_trajectory','prompt':self.job['prompt'],
+            'context':copy.deepcopy(self.job['context']),'target':draft['name'],'validation':report,
+            'contact_enabled':False,'execution_allowed':False}
+        with self.lock:
+            if self.cancelled.is_set(): raise ValueError('Planning cancelled.')
+            self.plan=plan
+            self.job.update(state='proposed',stage='review',
+                message='Trajectory preview ready'+(f' after {attempt} attempts' if attempt>1 else '')+'. Choose Show once in simulation to review it.',
+                target={'label':draft['name'],'arm':side,'surface_m':None,
+                        'goal_m':draft['waypoints'][-1]['position_m'],'standoff_m':None,
+                        'quality':{'source':environment}},
+                validation=report,duration=plan['duration_s'],
+                digest=hashlib.sha256(json.dumps(plan,sort_keys=True,allow_nan=False).encode()).hexdigest(),
+                execution_allowed=False,contact_enabled=False,has_image=False)
+
+    def _work(self,prompt,source,trajectory=None,reviser=None):
         try:
+            if trajectory is not None:
+                self._generated(trajectory,source,reviser)
+                return
             intent=route_intent(prompt)
+            self.job['arm']=intent['arm']
             self.job['context']={'skill':intent['skill'],'requirements':list(SKILLS[intent['skill']].requirements),
                                  'vision':'not_required' if intent['selector'] is None else 'needed'}
             self.event('context',f"Selected {intent['skill'].replace('_',' ')}. Required context: {', '.join(SKILLS[intent['skill']].requirements)}.")
@@ -201,8 +330,10 @@ class PromptPlanner:
                     raise ValueError('No calibrated depth source configured. Start with --observation PATH_TO_OBSERVATION.npz. Ordinary MJPEG feeds do not provide depth.')
                 observation=Observation.load(self.observation_path)
                 pose=observation.pose
-                self.event('identify','Identifying the target in the captured RGB image with the configured vision model.')
+                self.event('identify','Identifying the target in the calibrated RGB image.')
                 target=self._ground(intent,observation,source)
+                if not -.1 <= time.time()-observation.captured_at <= 3:
+                    raise ValueError('Observation expired while locating the object. Acquire a fresh synchronized observation and retry.')
                 self.event('localize','Resolving the selected image region into a measured 3D surface.')
                 surface,normal,quality=observation.locate(target['bbox'])
                 uncertainty=observation.uncertainty
@@ -282,4 +413,13 @@ class PromptPlanner:
         except Exception as exc:
             with self.lock:
                 self.plan=None
-                self.job.update(state='cancelled' if self.cancelled.is_set() else 'blocked',stage='blocked',message=str(exc)[:800])
+                self.job.update(state='cancelled' if self.cancelled.is_set() else 'blocked',stage='blocked',
+                                message='Planning cancelled.' if self.cancelled.is_set() else str(exc)[:800])
+        finally:
+            with self.lock:
+                if self.reviser is reviser:
+                    self.reviser=None
+            if reviser is not None and hasattr(reviser,'close'):
+                reviser.close()
+            if self.on_complete:
+                self.on_complete(self.status(), copy.deepcopy(self.plan))

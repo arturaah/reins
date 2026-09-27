@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
+from core import trajectory
 
 from .interpreter import ArmState
 
@@ -80,7 +81,7 @@ class ArmExecutor:
 
     # -- state ------------------------------------------------------------------------------------
     def others(self, joints):
-        return {n: joints[n] for n in ("waist_roll_joint", "waist_yaw_joint") if n in joints}
+        return {n: v for n, v in joints.items() if n not in self.kin.joint_names}
 
     def sync(self):
         j = self.backend.joints()
@@ -109,7 +110,13 @@ class ArmExecutor:
                               ik_fail=v.reason.startswith("IK_FAIL"), clamped=bool(v.clamped), notes=v.clamped)
         dt = 1.0 / self.rate
         frames = interpolate(q_now, v.q_target, v.duration_s, self.rate)
-        bad = self.gate.check_trajectory(frames, dt)
+        try:
+            plan = trajectory.resolve(trajectory.frame_plan(self.arm, q_now, frames, dt, j), self.arm, j, self.rate)
+            frames, dt = trajectory.frames(plan, self.arm)
+            v.duration_s = plan["duration_s"]
+        except ValueError as exc:
+            return ExecResult(False, str(exc))
+        bad = self.gate.check_trajectory(frames, dt, q_now, others)
         if bad:
             return ExecResult(False, f"REJECTED by the trajectory check: {bad}", state.p, state.p, requested, np.zeros(3),
                               state.roll, state.roll, clamped=bool(v.clamped), notes=v.clamped)
@@ -123,6 +130,12 @@ class ArmExecutor:
             ok, note = self._ask(text, {"arm": self.arm, "q_now": q_now, "frames": frames, "dt": dt, "joints": j}); asked = True
             if not ok:
                 return self._declined(note, state, requested)
+        if self.gate.estop.is_set():
+            return ExecResult(False, "ESTOP: nothing moves")
+        try:
+            trajectory.require_start(plan, self.backend.joints())
+        except ValueError as exc:
+            return ExecResult(False, str(exc))
         t0 = time.time()
         self.backend.stream(self.arm, frames, dt)
         timeout = self._settle()
@@ -329,7 +342,13 @@ class ArmExecutor:
         lim = self.cfg["limits"]
         duration = max(float(lim["min_move_s"]), float(np.abs(q_t - q_now).max()) / float(lim["max_joint_vel_rad_s"]) * math.pi / 2)
         frames = interpolate(q_now, q_t, duration, self.rate)
-        bad = self.gate.check_trajectory(frames, 1.0 / self.rate)
+        try:
+            plan = trajectory.resolve(trajectory.frame_plan(self.arm, q_now, frames, 1.0/self.rate, j), self.arm, j, self.rate)
+            frames, dt = trajectory.frames(plan, self.arm)
+            duration = plan["duration_s"]
+        except ValueError as exc:
+            return ExecResult(False, str(exc))
+        bad = self.gate.check_trajectory(frames, dt, q_now, self.others(j))
         if bad:
             return ExecResult(False, f"{label} refused by the trajectory check: {bad}", state.p, state.p)
         p_t, _ = self.kin.fk(q_t, self.others(j))
@@ -341,8 +360,14 @@ class ArmExecutor:
             if not ok:
                 r = self._declined(note, state, p_t - state.p); r.feedback = f"the operator rejected the {label}" + (f": {note}" if note else "")
                 return r
+        if self.gate.estop.is_set():
+            return ExecResult(False, "ESTOP: nothing moves")
+        try:
+            trajectory.require_start(plan, self.backend.joints())
+        except ValueError as exc:
+            return ExecResult(False, str(exc))
         t0 = time.time()
-        self.backend.stream(self.arm, frames, 1.0 / self.rate)
+        self.backend.stream(self.arm, frames, dt)
         timeout = self._settle()
         after = self.sync()
         return ExecResult(True, f"{label} done", state.p, after.p, p_t - state.p, after.p - state.p, state.roll, after.roll,

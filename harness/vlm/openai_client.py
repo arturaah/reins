@@ -33,7 +33,7 @@ class OpenAIVLM(VLM):
 
     def _call(self, prompt, images, schema):
         t0 = time.time()
-        kwargs = dict(model=self.model, max_output_tokens=self.max_tokens,
+        kwargs = dict(model=self.model, store=False, max_output_tokens=self.max_tokens,
                       input=[{"role": "user", "content": self._content(prompt, images)}])
         if schema:
             kwargs["text"] = {"format": {"type": "json_schema", "name": "harness", "schema": schema, "strict": True}}

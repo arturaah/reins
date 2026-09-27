@@ -1,0 +1,57 @@
+{
+  "oscillation": {
+    "forward_then_back_detected": false
+  },
+  "nonfinite_action": {
+    "nan_accepted": true,
+    "infinity_becomes_metres": 0.2
+  },
+  "estop_during_review": {
+    "estop_set": true,
+    "result_ok": true,
+    "frames_sent": 20
+  },
+  "export": {
+    "nonincreasing_times": [
+      0.9
+    ],
+    "simulation_loader": "Keyframes must start at 0 and have increasing times"
+  },
+  "contract": {
+    "session_without_final_approval_accepted": true
+  },
+  "opposite_arm_pose": {
+    "requested": -1.0,
+    "collision_model_value": 0.0
+  },
+  "swept_collision": {
+    "q_start": [
+      -2.326057100895942,
+      0.008651466008575248,
+      -1.8117900134980223,
+      -0.24041895441715067,
+      0.6728385177275578
+    ],
+    "q_end": [
+      -2.0360180127118817,
+      -1.2519632092021151,
+      1.657106978764268,
+      -0.592246957452217,
+      -0.572284877701366
+    ],
+    "start_contacts": 8,
+    "end_contacts": 8,
+    "intermediate_fraction": 0.75,
+    "intermediate_contacts": 12,
+    "trajectory_check": "",
+    "executor_ok": true,
+    "frames_sent": 341
+  },
+  "disconnect": {
+    "watchdog_s": 0.2,
+    "elapsed_after_disconnect_s": 0.65,
+    "still_engaged": true,
+    "still_streaming": true,
+    "additional_publishes": 32
+  }
+}

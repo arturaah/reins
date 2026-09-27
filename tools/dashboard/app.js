@@ -1,428 +1,554 @@
 'use strict';
 const $ = id => document.getElementById(id);
-let token = '', plans = [], state = null, camera = 'head', simSource = 'simulation', sharing = null;
-let scrubbing = false, toastTimer, statusBusy = false;
-let runSeq = 0, runStarted = null, plansLibrary = 0, runBusy = false, voiceReady = false;
-const DRYRUN_PLAN = 'sim/plans/arm_lift_dryrun.json';
-const GRID = {head:'gridHead', left:'gridLeft', right:'gridRight'};
+let token = '', state = null, sharing = null;
+let toastTimer, statusBusy = false, gestureRequestBusy = false;
+const SOURCES = {simulation:'MuJoCo simulation', head:'Head camera', left:'Left wrist camera', right:'Right wrist camera', glasses:'Glasses feed', twin:'Live robot twin'};
+const viewers = {main:'simulation', secondary:'head'}, viewerRevision = {main:0, secondary:0};
+try { const saved=JSON.parse(localStorage.getItem('reins.viewers') || '{}'); for (const slot of Object.keys(viewers)) if (Object.hasOwn(SOURCES,saved[slot])) viewers[slot]=saved[slot]; } catch {}
+for (const slot of Object.keys(viewers)) $(slot+'Source').value=viewers[slot];
 const frameBusy = new Set(), frameUrls = {};
 const toast = text => { $('toast').textContent = text; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 5500); };
 const badge = (id, text, good) => { $(id).textContent = text; $(id).classList.toggle('good', good); };
-const clock = value => Number(value).toFixed(1).padStart(4, '0');
 async function control(command) {
   try {
     const response = await fetch('/api/control', {method:'POST', headers:{'Content-Type':'application/json','X-Reins-Token':token}, body:JSON.stringify(command)});
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Unable to update preview');
     if (state) state.simulation = body;
-    updatePlayback(body);
+    renderViewers();
     return true;
   } catch (error) { toast(error.message); return false; }
 }
-function updatePlayback(sim) {
-  $('play').innerHTML = sim.playing ? '<span style="font-size:14px;font-weight:700">Ⅱ</span>' : '<svg><use href="#i-play"/></svg>';
-  $('play').setAttribute('aria-label', sim.playing ? 'Pause trajectory' : 'Play trajectory');
-  $('duration').textContent = clock(sim.duration);
-  if (!scrubbing) { $('time').textContent = clock(sim.time); $('scrubber').max = sim.duration; $('scrubber').value = sim.time; }
-  $('speed').value = sim.speed;
-  $('paths').checked = sim.paths;
-  const plan = plans.find(p => p.id === sim.plan);
-  if (plan) { $('planName').textContent = plan.name; $('jointCount').textContent = plan.joints; }
+function viewerReady(key) {
+  if (key === 'glasses' && sharing) return true;
+  return !!state && (key === 'simulation' ? state.simulation.ready : state.feeds[key]?.online);
 }
-async function frame(key, imgId, visible) {
-  const img = $(imgId);
-  if (!visible) { img.classList.remove('visible'); return; }
-  if (frameBusy.has(imgId)) return;
-  frameBusy.add(imgId);
+function setViewer(slot, source) {
+  if (!Object.hasOwn(viewers,slot) || !Object.hasOwn(SOURCES,source)) return;
+  viewers[slot]=source;viewerRevision[slot]++;
+  $(slot+'Source').value=source;
+  const img=$(slot+'Image');img.classList.remove('visible');img.removeAttribute('src');
+  if (frameUrls[slot]) { URL.revokeObjectURL(frameUrls[slot]);delete frameUrls[slot]; }
+  try { localStorage.setItem('reins.viewers',JSON.stringify(viewers)); } catch {}
+  renderViewers();refreshFrames();
+}
+async function viewerFrame(slot) {
+  const key=viewers[slot], revision=viewerRevision[slot], img=$(slot+'Image');
+  if (!viewerReady(key) || (key==='glasses' && sharing)) { img.classList.remove('visible');return; }
+  if (frameBusy.has(slot)) return;
+  frameBusy.add(slot);
   try {
-    const response = await fetch(`/frame/${key}`, {signal:AbortSignal.timeout(3000)});
-    if (!response.ok) throw new Error('No frame');
-    const url = URL.createObjectURL(await response.blob());
-    // A source can change while the frame request is in flight.
-    if ((imgId === 'robotImage' && key !== camera) || (Object.values(GRID).includes(imgId) && camera !== 'all') || (imgId === 'simImage' && key !== simSource) || (imgId === 'glassesImage' && sharing)) { URL.revokeObjectURL(url); return; }
-    const old = frameUrls[imgId];
-    img.src = url; frameUrls[imgId] = url; img.classList.add('visible');
-    if (old) URL.revokeObjectURL(old);
-  } catch { img.classList.remove('visible'); }
-  finally { frameBusy.delete(imgId); }
+    const response=await fetch('/frame/'+key,{signal:AbortSignal.timeout(3000)});
+    if(!response.ok)throw new Error('No frame');
+    const blob=await response.blob();
+    if(revision!==viewerRevision[slot] || !viewerReady(key) || (key==='glasses' && sharing))return;
+    const url=URL.createObjectURL(blob),old=frameUrls[slot];
+    img.src=url;img.classList.add('visible');frameUrls[slot]=url;
+    if(old)URL.revokeObjectURL(old);
+  } catch { if(revision===viewerRevision[slot])img.classList.remove('visible'); }
+  finally {frameBusy.delete(slot);}
+}
+function renderViewers() {
+  for(const [slot,key] of Object.entries(viewers)) {
+    const ready=viewerReady(key),windowShare=key==='glasses' && !!sharing;
+    const video=$(slot+'Video');
+    if(video.srcObject!==(windowShare?sharing:null))video.srcObject=windowShare?sharing:null;
+    video.hidden=!windowShare;
+    if(!ready || windowShare)$(slot+'Image').classList.remove('visible');
+    $(slot+'Image').alt=SOURCES[key];
+    badge(slot+'Badge', ready ? (key==='simulation'?'PREVIEW':windowShare?'SHARED':'LIVE') : state?'OFFLINE':'CONNECTING',ready);
+    $(slot+'Empty').hidden=ready;
+    $(slot+'EmptyTitle').textContent=key==='simulation'?'Preparing simulation':'Waiting for '+SOURCES[key].toLowerCase();
+    $(slot+'Detail').textContent=!state?'Waiting for the dashboard…':key==='simulation'?(state.simulation.error||'Loading the R1 model…'):key==='glasses'?'Connect a glasses stream or share a window.':'The selected feed will appear when it is online.';
+    $(slot+'Caption').textContent=key==='simulation'?'MUJOCO · PLAN PREVIEW':key==='twin'?'LIVE ROBOT STATE':SOURCES[key].toUpperCase();
+  }
+  const simulationVisible=Object.values(viewers).includes('simulation');
+  $('simulationStatus').hidden=!simulationVisible;
+  const sim=state?.simulation;
+  $('simulationMessage').textContent=sim?.playing ? 'Showing '+sim.name+'…' : sim?.plan ? (sim.time < sim.duration ? 'Preview stopped · ' : 'Preview finished · ')+sim.name : 'Ask in chat to create a new motion preview.';
+  $('stopPreview').hidden=!sim?.playing;
+  $('stopGlassesShare').hidden=!sharing;
 }
 function renderStatus() {
-  if (state?.voice_url && $('voiceFrame').getAttribute('src') !== state.voice_url) {
-    $('voicePanel').hidden = false;
-    $('voiceFrame').src = state.voice_url; $('voiceOpen').href = state.voice_url;
-    $('speakPrompt').hidden = false;
-  }
-  if (state?.mode === 'sim') {
-    $('controlPanel').hidden = true;
-    $('controlJump').hidden = $('heroControl').hidden = true;
-    $('simSource').querySelector('[value="twin"]').disabled = true;
-    $('promptSource').querySelector('[value="camera"]').disabled = true;
-    document.querySelector('.local-pill').textContent = 'SIMULATION ONLY';
-  }
+  renderVoice();
   if (!state) return;
-  const sim = state.simulation, feeds = state.feeds;
-  updatePlayback(sim);
-  const simReady = simSource === 'simulation' ? sim.ready : feeds.twin.online;
-  badge('simBadge', simReady ? (simSource === 'simulation' ? 'PREVIEW' : 'LIVE') : (simSource === 'simulation' ? 'UNAVAILABLE' : 'OFFLINE'), simReady);
-  $('simEmpty').hidden = simReady;
-  $('simDetail').textContent = simSource === 'simulation' ? (sim.error || 'Loading the R1 model…') : (feeds.twin.configured ? 'Waiting for the live twin feed.' : 'Add --twin http://127.0.0.1:8082/twin when starting the dashboard.');
-  $('simEmpty').querySelector('strong').textContent = simSource === 'simulation' ? 'MuJoCo preview' : 'Live robot twin';
-  $('renderLabel').textContent = simSource === 'simulation' ? 'KINEMATIC PREVIEW' : 'LIVE ROBOT STATE';
-  const liveCams = Object.keys(GRID).filter(k => feeds[k].online).length;
-  const robot = camera === 'all' ? {online: liveCams > 0} : feeds[camera];
-  badge('robotBadge', robot.online ? (camera === 'all' ? `${liveCams} / 3 LIVE` : 'LIVE') : 'OFFLINE', robot.online);
-  $('robotEmpty').hidden = robot.online;
-  $('camGrid').hidden = camera !== 'all' || !robot.online;
-  $('robotPanel').classList.toggle('grid-mode', camera === 'all' && robot.online);
-  $('robotAge').textContent = robot.online ? 'LIVE FEED' : 'NO SIGNAL';
-  const glassLive = !!sharing || feeds.glasses.online;
-  badge('glassesBadge', sharing ? 'WINDOW SHARE' : glassLive ? 'LIVE' : 'NOT CONNECTED', glassLive);
-  $('glassesEmpty').hidden = glassLive;
-  $('glassesMode').textContent = sharing ? 'SHARED WINDOW' : glassLive ? 'VIDEO STREAM' : 'AWAITING SOURCE';
-  $('connectionCount').textContent = `${Number(robot.online) + Number(glassLive)} / 2`;
-  $('glassesAction').textContent = sharing ? 'Stop sharing ×' : 'Connect source ↗';
-  // The transport always previews a plan; make that distinction explicit in live mode.
-  $('play').disabled = simSource !== 'simulation';
-  $('reset').disabled = simSource !== 'simulation';
-  $('scrubber').disabled = simSource !== 'simulation';
-  $('speed').disabled = simSource !== 'simulation';
-  if (!simReady) $('simImage').classList.remove('visible');
-  if (!robot.online || camera === 'all') $('robotImage').classList.remove('visible');
-  for (const [k, id] of Object.entries(GRID)) if (!feeds[k].online) $(id).classList.remove('visible');
-  renderControl();
-  renderPrompt();
-  renderOverview();
-  if (!feeds.glasses.online || sharing) $('glassesImage').classList.remove('visible');
+  renderViewers();renderGestures();renderPrompt();renderChat();renderDetection();renderOverview();renderPipeline();
 }
-
-// Text-only bridge: dictation edits the existing field; the user submits it normally.
-// The harness can read any reply through window.ReinsVoice.speak(text).
-window.ReinsVoice = {
-  speak(text) {
-    if (!voiceReady || !state?.voice_url || typeof text !== 'string' || !text.trim() || text.length > 1000) return false;
-    $('voiceFrame').contentWindow.postMessage({type:'reins-voice-speak',text},new URL(state.voice_url).origin);
-    voiceReady = false; $('speakPrompt').disabled = true;
-    return true;
-  }
-};
-window.addEventListener('message', event => {
-  if (!state?.voice_url || event.source !== $('voiceFrame').contentWindow
-      || event.origin !== new URL(state.voice_url).origin) return;
-  if (event.data?.type === 'reins-voice-ready') {
-    voiceReady = event.data.ready === true;
-    $('speakPrompt').disabled = !voiceReady;
-  }
-  if (event.data?.type === 'reins-voice-transcript') {
-    const text = event.data.text, field = $('actionPrompt');
-    if (typeof text !== 'string' || !text.trim() || text.length > 1000) return;
-    const size = field.value.length - (field.selectionEnd - field.selectionStart) + text.length;
-    if (size > field.maxLength) { toast('Dictation is too long for the prompt. Copy it from the voice transcript.'); return; }
-    field.setRangeText(text, field.selectionStart, field.selectionEnd, 'end');
-    field.dispatchEvent(new Event('input', {bubbles:true}));
-    toast('Dictation added to the prompt. Review it, then Generate plan.');
-  }
-});
-$('speakPrompt').onclick = () => {
-  if (!window.ReinsVoice.speak($('promptMessage').textContent)) toast('Connect voice and wait for playback to finish. Replies must be under 1,000 characters.');
-};
 async function poll() {
   if (statusBusy) return;
   statusBusy = true;
   try {
-    const response = await fetch(`/api/status?since=${runSeq}`, {signal:AbortSignal.timeout(3000)});
+    const response = await fetch('/api/status', {signal:AbortSignal.timeout(3000)});
     if (!response.ok) throw new Error('Server offline');
-    state = await response.json(); consumeRun(state.run);
-    if (state.simulation.library !== plansLibrary) loadPlans();
+    state = await response.json();
     renderStatus();
   } catch {
-    badge('simBadge','SERVER OFFLINE',false); badge('robotBadge','OFFLINE',false);
-    $('simImage').classList.remove('visible'); $('robotImage').classList.remove('visible'); $('glassesImage').classList.remove('visible');
-    $('simEmpty').hidden = false; $('simDetail').textContent = 'Dashboard disconnected. Waiting for the local server…';
-    $('robotEmpty').hidden = false;
-    if (!sharing) { $('glassesEmpty').hidden = false; badge('glassesBadge','OFFLINE',false); }
-    state = null;
+    state=null;renderViewers();renderChat();renderDetection();renderGestures();renderPipeline();
+    for(const id of ['statusRobot','statusGestures','statusCameras','statusGlasses'])$(id).classList.remove('online');
+    for(const id of ['statRobot','statGestures','statCams','statGlasses'])$(id).textContent='—';
   } finally { statusBusy = false; }
 }
 function refreshFrames() {
-  if (!state || document.hidden) return;
-  frame(simSource,'simImage',simSource === 'simulation' ? state.simulation.ready : state.feeds.twin.online);
-  if (camera === 'all') for (const [k, id] of Object.entries(GRID)) frame(k, id, state.feeds[k].online);
-  else frame(camera,'robotImage',state.feeds[camera].online);
-  if (!sharing) frame('glasses','glassesImage',state.feeds.glasses.online);
-}
-function showLibrary() { drawPlans(); $('library').showModal(); $('planSearch').focus(); }
-function drawPlans() {
-  const query = $('planSearch').value.toLowerCase(); $('planList').replaceChildren();
-  const filtered = plans.filter(p => `${p.name} ${p.id}`.toLowerCase().includes(query));
-  for (const plan of filtered) {
-    const row = document.createElement('button'); row.className = 'plan-row' + (state?.simulation.plan === plan.id ? ' current' : '');
-    const icon = document.createElementNS('http://www.w3.org/2000/svg','svg'); icon.innerHTML = '<use href="#i-list"/>';
-    const info = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small'), duration = document.createElement('span');
-    title.textContent = plan.name; detail.textContent = `${plan.kind} · ${plan.joints} joints`; duration.textContent = `${plan.duration.toFixed(1)} s`;
-    info.append(title,detail); row.append(icon,info,duration);
-    row.onclick = async () => { if (await control({action:'plan',id:plan.id})) { $('library').close(); toast('Trajectory loaded into simulation'); } };
-    $('planList').append(row);
-  }
-  if (!filtered.length) { const p = document.createElement('p'); p.textContent = 'No matching trajectories.'; $('planList').append(p); }
+  if (document.hidden) return;
+  for(const slot of Object.keys(viewers))viewerFrame(slot);
 }
 function stopShare() {
   const stream = sharing; sharing = null;
   stream?.getTracks().forEach(track => track.stop());
-  $('glassesVideo').srcObject = null; $('glassesVideo').hidden = true; renderStatus();
+  renderViewers();renderOverview();
 }
 async function share() {
   if (!navigator.mediaDevices?.getDisplayMedia) { toast('Window sharing requires a desktop browser on localhost. You can also supply an MJPEG URL.'); return; }
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:20},audio:false});
     if (sharing) stopShare(); sharing = stream;
-    $('glassesVideo').srcObject = stream; $('glassesVideo').hidden = false;
+    if (!Object.values(viewers).includes('glasses')) setViewer('secondary','glasses');
     stream.getVideoTracks()[0].addEventListener('ended',stopShare,{once:true});
     if ($('connections').open) $('connections').close(); renderStatus();
   } catch (error) { toast(error.name === 'NotAllowedError' ? 'Window sharing cancelled or not permitted. You can try again.' : `Could not share the window: ${error.message}`); }
 }
-$('play').onclick = () => state && control({action:state.simulation.playing ? 'pause' : 'play'});
-$('reset').onclick = async () => { await control({action:'pause'}); await control({action:'seek',time:0}); };
-$('scrubber').addEventListener('input', () => { scrubbing = true; $('time').textContent = clock($('scrubber').value); });
-$('scrubber').addEventListener('change', async () => { await control({action:'seek',time:Number($('scrubber').value)}); scrubbing = false; });
-$('speed').onchange = () => control({action:'speed',value:Number($('speed').value)});
-$('paths').onchange = () => control({action:'paths',value:$('paths').checked});
-$('simSource').onchange = () => { simSource = $('simSource').value; if (simSource === 'twin') control({action:'pause'}); $('simImage').classList.remove('visible'); document.querySelectorAll('[data-view]').forEach(b => b.disabled = simSource !== 'simulation'); $('paths').disabled = simSource !== 'simulation'; renderStatus(); };
-document.querySelectorAll('[data-view]').forEach(button => button.onclick = async () => { if (await control({action:'view',value:button.dataset.view})) { document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('selected',b === button)); } });
-document.querySelectorAll('[data-camera]').forEach(button => button.onclick = () => { camera = button.dataset.camera; $('robotImage').classList.remove('visible'); $('cameraLabel').textContent = camera === 'all' ? 'ALL CAMERAS' : `${button.textContent.toUpperCase()} CAMERA`; document.querySelectorAll('[data-camera]').forEach(b => b.classList.toggle('selected',b === button)); renderStatus(); });
+$('stopPreview').onclick=()=>control({action:'stop'});
+for (const slot of Object.keys(viewers)) $(slot+'Source').onchange=()=>setViewer(slot,$(slot+'Source').value);
+$('swapViews').onclick=()=>{const main=viewers.main,side=viewers.secondary;setViewer('main',side);setViewer('secondary',main);};
+$('viewConnections').onclick=()=>$('connections').showModal();
 document.querySelectorAll('.expand').forEach(button => button.onclick = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await button.closest('.panel').requestFullscreen(); } catch { toast('Fullscreen is unavailable in this browser.'); } });
-['settings','connectButton'].forEach(id => $(id).onclick = () => $('connections').showModal());
+['settings'].forEach(id => $(id).onclick = () => $('connections').showModal());
 document.querySelectorAll('.open-connections').forEach(b => b.onclick = () => $('connections').showModal());
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => $(b.dataset.close).close());
-['planPicker','libraryToggle'].forEach(id => $(id).onclick = showLibrary);
-$('planSearch').oninput = drawPlans;
-$('shareGlasses').onclick = share; $('shareFromSettings').onclick = share;
-$('glassesAction').onclick = () => sharing ? stopShare() : $('connections').showModal();
-document.addEventListener('keydown', event => { if (event.code === 'Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(event.target.tagName) && !document.querySelector('dialog[open]')) { event.preventDefault(); $('play').click(); } });
+$('shareFromSettings').onclick=share; $('stopGlassesShare').onclick=stopShare;
 window.addEventListener('beforeunload', () => sharing?.getTracks().forEach(t => t.stop()));
 async function init() {
-  try { await loadPlans(); await poll(); }
+  try { const response=await fetch('/api/session'); if(!response.ok)throw new Error('Cannot connect'); token=(await response.json()).token; await poll(); }
   catch (e) { toast(e.message + '. Refresh after starting the server.'); }
   setInterval(poll,300); setInterval(refreshFrames,80);
   setInterval(() => $('clock').textContent = new Date().toLocaleTimeString([], {hour12:false}) + ' · LOCAL',1000);
 }
-async function loadPlans() {
-  const response = await fetch('/api/plans'); if (!response.ok) throw new Error('Cannot load plans');
-  const data = await response.json(); token = data.token; plans = data.plans; plansLibrary = data.library;
-  if ($('library').open) drawPlans();
-  $('planCount').textContent = plans.length;
-}
-
-/* ---- Trajectory control: dry run, execute, abort (tools/arm_lift.py) ---- */
-async function runCommand(command) {
-  if (runBusy) return false;
-  runBusy = true;
-  try {
-    const response = await fetch('/api/run', {method:'POST', headers:{'Content-Type':'application/json','X-Reins-Token':token}, body:JSON.stringify(command)});
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || 'Run request failed');
-    await poll();
-    return true;
-  } catch (error) { toast(error.message); return false; }
-  finally { runBusy = false; }
-}
-function lineClass(line) {
-  if (line.startsWith('$ ')) return 'cmd';
-  if (/^\[abort|^ABORT|interrupted/.test(line)) return 'abort';
-  if (/^\[exit 0\]/.test(line)) return 'exit-ok';
-  if (/^\[exit/.test(line)) return 'exit-bad';
-  if (/^NOTE|^note:|DRY RUN/.test(line)) return 'note';
-  return '';
-}
-function consumeRun(run) {
-  if (!run) return;
-  const started = run.job?.started ?? null;
-  const pre = $('console');
-  if (started !== runStarted) { runStarted = started; pre.replaceChildren(); }
-  if (run.lines.length) {
-    const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
-    pre.querySelector('.console-empty')?.remove();
-    for (const line of run.lines) {
-      const span = document.createElement('span'); span.textContent = line + '\n';
-      const cls = lineClass(line); if (cls) span.className = cls;
-      pre.append(span);
-    }
-    while (pre.childElementCount > 4000) pre.firstElementChild.remove();
-    if (stick) pre.scrollTop = pre.scrollHeight;
+function renderGestures() {
+  const g=state?.gestures;
+  const busy=gestureRequestBusy || !!g?.busy;
+  badge('gestureBadge', !g ? 'OFFLINE' : busy ? 'WORKING' : g.connected ? 'READY' : 'OFFLINE', !!g?.connected && !busy);
+  $('refreshGestures').disabled=busy || !state;
+  $('refreshGestures').textContent=g?.connected ? 'Refresh gestures' : 'Connect gestures';
+  $('gestureMessage').textContent=g?.message || 'Dashboard disconnected.';
+  $('gestureMessage').classList.toggle('error',!!g?.error);
+  $('gestureConnection').textContent=g ? 'Robot connection: '+g.iface : '';
+  const list=$('gestureButtons');
+  const version=JSON.stringify([g?.actions,busy,g?.connected,state?.pipeline?.connected,state?.pipeline?.busy]);
+  if(list.dataset.version===version)return;
+  list.dataset.version=version;list.replaceChildren();
+  for(const action of g?.actions || []) {
+    const button=document.createElement('button');
+    button.type='button';button.className='button gesture-button'+(action.id===99?' release-gesture':'');
+    button.textContent=action.label;button.disabled=state?.mode==='sim' || busy || !g.connected || !!state?.pipeline?.connected || !!state?.pipeline?.busy;
+    button.onclick=()=>gestureCommand({action:'gesture',id:action.id});
+    list.append(button);
   }
-  runSeq = run.seq;
 }
-function planLabel(id) { const p = plans.find(x => x.id === id); return p ? p.name : (id || '—'); }
-function runTarget() {
-  // The dry-run result stands for the plan it was resolved from.
-  const current = state?.simulation.plan;
-  if (current === DRYRUN_PLAN) return state?.run.source || null;
-  return current;
+async function gestureCommand(command) {
+  if(gestureRequestBusy || state?.gestures?.busy)return;
+  gestureRequestBusy=true;renderGestures();
+  try {
+    const response=await fetch('/api/gestures',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},body:JSON.stringify(command)});
+    const body=await response.json();
+    if(!response.ok)throw new Error(body.error || 'Gesture request failed');
+    if(state)state.gestures=body;
+  } catch(error){toast(error.message);}
+  finally{gestureRequestBusy=false;renderGestures();}
 }
-function chip(id, text, cls) { const el = $(id); el.querySelector('span').textContent = text; el.classList.remove('good','bad'); if (cls) el.classList.add(cls); el.title = text; }
-function renderControl() {
-  if (!state) return;
-  const run = state.run, target = runTarget(), cleared = run.cleared;
-  const speed = Number($('runSpeed').value), kp = Number($('runKp').value);
-  $('runTarget').textContent = target ? planLabel(target) : 'Choose a trajectory';
-  $('runTarget').classList.toggle('plan', !!target);
-  const kind = plans.find(p => p.id === target)?.kind;
-  $('runTargetKind').textContent = state.simulation.plan === DRYRUN_PLAN ? 'Previewing its dry-run result' : (kind ? `${kind} · ${target}` : '');
-  $('ifaceChip').textContent = `IFACE ${run.iface.toUpperCase()}`;
-  const robotText = state.robot || '';
-  chip('robotLink', robotText ? `Robot · ${robotText}` : 'Twin server not reachable', /no rt\/lowstate|^$/.test(robotText) ? 'bad' : 'good');
-  chip('fsmChip', run.fsm ? `FSM ${run.fsm.id} · ${run.fsm.name}` : 'FSM · dry run to read', run.fsm ? (run.fsm.ok ? 'good' : 'bad') : '');
-  const matches = cleared && cleared.plan === target && Math.abs(cleared.speed - speed) < 1e-9 && Math.abs(cleared.kp_scale - kp) < 1e-9;
-  const running = run.running, kindRunning = running ? run.job.kind : null;
-  // gate: dry run
-  const dry = $('gateDry'); dry.className = '';
-  let dryText = 'Reads the robot, checks limits and speed. Publishes nothing.';
-  if (kindRunning === 'dry') { dry.className = 'active'; dryText = 'Running…'; }
-  else if (matches) { dry.className = 'done'; const m = Math.floor(cleared.expires_in / 60), sec = String(cleared.expires_in % 60).padStart(2, '0'); dryText = `Passed · valid for ${m}:${sec}`; }
-  else if (cleared) { dryText = 'Settings or target changed since the dry run. Run it again.'; }
-  else if (run.job?.kind === 'dry' && run.exit !== null && run.exit !== 0) { dry.className = 'failed'; dryText = `Failed (exit ${run.exit}). See the output.`; }
-  $('gateDryText').textContent = dryText;
-  dry.querySelector('.gate-dot').innerHTML = dry.className === 'done' ? '<svg><use href="#i-check"/></svg>' : '2';
-  // gate: execute
-  const ex = $('gateExec'); ex.className = '';
-  let exText = 'Unlocks after a successful dry run';
-  if (kindRunning === 'execute') { ex.className = 'active'; exText = 'Robot moving. Abort stands ready.'; }
-  else if (run.job?.kind === 'execute' && run.exit !== null) { ex.className = run.exit === 0 ? 'done' : 'failed'; exText = run.exit === 0 ? 'Completed and recorded. Dry run again to repeat.' : `Stopped (exit ${run.exit}). See the output.`; }
-  else if (matches) { ex.className = 'ready'; exText = run.fsm && !run.fsm.ok ? `Controller in FSM ${run.fsm.id}; the tool will refuse` : 'Ready. Asks for confirmation.'; }
-  $('gateExecText').textContent = exText;
-  ex.querySelector('.gate-dot').innerHTML = `<svg><use href="#i-${ex.className === 'done' ? 'check' : ex.className === 'ready' || ex.className === 'active' ? 'play' : 'lock'}"/></svg>`;
-  const previewOnly = !!plans.find(p => p.id === target)?.preview_only;
-  $('dryRun').disabled = state.mode === 'sim' || running || !target || previewOnly;
-  $('execute').disabled = running || !matches || previewOnly;
-  if (previewOnly) { $('gateDryText').textContent = 'Prompt-generated preview. Physical execution is locked.'; $('gateExecText').textContent = 'Requires verified calibration, contact control and execution validation.'; }
-  $('abort').disabled = !running;
-  $('runSpeed').disabled = $('runKp').disabled = running;
-  const b = $('runBadge');
-  b.classList.remove('good','warn','bad');
-  if (running) { b.textContent = kindRunning === 'execute' ? 'EXECUTING' : 'DRY RUN'; b.classList.add(kindRunning === 'execute' ? 'warn' : 'good'); }
-  else if (run.exit !== null) { b.textContent = `EXIT ${run.exit}`; b.classList.add(run.exit === 0 ? 'good' : 'bad'); }
-  else b.textContent = 'IDLE';
-}
-function validInputs() {
-  const speed = Number($('runSpeed').value), kp = Number($('runKp').value);
-  if (!(speed >= 0.1 && speed <= 2)) { toast('Speed must be between 0.1 and 2.'); return null; }
-  if (!(kp >= 0.5 && kp <= 2)) { toast('kp scale must be between 0.5 and 2.'); return null; }
-  return {speed, kp};
-}
-$('dryRun').onclick = () => { const v = validInputs(), target = runTarget(); if (v && target) runCommand({action:'dry', plan:target, speed:v.speed, kp_scale:v.kp}); };
-$('execute').onclick = () => {
-  const run = state?.run, c = run?.cleared; if (!c) return;
-  $('execPlan').textContent = planLabel(c.plan); $('execSpeed').textContent = `${c.speed}×`; $('execKp').textContent = `${c.kp_scale}×`;
-  $('execFsm').textContent = run.fsm ? `${run.fsm.id} · ${run.fsm.name}` : 'unknown'; $('execIface').textContent = run.iface;
-  $('executeDialog').showModal(); $('executeDialog').querySelector('.subtle').focus();
-};
-$('confirmExecute').onclick = async () => { $('executeDialog').close(); await runCommand({action:'execute', confirm:true}); };
-$('abort').onclick = () => { fetch('/api/run', {method:'POST', headers:{'Content-Type':'application/json','X-Reins-Token':token}, body:JSON.stringify({action:'abort'})}).then(poll).catch(() => toast('Abort request failed. Use the remote.')); };
-['runSpeed','runKp'].forEach(id => $(id).addEventListener('input', renderControl));
-$('changeTarget').onclick = showLibrary;
-document.addEventListener('keydown', event => { if (event.key === 'Escape' && state?.run.running && !document.querySelector('dialog[open]')) { event.preventDefault(); $('abort').click(); toast('Abort sent'); } });
-// Closing or reloading the tab aborts a run, as closing the Tk window does. sendBeacon cannot carry headers.
-window.addEventListener('pagehide', () => { if (state?.run.running) navigator.sendBeacon('/api/abort-beacon', new Blob([JSON.stringify({token})], {type:'text/plain'})); });
-/* ---- Overview: hero, status cards, sidebar ---- */
-function delta(id, text, cls) { const el = $(id); el.textContent = text; el.classList.remove('good','bad'); if (cls) el.classList.add(cls); }
+$('refreshGestures').onclick=()=>gestureCommand({action:'refresh'});
+
+/* Compact status strip; detailed state remains in Robot controls. */
 function renderOverview() {
   if (!state) return;
-  const sim = state.simulation, feeds = state.feeds, run = state.run;
-  const plan = plans.find(p => p.id === sim.plan);
-  $('heroPlan').textContent = plan ? plan.name : sim.plan;
-  $('heroPlan').title = sim.plan;
-  $('heroDuration').textContent = `${Number(sim.duration).toFixed(1)} s`;
-  $('heroKind').textContent = plan ? `${plan.kind} · ${plan.id}` : '';
-  $('heroJoints').textContent = plan ? `${plan.joints} planned joints` : '';
-  // robot link, from the twin server's rt/lowstate status line
-  const robotText = state.robot || '';
-  const live = /msgs/.test(robotText) && !/no rt\/lowstate/.test(robotText);
-  const age = robotText.match(/last ([\d.]+)s ago/);
-  const fresh = live && age && Number(age[1]) < 1;
-  $('statRobot').textContent = live ? (fresh ? 'Live' : 'Stale') : robotText ? 'No data' : 'Offline';
-  delta('statRobotDelta', live ? (age ? `${age[1]} s ago` : 'rt/lowstate') : 'port 8082', live ? (fresh ? 'good' : 'bad') : '');
-  $('statRobotSub').textContent = robotText || 'twin server (tools/cockpit.py) not reachable';
-  // controller FSM from the last dry run
-  $('statFsm').textContent = run.fsm ? `FSM ${run.fsm.id}` : '—';
-  delta('statFsmDelta', run.fsm ? (run.fsm.ok ? 'arm topic OK' : 'arm topic off') : 'unknown', run.fsm ? (run.fsm.ok ? 'good' : 'bad') : '');
-  $('statFsmSub').textContent = run.fsm ? run.fsm.name : 'dry run to read the FSM';
-  // cameras
-  const cams = ['head', 'left', 'right'].filter(k => feeds[k].online).length;
-  $('statCams').textContent = `${cams}/3`;
-  delta('statCamsDelta', cams === 3 ? 'all live' : cams ? 'partial' : 'offline', cams === 3 ? 'good' : cams ? '' : 'bad');
-  $('camCount').textContent = `${cams}/3`;
-  // glasses
-  const glasses = !!sharing || feeds.glasses.online;
-  $('statGlasses').textContent = sharing ? 'Window' : feeds.glasses.online ? 'Stream' : '—';
-  delta('statGlassesDelta', glasses ? 'live' : 'no source', glasses ? 'good' : '');
-  $('statGlassesSub').textContent = sharing ? 'mirrored glasses window' : feeds.glasses.online ? 'MJPEG video stream' : 'share a window or stream';
-  $('railStatus').textContent = run.running ? (run.job.kind === 'execute' ? 'Executing a trajectory' : 'Dry run in progress') : live ? robotText : 'Robot state unknown';
-  if (state.mode === 'sim') {
-    $('railStatus').textContent = 'Simulation only';
-    $('statRobot').textContent = 'Simulated'; delta('statRobotDelta','local','good');
-    $('statRobotSub').textContent = 'Hardware connection disabled';
-    $('statFsmSub').textContent = 'Hardware controls disabled';
-  }
+  const feeds=state.feeds,gestures=state.gestures,robotText=state.robot||'';
+  const live=/msgs/.test(robotText)&&!/no rt\/lowstate/.test(robotText),age=robotText.match(/last ([\d.]+)s ago/);
+  const fresh=!!state?.pipeline?.connected || live&&age&&Number(age[1])<1;
+  $('statRobot').textContent=fresh?'Live':live?'Stale':'Offline';
+  $('statusRobot').title=robotText||'Robot state unavailable';$('statusRobot').classList.toggle('online',!!fresh);
+  $('statGestures').textContent=gestures.busy?'Working':gestures.connected?'Ready':'Offline';$('statusGestures').classList.toggle('online',gestures.connected);
+  const cams=['head','left','right'].filter(k=>feeds[k].online).length;
+  $('statCams').textContent=`${cams}/3`;$('camCount').textContent=`${cams}/3`;$('statusCameras').classList.toggle('online',cams>0);
+  const glasses=!!sharing||feeds.glasses.online;
+  $('statGlasses').textContent=sharing?'Shared':glasses?'Live':'Offline';$('statusGlasses').classList.toggle('online',glasses);
+  $('connectionCount').textContent=`${Number(cams>0)+Number(glasses)}/2`;
+  $('railStatus').textContent=gestures.busy?'R1 request active':gestures.connected?'R1 gestures connected':live?robotText:'Robot state unknown';
 }
 function navTo(buttonId, target) {
   document.querySelectorAll('.rail-button').forEach(b => b.classList.toggle('active', b.id === buttonId));
   (target === 'top' ? document.body : $(target)).scrollIntoView({behavior:'smooth', block:'start'});
 }
 $('navObservatory').onclick = () => navTo('navObservatory', 'top');
-$('navCameras').onclick = () => navTo('navCameras', 'robotPanel');
-$('navGlasses').onclick = () => navTo('navGlasses', 'glassesPanel');
-$('controlJump').onclick = () => navTo('controlJump', 'controlPanel');
-$('heroControl').onclick = () => navTo('controlJump', 'controlPanel');
-['heroLibrary', 'searchButton'].forEach(id => $(id).onclick = showLibrary);
+$('navCameras').onclick=()=>{setViewer('secondary','head');navTo('navCameras','viewerWorkspace');};
+$('navGlasses').onclick=()=>{setViewer('secondary','glasses');navTo('navGlasses','viewerWorkspace');};
+$('controlJump').onclick=()=>navTo('controlJump','robotPanel');
 $('headerConnections').onclick = () => $('connections').showModal();
-if (/Mac|iPhone|iPad/.test(navigator.platform)) $('searchKey').textContent = '⌘';
-document.addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && !document.querySelector('dialog[open]')) { event.preventDefault(); showLibrary(); } });
 init();
 
 // Prompt orchestration is asynchronous; the server owns status and proposal IDs.
 let promptVersion = '', promptRequestBusy = false, lastPromptId = null;
+// Prompt → Generate preview → Show in simulation, from the live chat and planner state.
+function renderFlow() {
+  const p = state?.prompt, chat = state?.chat;
+  const set = (id, cls, note) => { const li = $(id); li.className = cls || ''; if (note) li.querySelector('small').textContent = note; };
+  const suggested = chat?.messages?.some(m => m.role === 'assistant' && (m.robot_request || m.trajectory));
+  const started = !!p?.id;
+  set('flowPrompt', started || suggested ? 'done' : 'active',
+      started ? 'Motion requested' : suggested ? 'Click Generate preview on the reply' : 'Ask the assistant for a motion');
+  const state2 = !p || !started ? '' : p.state === 'planning' ? 'active' : ['proposed','previewed'].includes(p.state) ? 'done'
+               : p.state === 'blocked' ? 'failed' : '';
+  set('flowPreview', state2, state2 === 'active' ? 'Planning: IK and path checks…' : state2 === 'done' ? 'Checks passed'
+      : state2 === 'failed' ? 'Blocked: see the reason below' : 'IK and path checks, locally');
+  const runtime=state?.pipeline;
+  set('flowShow', runtime?.state==='completed'?'done':runtime?.state==='review'?'ready':runtime?.state==='executing'?'active':'',
+      runtime?.state==='completed'?'Motion completed':runtime?.state==='review'?'Approve here or in paired glasses':runtime?.state==='executing'?'Approved motion in progress':'Review and approve each motion');
+  if(runtime?.proposal)set('flowPreview','done',runtime.proposal.source==='visual'?'Camera-guided step checked':'Trajectory checks passed');
+
+}
 function renderPrompt() {
   const p = state?.prompt;
+  renderFlow();
   if (!p) return;
-  badge('promptBadge', p.state.toUpperCase(), ['proposed','previewed'].includes(p.state));
-  $('sendPrompt').disabled = p.state === 'planning' || promptRequestBusy || !!state.run?.running;
-  $('promptConfig').textContent = p.configured.observation && p.configured.vision ? `Vision: ${p.model}` : 'Gestures need no vision · object tasks need calibrated context';
-  const version = JSON.stringify([p.id,p.state,p.message,p.events?.length]);
+  badge('promptBadge', p.stage === 'revise' && p.state === 'planning' ? 'RECALCULATING' : p.state.toUpperCase(), ['proposed','previewed'].includes(p.state));
+  $('previewPrompt').disabled = promptRequestBusy;
+  $('previewPrompt').hidden = p.state !== 'proposed';
+  $('promptConfig').textContent = p.configured.observation && (p.configured.vision || p.configured.detector) ? `Objects: ${p.configured.detector ? 'local detector' : p.model}${p.configured.detector && p.configured.vision ? ' + '+p.model : ''}` : 'Gestures need no vision · object tasks need calibrated context';
+  const version = JSON.stringify([p.id,p.state,p.message,p.events?.length,state?.pipeline?.state,state?.pipeline?.proposal?.id]);
   if (version === promptVersion) return;
   promptVersion = version;
   if (p.id && p.id !== lastPromptId) { lastPromptId = p.id; $('promptSource').value = p.source; }
-  $('promptSummary').textContent = p.prompt ? `${p.source === 'demo' ? 'Simulation demo · ' : ''}“${p.prompt}”` : 'Plan from a physical intention.';
-  $('promptMessage').textContent = p.message;
+  $('promptSummary').textContent = p.prompt ? `${p.source === 'demo' ? 'Simulation demo · ' : ''}“${p.prompt}”` : 'No motion prepared yet.';
+  $('promptMessage').textContent = state?.pipeline?.proposal ? 'The validated proposal is shown above and in paired glasses.' : p.message;
+  $('planningDetails').hidden=!(p.events?.length);
   $('promptEvents').replaceChildren();
   for (const event of p.events || []) { const li = document.createElement('li'); const tag = document.createElement('span'); tag.textContent = event.stage; const text = document.createElement('span'); text.textContent = event.message; li.append(tag,text); $('promptEvents').append(li); }
   $('cancelPrompt').hidden = !['planning','proposed','previewed'].includes(p.state);
+  $('cancelPrompt').textContent=p.state==='planning'?'Cancel':'Dismiss';
   const ready = ['proposed','previewed'].includes(p.state);
   $('promptReview').hidden = !ready;
   $('promptMetrics').replaceChildren();
   if (ready) {
-    const metrics = [['Skill',p.context?.skill || 'approach'],['Vision',p.context?.vision || 'demo'],['Target',p.target.label],['Arm',p.target.arm],['Surface · robot frame',p.target.surface_m ? p.target.surface_m.map(x=>x.toFixed(3)).join(', ')+' m' : 'Not required'],['Stand-off',p.target.standoff_m == null ? 'Not applicable' : (p.target.standoff_m*100).toFixed(0)+' cm'],['Validation',p.validation.samples+' sampled poses'],['Execution','Preview only · no contact']];
+    const metrics = [['Skill',p.context?.skill || 'approach'],['Vision',p.context?.vision || 'demo'],['Target',p.target.label],['Arm',p.target.arm],['Surface · robot frame',p.target.surface_m ? p.target.surface_m.map(x=>x.toFixed(3)).join(', ')+' m' : 'Not required'],['Stand-off',p.target.standoff_m == null ? 'Not applicable' : (p.target.standoff_m*100).toFixed(0)+' cm'],['Validation',p.validation.samples+' sampled poses'],['Execution','Requires human approval · no contact']];
     for (const [label,value] of metrics) { const row = document.createElement('div'), dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent=label; dd.textContent=value; row.append(dt,dd); $('promptMetrics').append(row); }
     $('groundingImage').hidden = !p.has_image;
     if (p.has_image) $('groundingImage').src = '/frame/grounding?id='+encodeURIComponent(p.id);
-    $('previewPrompt').disabled = !!state.run?.running;
   }
 }
 async function promptCommand(command) {
-  promptRequestBusy = true; $('sendPrompt').disabled = true;
+  if (promptRequestBusy) return false;
+  promptRequestBusy = true; renderPrompt(); renderChat();
   try {
     const response = await fetch('/api/prompt',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},body:JSON.stringify(command)});
     const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Prompt request failed');
     if (state) state.prompt=body;
     renderPrompt(); return true;
   } catch(error) { toast(error.message); return false; }
-  finally { promptRequestBusy=false; if (state) renderPrompt(); }
+  finally { promptRequestBusy=false; if (state) { renderPrompt(); renderChat(); } }
 }
-$('promptForm').onsubmit = async event => { event.preventDefault(); await promptCommand({action:'submit',prompt:$('actionPrompt').value,source:$('promptSource').value}); };
 $('cancelPrompt').onclick = () => promptCommand({action:'cancel'});
 $('previewPrompt').onclick = async () => {
   if (!state?.prompt?.id) return;
   if (await promptCommand({action:'preview',id:state.prompt.id})) {
-    await loadPlans(); await poll(); simSource='simulation'; $('simSource').value='simulation'; $('simSource').dispatchEvent(new Event('change'));
-    $('simulationPanel').scrollIntoView({behavior:'smooth',block:'center'});
+    await poll(); setViewer('main','simulation');
+    $('viewerWorkspace').scrollIntoView({behavior:'smooth',block:'center'});
   }
 };
-$('actionPrompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();$('promptForm').requestSubmit();}});
+
+// The endpoint only serves this exact result ID; late source changes invalidate requests.
+let detectionBusy = false, detectionFrame = '', detectionUrl = null, detectionRequest = '';
+async function loadDetectionImage(id) {
+  detectionRequest = id;
+  try {
+    const response = await fetch('/frame/detection?id='+encodeURIComponent(id), {signal:AbortSignal.timeout(3000)});
+    if (!response.ok) throw new Error('Detection expired');
+    const url = URL.createObjectURL(await response.blob());
+    if (state?.detection?.result?.id !== id || detectionRequest !== id) { URL.revokeObjectURL(url); return; }
+    const image = new Image();
+    image.onload = () => {
+      if (state?.detection?.result?.id !== id || detectionRequest !== id) { URL.revokeObjectURL(url); return; }
+      if (detectionUrl) URL.revokeObjectURL(detectionUrl);
+      detectionUrl = url; $('detectionImage').src = url; $('detectionImage').hidden = false;
+      $('detectionEmpty').hidden = true;
+    };
+    image.onerror = () => URL.revokeObjectURL(url);
+    image.src = url;
+  } catch { if (detectionRequest === id) { detectionFrame = ''; $('detectionImage').hidden = true; $('detectionEmpty').hidden = false; } }
+}
+function renderDetection() {
+  const d = state?.detection;
+  const ready = !!d?.ready, result = ready ? d.result : null;
+  badge('detectionBadge', !d ? 'OFFLINE' : !d.enabled ? 'PAUSED' : ready ? 'DETECTING' : 'WAITING', ready);
+  $('detectionToggle').textContent = d?.enabled ? 'Pause detection' : 'Start detection';
+  $('detectionToggle').setAttribute('aria-pressed', String(!!d?.enabled));
+  $('detectionToggle').disabled = detectionBusy || !d;
+  $('detectionSource').disabled = detectionBusy || !d;
+  if (d) {
+    if (d.sources.includes('observation') && !$('detectionSource').querySelector('[value="observation"]')) {
+      const option = document.createElement('option'); option.value='observation'; option.textContent='Calibrated RGB + depth'; $('detectionSource').append(option);
+    }
+    if (!detectionBusy) $('detectionSource').value = d.source;
+    $('detectionModel').textContent = d.model+' · '+Math.round(d.confidence*100)+'% minimum confidence';
+  }
+  $('detectionMessage').textContent = d?.message || 'Dashboard disconnected. Waiting for the local server…';
+  $('detectionCount').textContent = result ? result.objects.length : '—';
+  $('detectionStamp').hidden = !ready;
+  if (result) $('detectionStamp').textContent = `${d.source.toUpperCase()} · ${result.inference_ms} ms · ${result.age_s.toFixed(1)} s ${result.captured_at ? 'since capture' : 'since receipt'}`;
+  if (!ready) {
+    detectionFrame = ''; detectionRequest = '';
+    $('detectionImage').hidden = true; $('detectionEmpty').hidden = false;
+    if (detectionUrl) { URL.revokeObjectURL(detectionUrl); detectionUrl=null; }
+  }
+  if (result && detectionFrame !== result.id) { detectionFrame=result.id; $('detectionImage').hidden=true; $('detectionEmpty').hidden=false; loadDetectionImage(result.id); }
+  $('detectionObjects').replaceChildren();
+  if (result?.objects.length) {
+    for (const object of result.objects) {
+      const row=document.createElement('div'), label=document.createElement('strong'), confidence=document.createElement('span'), depth=document.createElement('small');
+      row.className='detection-object'; label.textContent=object.label; confidence.textContent=Math.round(object.confidence*100)+'%';
+      depth.textContent=object.surface_m ? 'Surface · '+object.surface_m.map(x=>x.toFixed(3)).join(', ')+' m · robot frame' : object.depth_detail;
+      row.append(label,confidence,depth); $('detectionObjects').append(row);
+    }
+  } else {
+    const text=document.createElement('p');text.className='detection-hint';
+    text.textContent=ready ? 'No objects above the confidence threshold.' : 'Detections will appear with their confidence and available depth.';
+    $('detectionObjects').append(text);
+  }
+}
+async function detectionCommand(enabled, source) {
+  if (detectionBusy) return;
+  detectionBusy=true;renderDetection();
+  try {
+    const response=await fetch('/api/detection',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},body:JSON.stringify({enabled,source})});
+    const body=await response.json();if(!response.ok)throw new Error(body.error||'Could not change detection');
+    if(state)state.detection=body;
+  } catch(error){toast(error.message);}
+  finally{detectionBusy=false;renderDetection();}
+}
+$('detectionToggle').onclick=()=>detectionCommand(!state?.detection?.enabled,$('detectionSource').value);
+$('detectionSource').onchange=()=>detectionCommand(!!state?.detection?.enabled,$('detectionSource').value);
+
+// Conversation suggestions start preview planning only when the user clicks.
+let chatBusy = false, chatVersion = '';
+function renderChat() {
+  const chat = state?.chat;
+  badge('chatBadge', !chat ? 'OFFLINE' : !chat.configured ? 'SETUP NEEDED' : chat.busy ? 'THINKING' : 'READY', !!chat?.configured && !chat.busy);
+  $('sendChat').disabled = chatBusy || !chat?.configured || chat.busy;
+  $('clearChat').disabled = chatBusy || !chat || !chat.messages.length;
+  $('retryChat').disabled = chatBusy || !chat || chat.busy;
+  $('chatConfig').textContent = chat?.configured ? chat.provider_label+' · '+chat.model : (chat?.setup || 'Connecting to the dashboard…');
+  $('stopChat').hidden = !chat?.busy;
+  $('stopChat').disabled = chatBusy;
+  const cli = chat?.provider === 'codex' || chat?.provider === 'claude';
+  $('chatTransport').textContent = chat ? chat.provider_label+(cli ? ' · existing sign-in' : '')+' · separate conversation' : '';
+  $('chatTitle').textContent = chat?.provider_label?.replace(/ (CLI|API)$/, '') || 'Assistant';
+  $('chatSubtitle').textContent = chat ? (cli ? 'CLI' : 'API')+' · '+(chat.model || '').toUpperCase() : 'CONNECTING';
+  renderChatBackends(chat);
+  renderFlow();
+  renderToolCalls(state?.tools || [], chat);
+  $('chatInput').placeholder = 'Message '+($('chatTitle').textContent || 'the assistant')+'…';
+  $('chatStatus').textContent = chat?.busy ? (chat.messages.length ? 'Reins is thinking…' : 'Finishing the previous request. Its reply will be discarded.') : chat?.trimmed ? 'Earlier messages have left the conversation context.' : '';
+  $('chatError').hidden = !chat?.error;
+  $('chatErrorText').textContent = chat?.error || '';
+  if (!chat) return;
+  const version = JSON.stringify([chat.session_id,chat.version,state.prompt?.state,promptRequestBusy,state.pipeline?.busy]);
+  if (version === chatVersion) return;
+  chatVersion = version;
+  const log = $('chatTranscript'), nearBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 80;
+  log.replaceChildren();
+  if (!chat.messages.length) {
+    const welcome=document.createElement('p');welcome.className='cli-welcome';
+    welcome.textContent=chat.configured?'Ready. Ask a question or describe a task.':'Connect '+chat.provider_label+' to start a conversation, or pick another assistant above.';log.append(welcome);
+  }
+  const lastAssistant = chat.messages.at(-1)?.role === 'assistant' ? chat.messages.at(-1) : null;
+  for (const message of chat.messages) {
+    const row=document.createElement('article'), name=document.createElement('span'), text=document.createElement('div');
+    row.className='chat-message '+message.role;name.className='chat-speaker';name.textContent=message.role==='user'?'you':(message.provider||'assistant').replace(/ (CLI|API)$/,'').toLowerCase();
+    text.className='chat-text';text.textContent=message.text;row.append(name,text);
+    if (message.robot_request) {
+      const suggestion=document.createElement('div'), label=document.createElement('span'), button=document.createElement('button');
+      suggestion.className='chat-suggestion';label.textContent=message.robot_request+(message.trajectory ? ' · '+message.trajectory.waypoints.length+' authored waypoints' : '');
+      button.className='button pill';button.textContent='Generate preview ↗';button.type='button';
+      button.disabled=chat.busy || message.id!==lastAssistant?.id || promptRequestBusy || state.prompt?.state==='planning' || state.pipeline?.busy;
+      button.onclick=async ()=>{
+        $('promptDraft').hidden=false;
+        $('promptDraft').textContent=message.trajectory ? message.trajectory.name+' · '+message.trajectory.arm+' arm · '+message.trajectory.waypoints.length+' waypoints. Ask in chat to revise the motion.' : message.robot_request;
+        $('motionDetails').open=true;
+        $('motionDetails').scrollIntoView({behavior:'smooth',block:'center'});
+        await promptCommand({action:'submit',chat_message_id:message.id,source:$('promptSource').value});
+      };
+      suggestion.append(label,button);row.append(suggestion);
+    }
+    log.append(row);
+  }
+  if (nearBottom) log.scrollTop=log.scrollHeight;
+}
+async function chatCommand(command) {
+  if (chatBusy) return false;
+  chatBusy=true;renderChat();
+  try {
+    const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},body:JSON.stringify(command),signal:AbortSignal.timeout(10000)});
+    const body=await response.json();if(!response.ok)throw new Error(body.error||'Could not send message');
+    if(state)state.chat=body;renderChat();return true;
+  } catch(error){toast(error.message);return false;}
+  finally{chatBusy=false;renderChat();}
+}
+$('chatForm').onsubmit=async event=>{event.preventDefault();const text=$('chatInput').value;if(await chatCommand({action:'send',message:text})){if($('chatInput').value===text)$('chatInput').value='';$('chatInput').focus();}};
+$('chatInput').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();if(!$('sendChat').disabled)$('chatForm').requestSubmit();}});
+$('clearChat').onclick=()=>chatCommand({action:'clear'});
+$('retryChat').onclick=()=>chatCommand({action:'retry'});
+
+$('stopChat').onclick=()=>chatCommand({action:'cancel'});
+// Reins tool calls made by the assistant (detection, planning, preview): shown so they can be reviewed.
+function renderToolCalls(calls, chat) {
+  const box = $('chatTools');
+  const recent = calls.filter(c => Date.now() / 1000 - c.at < 900).slice(-6);
+  box.hidden = !recent.length;
+  const key = JSON.stringify(recent.map(c => [c.at, c.ok]));
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  const title = document.createElement('span'); title.className = 'chat-tools-title';
+  title.textContent = chat?.tools ? 'Tools used' : 'Tools';
+  box.replaceChildren(title, ...recent.map(c => {
+    const chip = document.createElement('span'); chip.className = 'tool-chip ' + (c.ok ? 'ok' : 'failed');
+    const arg = c.arguments?.camera || c.arguments?.object || c.arguments?.label || c.arguments?.name || '';
+    chip.textContent = (c.ok ? '✓ ' : '✗ ') + c.tool.replaceAll('_', ' ') + (arg ? ' · ' + arg : '');
+    chip.title = c.summary + ' (' + c.duration_s + ' s)';
+    return chip;
+  }));
+}
+// Assistant picker: Claude CLI, Codex CLI or OpenAI API; the conversation carries over when switching.
+function renderChatBackends(chat) {
+  const select = $('chatBackend');
+  const options = chat?.backends || [];
+  const key = JSON.stringify(options.map(o => [o.backend, o.configured]));
+  if (select.dataset.key !== key) {
+    select.replaceChildren(...options.map(o => { const opt = document.createElement('option'); opt.value = o.backend; opt.textContent = o.provider_label + (o.configured ? '' : ' · setup needed'); return opt; }));
+    select.dataset.key = key;
+  }
+  if (chat && document.activeElement !== select) select.value = chat.backend;
+  select.disabled = chatBusy || !chat || chat.busy || options.length < 2;
+  select.title = chat?.busy ? 'Wait for the reply, or stop it, before switching.' : 'Choose which assistant answers';
+}
+$('chatBackend').onchange = async () => {
+  const wanted = $('chatBackend').value;
+  if (await chatCommand({action:'backend', backend:wanted})) toast('Now chatting with '+(state.chat.backends.find(o => o.backend === wanted)?.provider_label || wanted)+'. The conversation carries over.');
+  else renderChat();
+};
+
+$('chatInput').addEventListener('input',()=>{const input=$('chatInput');input.style.height='auto';input.style.height=Math.min(input.scrollHeight,130)+'px';});
+
+/* One reviewed motion pipeline, shared with the paired glasses. */
+let robotRequestBusy=false;
+function renderPipeline() {
+  const p=state?.pipeline, proposal=p?.proposal, reviewing=p?.state==='review' && !!proposal && !proposal.expired;
+  $('robotModeLabel').textContent=p?.mode==='live'?'PHYSICAL ROBOT · '+(p.connected?'CONNECTED':'DISCONNECTED'):'SIMULATION';
+  badge('pipelineBadge',p?.state?.toUpperCase()||'OFFLINE',reviewing || p?.state==='completed');
+  $('pipelineSummary').textContent=proposal?proposal.name:'No motion awaiting review.';
+  $('pipelineMessage').textContent=p?.message||'Dashboard disconnected.';
+  $('pipelineDetails').textContent=proposal?
+    (proposal.mode==='live'?'Physical robot':'Simulation')+' · '+proposal.arm+' arm · '+proposal.duration_s.toFixed(1)+' s · revision '+proposal.revision+' · '+(proposal.source==='visual'?'Camera-guided step':'Trajectory planner')+
+    (proposal.expired?' · Expired':' · '+Math.max(0,Math.ceil(proposal.expires_at-Date.now()/1000))+' s to approve'):'';
+  $('pipelineActions').hidden=!reviewing;
+  $('approveMotion').textContent=proposal?.mode==='live'?'Approve & execute on robot':'Approve in simulation';
+  $('approveMotion').disabled=robotRequestBusy || !reviewing;
+  $('rejectMotion').disabled=robotRequestBusy || !reviewing;
+  const busy=robotRequestBusy||!!p?.busy||!!proposal||state?.prompt?.state==='planning';
+  $('robotConnect').disabled=!p||busy||p.connected||state?.mode==='sim';
+  $('robotConnect').textContent=p?.connected?'Robot connected':'Connect & hold arms';
+  $('robotHome').disabled=!p||busy;
+  $('robotArm').disabled=busy;
+  $('visualProvider').disabled=busy;
+  $('autoFallback').disabled=busy;
+  $('tableHeight').disabled=busy||!!p?.connected;
+  $('retryVisual').disabled=!p||busy||!state?.prompt?.prompt;
+  document.querySelectorAll('[data-jog],[data-roll]').forEach(b=>b.disabled=!p||busy);
+  // Stop is deliberately independent of a long-running command request.
+  $('robotStop').disabled=!p;
+  if(p && !robotRequestBusy) {
+    $('visualProvider').value=p.provider;
+    $('autoFallback').checked=p.auto_fallback;
+    if(p.table_z_m!=null && document.activeElement!==$('tableHeight'))$('tableHeight').value=p.table_z_m;
+  }
+  if(state?.prompt?.state==='proposed' || state?.prompt?.state==='previewed')$('promptReview').hidden=true;
+}
+async function robotCommand(command) {
+  const stopping=command.action==='stop';
+  if(robotRequestBusy&&!stopping)return;
+  if(!stopping)robotRequestBusy=true;
+  renderPipeline();
+  try {
+    const response=await fetch('/api/robot',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},
+      body:JSON.stringify(command),signal:AbortSignal.timeout(stopping?20000:15000)});
+    const body=await response.json();if(!response.ok)throw new Error(body.error||'Robot request failed');
+    if(state)state.pipeline=body;
+    if(['jog','home','roll'].includes(command.action)) {
+      setViewer('main','simulation');$('motionDetails').scrollIntoView({behavior:'smooth',block:'center'});
+    }
+  } catch(error){toast(error.message);}
+  finally{if(!stopping)robotRequestBusy=false;renderPipeline();renderGestures();}
+}
+$('robotConnect').onclick=()=>robotCommand({action:'connect',table_z_m:$('tableHeight').value===''?null:Number($('tableHeight').value)});
+$('robotStop').onclick=()=>robotCommand({action:'stop'});
+$('robotHome').onclick=()=>robotCommand({action:'home',arm:$('robotArm').value});
+document.querySelectorAll('[data-jog]').forEach(b=>b.onclick=()=>robotCommand({action:'jog',arm:$('robotArm').value,direction:b.dataset.jog}));
+for(const id of ['autoFallback','visualProvider','robotArm'])$(id).onchange=()=>robotCommand({action:'settings',auto_fallback:$('autoFallback').checked,provider:$('visualProvider').value,arm:$('robotArm').value});
+$('retryVisual').onclick=()=>robotCommand({action:'fallback'});
+for(const [id,decision] of [['approveMotion','approve'],['rejectMotion','decline']])$(id).onclick=()=>{
+  const p=state?.pipeline?.proposal;if(!p)return;
+  robotCommand({action:'decision',id:p.id,digest:p.digest,decision,note:$('reviewNote').value});
+  $('reviewNote').value='';
+};
+document.addEventListener('keydown',event=>{if(event.key==='Escape' && state?.pipeline?.connected){event.preventDefault();robotCommand({action:'stop'});}});
+async function loadGlassesPairing() {
+  try {
+    const response=await fetch('/api/glasses');if(!response.ok)return;
+    const g=await response.json();
+    $('glassesPairing').textContent=g.error?'AR server: '+g.error:'Lens WebSocket: ws://THIS_COMPUTER_IP:'+g.port+'\nReview token: '+g.token;
+    $('glassesPairingStatus').textContent=g.connected?'Glasses paired and connected':'Paste this session token into the Lens reviewToken setting.';
+  } catch {}
+}
+$('connections').addEventListener('toggle',()=>{if($('connections').open)loadGlassesPairing();});
+
+setInterval(()=>{
+  if(token && (state?.pipeline?.connected || state?.pipeline?.state==='connecting')) {
+    fetch('/api/robot',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},
+      body:JSON.stringify({action:'heartbeat'}),signal:AbortSignal.timeout(2000)}).catch(()=>{});
+  }
+},1000);
+
+document.querySelectorAll('[data-roll]').forEach(b=>b.onclick=()=>robotCommand({action:'roll',arm:$('robotArm').value,sign:Number(b.dataset.roll)}));
+
+// The optional voice panel exchanges text only; dictation never submits a motion.
+let voiceReady=false;
+function renderVoice() {
+  const url=state?.voice_url;
+  $('voicePanel').hidden=!url;
+  $('speakPrompt').hidden=!url;
+  if(url && $('voiceFrame').getAttribute('src')!==url) {
+    $('voiceFrame').src=url; $('voiceOpen').href=url; voiceReady=false;
+  }
+  $('speakPrompt').disabled=!voiceReady;
+}
+window.ReinsVoice={speak(text) {
+  if(!voiceReady || !state?.voice_url || typeof text!=='string' || !text.trim() || text.length>1000)return false;
+  $('voiceFrame').contentWindow.postMessage({type:'reins-voice-speak',text},new URL(state.voice_url).origin);
+  voiceReady=false; $('speakPrompt').disabled=true; return true;
+}};
+window.addEventListener('message',event=>{
+  if(!state?.voice_url || event.source!==$('voiceFrame').contentWindow || event.origin!==new URL(state.voice_url).origin)return;
+  if(event.data?.type==='reins-voice-ready') {
+    voiceReady=event.data.ready===true; $('speakPrompt').disabled=!voiceReady;
+  }
+  if(event.data?.type==='reins-voice-transcript') {
+    const text=event.data.text,field=$('chatInput');
+    if(typeof text!=='string' || !text.trim() || text.length>1000)return;
+    if(field.value.length-(field.selectionEnd-field.selectionStart)+text.length>field.maxLength) {
+      toast('Dictation is too long for the prompt. Copy it from the voice transcript.'); return;
+    }
+    field.setRangeText(text,field.selectionStart,field.selectionEnd,'end');
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+    toast('Dictation added. Review the prompt, then send it.');
+  }
+});
+$('speakPrompt').onclick=()=>{
+  const reply=[...(state?.chat?.messages||[])].reverse().find(message=>message.role==='assistant');
+  if(!window.ReinsVoice.speak(reply?.text||$('pipelineMessage').textContent))toast('Connect voice and wait for playback to finish. Replies must be under 1,000 characters.');
+};

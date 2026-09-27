@@ -1,0 +1,5 @@
+-r core/requirements.txt
+PyYAML>=6,<7
+websockets>=14,<16
+jsonschema>=4,<5
+# Optional API providers: install anthropic and/or openai when selected.

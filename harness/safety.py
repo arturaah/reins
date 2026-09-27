@@ -1,4 +1,4 @@
-"""THE safety gate. Every hand motion, sim or real, is vetted here and nowhere else.
+"""Harness setpoint gate, followed by the shared full-path trajectory validator.
 
 Order of checks for a proposed setpoint:
   1. e-stop set -> refuse.
@@ -12,7 +12,6 @@ The live gate refuses to start without a measured table height (workspace.table_
 """
 import math
 import threading
-import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -164,8 +163,10 @@ class SafetyGate:
             return Verdict(False, "COLLISION: the model shows the arm touching something at the target", p_c, roll_c, None, 0.0, notes, res.err_m)
         return Verdict(True, "", p_c, roll_c, res.q, duration, notes, res.err_m)
 
-    def check_trajectory(self, frames, dt):
-        """Independent re-check of an interpolated joint trajectory (list of 5-vectors): limits and speed."""
+    def check_trajectory(self, frames, dt, q_start=None, others=None):
+        """Check every interpolated pose, including the measured opposite arm, using core validation."""
+        if not frames or not math.isfinite(dt) or dt <= 0:
+            return "invalid trajectory interval or empty path"
         vmax = float(self.cfg["limits"]["max_joint_vel_rad_s"])
         for i, q in enumerate(frames):
             bad = self.kin.joint_violations(q)
@@ -175,4 +176,11 @@ class SafetyGate:
                 v = float(np.abs(np.asarray(q) - np.asarray(frames[i - 1])).max() / dt)
                 if v > vmax * 1.05:
                     return f"frame {i}: {v:.2f} rad/s over the {vmax} rad/s cap"
+        from core.trajectory import frame_plan
+        from core.motion_validation import MotionValidator
+        try:
+            plan = frame_plan(self.kin.arm, frames[0] if q_start is None else q_start, frames, dt, others or {})
+            MotionValidator(self.kin.model).check(plan, self.kin.arm, [])
+        except (ValueError, KeyError) as exc:
+            return str(exc)
         return ""

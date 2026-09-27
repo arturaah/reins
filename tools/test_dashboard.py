@@ -1,5 +1,6 @@
 """Run with .venv/bin/python -m unittest tools.test_dashboard."""
 import math
+import errno
 import io
 import json
 import os
@@ -11,84 +12,53 @@ from PIL import Image
 import time
 import unittest
 from pathlib import Path
-from tools.dashboard import ROOT, CameraFeed, Runner, Simulation
-
-# Stands in for tools/arm_lift.py: same CLI and output shape, never imports the robot SDK.
-FAKE_TOOL = textwrap.dedent("""
-    import json, os, sys, time
-    with open(os.environ['FAKE_ARGS_LOG'], 'a') as f: f.write(json.dumps(sys.argv[1:]) + '\\n')
-    print('take sample error', flush=True)
-    print('fsm id: 811 = Start (balance control)   fsm mode: 0   (rpc codes 0, 0)', flush=True)
-    if os.environ.get('FAKE_FAIL'): sys.exit('ABORT: speed cap')
-    if '--execute' in sys.argv:
-        try:
-            print('EXECUTE: ramping weight up', flush=True); time.sleep(float(os.environ.get('FAKE_EXEC_S', '0')))
-        except KeyboardInterrupt:
-            print('interrupted: releasing', flush=True); sys.exit(130)
-    print('DRY RUN, nothing published.', flush=True)
-""")
-
-# Tests must not depend on an operator's saved plan, which can be deleted.
-TEST_PLAN = {'schema_version': 1, 'name': 'test_right_reach', 'duration_s': 2,
-             'keyframes': [
-                 {'time_s': 0, 'joint_targets_rad': {'right_shoulder_pitch_joint': 0}},
-                 {'time_s': 2, 'joint_targets_rad': {'right_shoulder_pitch_joint': .2}},
-             ]}
-
+from unittest.mock import patch
+from tools.dashboard import ROOT, CameraFeed, Simulation, bind_dashboard_server
 
 class DashboardTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.sim = Simulation()
-        cls.tmp = tempfile.TemporaryDirectory()
-        plan = Path(cls.tmp.name) / 'right_reach.json'
-        plan.write_text(json.dumps(TEST_PLAN))
-        cls.sim.files['test/right_reach.json'] = plan
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.tmp.cleanup()
-
     def setUp(self):
-        self.sim.select('test/right_reach.json')
+        from core.action_context import gesture_plan
+        from core.ik import ArmIK
+        self.sim = Simulation()
+        self.plan = gesture_plan(ArmIK(model=self.sim.model,backend='mujoco'),'raise_arm','right',{})
+        self.plan.update(preview_only=True,prompt_proposal={'id':'new-motion'},scene_boxes=[])
 
-    def test_plan_library_only_contains_validated_files(self):
-        self.assertTrue(self.sim.plans)
-        self.assertTrue(all(p['id'] in self.sim.files and p['duration'] > 0 for p in self.sim.plans))
-        with self.assertRaises(ValueError):
-            self.sim.control({'action': 'plan', 'id': '../../etc/passwd'})
-
-    def test_seek_clamps_and_rejects_nonfinite(self):
-        self.sim.control({'action': 'seek', 'time': 1e6})
-        self.assertEqual(self.sim.position, self.sim.plan['duration_s'])
-        self.sim.control({'action': 'seek', 'time': -10})
-        self.assertEqual(self.sim.position, 0)
-        for value in (math.nan, math.inf, -math.inf):
-            with self.assertRaises(ValueError):
-                self.sim.control({'action': 'seek', 'time': value})
-        self.assertEqual(self.sim.position, 0)
-
-    def test_play_at_end_restarts_and_pause_holds(self):
-        self.sim.position = self.sim.plan['duration_s']
-        self.sim.control({'action': 'play'})
-        self.assertTrue(self.sim.playing)
-        self.assertEqual(self.sim.position, 0)
-        self.sim.control({'action': 'pause'})
+    def test_starts_neutral_without_loading_a_library(self):
+        self.assertIsNone(self.sim.status()['plan'])
         self.assertFalse(self.sim.playing)
+        self.assertFalse(hasattr(self.sim,'files'))
+        self.assertFalse(hasattr(self.sim,'scan'))
 
-    def test_speed_allowlist_and_no_execution_action(self):
-        self.sim.control({'action': 'speed', 'value': .5})
-        self.assertEqual(self.sim.speed, .5)
-        for command in ({'action':'speed', 'value':-1}, {'action':'execute'}):
-            with self.assertRaises(ValueError):
-                self.sim.control(command)
+    def test_new_proposal_shows_once_and_cannot_be_replayed(self):
+        self.sim.show_proposal(self.plan,'new-motion')
+        self.assertTrue(self.sim.playing)
+        self.sim.advance(self.plan['duration_s']+1)
+        self.assertFalse(self.sim.playing)
+        self.assertEqual(self.sim.position,self.plan['duration_s'])
+        with self.assertRaisesRegex(ValueError,'already been shown'):
+            self.sim.show_proposal(self.plan,'new-motion')
 
-    def test_hand_paths_are_finite_and_match_plan(self):
-        self.assertEqual(set(self.sim.paths), {'left', 'right'})
+    def test_only_validated_proposals_are_loaded(self):
+        for plan,pid in [({**self.plan,'preview_only':False},'new-motion'),(self.plan,'wrong-id')]:
+            with self.assertRaises(ValueError):self.sim.show_proposal(plan,pid)
+        bad=json.loads(json.dumps(self.plan));bad['keyframes'][1]['time_s']=float('nan')
+        with self.assertRaises(ValueError):self.sim.show_proposal(bad,'new-motion')
+
+    def test_stop_freezes_preview_and_old_replay_commands_are_removed(self):
+        self.sim.show_proposal(self.plan,'new-motion')
+        self.sim.advance(.5)
+        self.sim.control({'action':'stop'})
+        self.sim.advance(10)
+        self.assertEqual(self.sim.position,.5)
+        for action in ['play','pause','seek','speed','plan','execute','record']:
+            with self.assertRaises(ValueError):self.sim.control({'action':action})
+
+    def test_hand_paths_are_finite_and_match_generated_plan(self):
+        self.sim.show_proposal(self.plan,'new-motion')
         for points in self.sim.paths.values():
-            self.assertEqual(len(points), 90)
-            self.assertTrue(all(len(p) == 3 and all(math.isfinite(v) for v in p) for p in points))
-        self.assertNotEqual(self.sim.paths['right'][0], self.sim.paths['right'][45])
+            self.assertEqual(len(points),90)
+            self.assertTrue(all(len(p)==3 and all(math.isfinite(v) for v in p) for p in points))
+        self.assertNotEqual(self.sim.paths['right'][0],self.sim.paths['right'][-1])
 
     def test_mjpeg_reader_accepts_fragmented_jpeg(self):
         output = io.BytesIO()
@@ -128,98 +98,37 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(feed.status()['online'])
 
 
-class RunnerTests(unittest.TestCase):
-    """arm_lift.py is replaced by FAKE_TOOL; nothing here can reach the robot."""
+class DashboardPortTests(unittest.TestCase):
+    def test_default_skips_occupied_port(self):
+        with patch('tools.dashboard.ThreadingHTTPServer') as factory:
+            factory.side_effect = [OSError(errno.EADDRINUSE, 'busy'), factory.return_value]
+            server = bind_dashboard_server()
+            self.assertEqual([call.args[0] for call in factory.call_args_list],
+                             [('127.0.0.1',8090),('127.0.0.1',8091)])
+            self.assertIs(server, factory.return_value)
 
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.PLAN = Path(self.tmp.name) / 'right_reach.json'
-        self.PLAN.write_text(json.dumps(TEST_PLAN))
-        tool = Path(self.tmp.name) / 'fake_arm_lift.py'
-        tool.write_text(FAKE_TOOL)
-        self.args_log = Path(self.tmp.name) / 'args.log'
-        os.environ['FAKE_ARGS_LOG'] = str(self.args_log)
-        for key in ('FAKE_FAIL', 'FAKE_EXEC_S'):
-            os.environ.pop(key, None)
-        self.exits = []
-        self.runner = Runner('eth9', tool=tool, on_exit=lambda job, code: self.exits.append((job['kind'], code)))
+    def test_explicit_port_does_not_change_silently(self):
+        with patch('tools.dashboard.ThreadingHTTPServer', side_effect=OSError(errno.EADDRINUSE, 'busy')) as factory:
+            with self.assertRaisesRegex(OSError, 'Port 8123.*--port 0'):
+                bind_dashboard_server(8123)
+            factory.assert_called_once()
 
-    def tearDown(self):
-        self.runner.shutdown(1)
-        self.tmp.cleanup()
+    def test_other_bind_errors_are_not_retried(self):
+        with patch('tools.dashboard.ThreadingHTTPServer', side_effect=OSError(errno.EACCES, 'denied')) as factory:
+            with self.assertRaises(OSError) as exc:
+                bind_dashboard_server()
+            self.assertEqual(exc.exception.errno, errno.EACCES)
+            factory.assert_called_once()
 
-    def wait(self, count=1):
-        deadline = time.monotonic() + 10
-        while len(self.exits) < count and time.monotonic() < deadline:
-            time.sleep(.02)
-        self.assertEqual(len(self.exits), count)
+    def test_busy_range_reports_a_free_port_option(self):
+        with patch('tools.dashboard.ThreadingHTTPServer', side_effect=OSError(errno.EADDRINUSE, 'busy')) as factory:
+            with self.assertRaisesRegex(OSError, '8090–8099.*--port 0'):
+                bind_dashboard_server()
+            self.assertEqual(factory.call_count,10)
 
-    def calls(self):
-        return [json.loads(line) for line in self.args_log.read_text().splitlines()]
-
-    def dry(self, speed=0.5, kp=1.2):
-        self.runner.start('dry', 'tools/plans/cup_grab_right.json', self.PLAN, speed, kp)
-        self.wait(len(self.exits) + 1)
-
-    def test_dry_run_passes_settings_and_never_executes(self):
-        self.dry()
-        self.assertEqual(self.calls(), [['eth9', '--plan', str(self.PLAN), '--speed', '0.5', '--kp-scale', '1.2']])
-        status = self.runner.status()
-        self.assertEqual(status['exit'], 0)
-        self.assertEqual(status['fsm'], {'id': 811, 'name': 'Start (balance control)', 'ok': True})
-        self.assertEqual(status['cleared']['plan'], 'tools/plans/cup_grab_right.json')
-        self.assertFalse(any('take sample error' in line for line in status['lines']))
-
-    def test_execute_requires_fresh_dry_run_and_confirmation(self):
-        with self.assertRaisesRegex(ValueError, 'dry run'):
-            self.runner.start('execute', None, None, confirm=True)
-        self.dry()
-        with self.assertRaisesRegex(ValueError, 'confirmation'):
-            self.runner.start('execute', None, None)
-        self.runner.cleared['at'] -= Runner.DRY_RUN_VALID_S + 1
-        with self.assertRaisesRegex(ValueError, 'dry run'):
-            self.runner.start('execute', None, None, confirm=True)
-        self.assertEqual(len(self.calls()), 1)
-
-    def test_execute_uses_dry_run_settings_once(self):
-        self.dry(speed=0.35, kp=1.5)
-        self.runner.start('execute', 'ignored', ROOT / 'sim/plans/left_reach.json', speed=2, kp_scale=2, confirm=True)
-        self.wait(2)
-        self.assertEqual(self.calls()[1], ['eth9', '--plan', str(self.PLAN), '--speed', '0.35', '--kp-scale', '1.5', '--execute'])
-        self.assertIsNone(self.runner.status()['cleared'])
-        with self.assertRaisesRegex(ValueError, 'dry run'):
-            self.runner.start('execute', None, None, confirm=True)
-
-    def test_failed_dry_run_does_not_clear(self):
-        os.environ['FAKE_FAIL'] = '1'
-        self.dry()
-        self.assertEqual(self.runner.status()['exit'], 1)
-        self.assertIsNone(self.runner.status()['cleared'])
-
-    def test_abort_interrupts_execute(self):
-        self.dry()
-        os.environ['FAKE_EXEC_S'] = '30'
-        self.runner.start('execute', None, None, confirm=True)
-        deadline = time.monotonic() + 5
-        while not any('EXECUTE' in line for line in self.runner.status()['lines']) and time.monotonic() < deadline:
-            time.sleep(.02)
-        with self.assertRaisesRegex(ValueError, 'still active'):
-            self.runner.start('dry', 'tools/plans/cup_grab_right.json', self.PLAN)
-        self.assertTrue(self.runner.abort())
-        self.wait(2)
-        lines = self.runner.status()['lines']
-        self.assertEqual(self.exits[-1], ('execute', 130))
-        self.assertIn('interrupted: releasing', lines)
-        self.assertFalse(self.runner.abort())
-
-    def test_rejects_out_of_range_settings(self):
-        for speed, kp in ((0, 1), (3, 1), (math.nan, 1), (1, 0.1), (1, 5), (1, math.inf)):
-            with self.assertRaises(ValueError):
-                self.runner.start('dry', 'tools/plans/cup_grab_right.json', self.PLAN, speed, kp)
-        with self.assertRaises(ValueError):
-            self.runner.start('teach', 'x', self.PLAN)
-        self.assertFalse(self.args_log.exists())
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_os_selected_port_can_be_reserved(self):
+        server = bind_dashboard_server(0)
+        try:
+            self.assertGreater(server.server_address[1], 0)
+        finally:
+            server.server_close()

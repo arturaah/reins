@@ -77,6 +77,7 @@ def check_session(messages: Iterable[dict]) -> None:
     state = "idle"
     proposed: dict[str, dict] = {}  # plan_id -> latest proposed plan
     current: tuple[str, int] | None = None  # (plan_id, revision) awaiting decision
+    approved = None
     pending_stale: str | None = None  # id of a stale decision awaiting its error
     for message in messages:
         validate(message)
@@ -91,15 +92,25 @@ def check_session(messages: Iterable[dict]) -> None:
             if new != "halting" and new not in TRANSITIONS[state]:
                 raise ContractError(f"illegal transition {state} -> {new} ({message['id']})")
             state = new
+            if new in ("proposed", "idle", "halting"):
+                approved = None
             # Only a plan in "proposed" can be decided on.
             current = (message["plan_id"], message["revision"]) if new == "proposed" else None
         elif kind == "plan_proposed":
+            approved = None
             proposed[message["plan"]["plan_id"]] = message["plan"]
         elif kind == "decision":
             if state != "proposed" or current != (message["plan_id"], message["revision"]):
                 pending_stale = message["id"]
+            elif message.get("decision") == "approve":
+                approved = current
+            else:
+                approved = None
         elif kind == "execute":
             plan = message["plan"]
+            if approved != (plan["plan_id"], plan["revision"]):
+                raise ContractError("execute requires approval of this exact revision")
+            approved = None
             if state != "executing":
                 raise ContractError(f"execute {message['id']} sent while core is {state}")
             if proposed.get(plan["plan_id"]) != plan:

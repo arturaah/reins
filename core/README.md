@@ -1,3 +1,16 @@
+# Shared planning and reviewed execution
+
+The current operator workflow is described in the
+[dashboard guide](../tools/dashboard/README.md). `robot_pipeline.py` coordinates
+the core trajectory planner, visual harness fallback, dashboard/glasses approval
+and the hardware bridge. `trajectory.py` resolves and validates the exact samples
+that are reviewed and streamed.
+
+The calibrated-object preview implementation documented below is an optional
+planning source. Its saved files remain preview-only for legacy executors.
+Physical execution is authorized only by the current dashboard proposal, with
+fresh-state checks and a human decision.
+
 # Prompt-to-approach preview
 
 The dashboard now accepts natural-language requests, grounds a target in a
@@ -6,23 +19,23 @@ an approach before offering it for MuJoCo review.
 
 **This is a preview implementation, not a commissioned autonomous robot
 controller.** Generated plans explicitly stop short of contact and carry
-`preview_only: true`. Both the dashboard runner and `tools/arm_lift.py` reject
-them. The older manual trajectory workflow remains separate.
+`preview_only: true`. The dashboard only shows them in simulation; `tools/arm_lift.py` also rejects
+them. Physical dashboard buttons use the R1 firmware preset service.
 
-## Try it without hardware or API credentials
+## Try it without robot hardware
 
 ```sh
 .venv/bin/python tools/dashboard.py
 ```
 
-In **Describe the next move**, choose **Simulation demo · known geometry**, enter
-`touch the bottle`, and click **Generate approach**, then **Load into MuJoCo**.
-The fixture contains a table and an object represented by its collision box.
-Orange marks the estimated surface, green the stand-off goal. Use the existing
-playback controls to review the motion. The demo supports `touch`, `approach`,
-and `reach for` a `bottle` or `cube`, optionally `with the right/left hand`.
-This small local grammar uses known geometry; it is not AI object recognition.
-Unsupported requests are rejected, never silently mapped to a canned motion.
+Use the signed-in Codex chat to request a motion, click **Generate preview**,
+then **Show once in simulation**. No recording is saved. For the object demo,
+choose **Motion preview → Preview context → Simulation object fixture** before
+generating a request such as `touch the bottle`. The known table and object
+geometry supply the target without a camera or vision API call. Orange marks
+the surface and green the stand-off goal. The fixture supports a bottle or cube;
+it is not AI object recognition. The planner can also be exercised directly
+without any model using the local tests.
 
 ## OpenAI vision configuration
 
@@ -43,7 +56,8 @@ export REINS_VISION_MODEL=YOUR_VISION_MODEL_ID
 .venv/bin/python tools/dashboard.py --observation /path/to/latest_observation.npz
 ```
 
-Real-camera mode sends the prompt and the observation's RGB image to OpenAI's
+When local detection cannot resolve the requested object, the planner sends the
+prompt and the observation's RGB image to OpenAI's
 Responses API (`store: false`). The returned normalized box identifies the
 candidate image region; it never supplies trusted metric coordinates. Ambiguous
 or missing targets block planning. The selected box is displayed with the
@@ -144,7 +158,7 @@ freshness checks. Existing manual Execute is not evidence those checks exist.
 ## Tests
 
 ```sh
-.venv/bin/python -m unittest core.test_prompt_planner core.test_ik tools.test_dashboard
+.venv/bin/python -m unittest core.test_reins_tools core.test_claude_chat core.test_codex_chat core.test_dashboard_chat core.test_generated_motion core.test_trajectory_revision core.test_r1_gestures core.test_object_detection core.test_prompt_planner core.test_ik tools.test_dashboard tools.test_dashboard_http
 python3 -m pytest contract
 ```
 
@@ -165,7 +179,7 @@ no API key, physical cameras, or robot connection.
   explicitly simulation-only preview; physical clearance remains unknown.
 - `point at the bottle`, `touch the bottle`, and `approach the cube` require an
   object position. Auto reuses grounding only for the same fresh observation,
-  calibration, transform and pose; new or changed observations require vision.
+  calibration, transform and pose; new or changed observations require fresh detection or visual grounding.
   `Refresh object vision` bypasses this grounding cache.
 - `touch it` / `point at it` resolve the last object selector from the same
   source. A stale target's position is never reused; a new observation is
@@ -174,12 +188,148 @@ no API key, physical cameras, or robot connection.
   target (within 10 degrees); the hand need not reach the object. The complete
   motion must still pass collision checks. Some nearby targets cannot satisfy
   this constrained A5 gesture and are rejected.
-- Unknown and compound commands are rejected. Directed waving (`wave at the
-  person`) is not silently treated as a generic wave. The local intent router
-  deliberately accepts a bounded vocabulary; it is not an unrestricted language
-  interpreter. OpenAI performs object grounding only when required.
+- The local router handles bounded object commands and built-in gestures. Use
+  dashboard chat to author new gestures or compound single-arm sequences, then
+  generate it with **Generate preview** on the chat reply. Directed waving (`wave at the
+  person`) is not silently treated as a generic wave or supplied an invented
+  person location. Object actions still require grounded context.
 
 The dashboard displays the selected skill, its context requirements, whether
 vision was needed or reused, and the validation coverage. All new skill plans
 retain the existing preview-only execution lock. No robot motion is authorized
 by choosing Auto context.
+
+
+## Local object detection
+
+Install the checksum-pinned models once (OmDet-Turbo needs `torch` and
+`transformers` from `core/requirements.txt`; without them only NanoDet is installed):
+
+```sh
+uv pip install --python .venv/bin/python -r core/requirements.txt
+.venv/bin/python tools/detect_objects.py --download
+.venv/bin/python tools/dashboard.py            # prints "Object detection: OmDet-Turbo · mps" (or cuda/cpu)
+```
+
+**Scene understanding → Start detection** runs the local detector on a selected head,
+wrist or glasses JPEG/MJPEG stream. The default is **OmDet-Turbo** (swin-tiny,
+Apache-2.0), an open-vocabulary detector: it looks for COCO's 80 classes plus 24
+tabletop objects COCO lacks (plate, drinking glass, jar, box, lid, tray, pan, tape,
+screwdriver, cable and more; `HOUSEHOLD` in `object_detection.py`), and any other
+name can be passed to `detect(labels=...)` or `tools/detect_objects.py --labels`.
+It runs on CUDA, Apple MPS or CPU (chosen automatically). If PyTorch or its
+weights are missing, **NanoDet** (80 COCO classes, OpenCV CPU) is used instead;
+force either with `--detector omdet|nanodet`. No API key or depth is needed for 2D
+boxes.
+
+Measured 2026-09-27 on 500 random COCO val2017 images (none used in training),
+pycocotools, same images for both:
+
+| | NanoDet (fallback) | OmDet-Turbo (default) |
+|---|---|---|
+| COCO mAP / AP50 | 22.2 / 38.2 | **43.0 / 58.9** |
+| small objects AP | 8.3 | **28.8** |
+| cup / fork / knife / remote AP | 16 / 10 / 0.6 / 4 | **57 / 48 / 22 / 37** |
+| precision / recall at confidence 0.4 | 71% / 34% | 67% / **50%** |
+| 30 household classes outside COCO (LVIS labels) | 0 (cannot name them) | **26.5 mAP** |
+| time per image | 60 ms (CPU) | 78 ms (RTX 4060, 104 names), 1.2 s (CPU) |
+
+OpenCV Zoo's own reference code scores NanoDet at 21.5 on the same images, so the
+wrapper is faithful; the model is the limit. For comparison YOLO11n scored 40.5
+but Ultralytics models are AGPL-3.0, so they were not adopted. OmDet-Turbo is weak
+on thin or tiny parts (hooks, magnets, lightbulbs, doorknobs, handles: AP < 10).
+Mac speed on MPS has not been measured yet; on CPU it is too slow for live video,
+so check `Object detection:` at dashboard start shows `mps`. Browser window sharing stays in the browser and is not a detection source.
+The worker starts paused, samples only the latest frame at up to about 3 Hz,
+serializes inference with the planner and never accumulates a frame queue.
+Labels and confidence are baked into the exact inferred frame. Results expire
+three seconds after receipt (or capture for calibrated observations); ordinary
+MJPEG receipt time does not establish sensor capture time. No persistent object
+tracking or identity across frames is claimed. The minimum confidence defaults
+to 0.40 for both detectors, configurable with `--detection-confidence 0.5` at dashboard launch.
+
+With `--observation PATH.npz`, the panel also offers **Calibrated RGB + depth**.
+Only this source can display measured 3D surfaces in robot coordinates. Missing
+or mixed depth remains unknown. Detecting a bottle in a head/glasses stream does
+not automatically associate that box with a different camera's depth image.
+
+For object prompts, the planner detects on the RGB image inside its own fresh,
+synchronized observation. A single matching class supplies the box without an
+OpenAI call. Multiple matches ask for a more specific description. Qualifiers
+such as `red bottle` use the configured OpenAI model; missed or unsupported
+classes also fall back to it. With no configured model, an unresolved target
+blocks with setup instructions. Detection confidence is not a safety score, and
+absence of a detection is never evidence of free space. Recognition can miss
+small/occluded objects, confuse classes and mix background into a bounding box.
+No detection supplies metric coordinates or relaxes the IK, depth-clearance,
+joint-limit or collision checks. A snapshot that expires during recognition is
+rejected before localization, including slow model requests. All generated plans
+remain preview-only. Gestures never invoke the detector; independently enabled
+camera monitoring may continue while a gesture is planned.
+
+To test a local image without cameras:
+
+```sh
+.venv/bin/python tools/detect_objects.py --input photo.jpg --output detected.jpg
+```
+
+The CLI prints normalized `xyxy` boxes, labels and scores. See
+[model provenance and license](models/README.md). No model weights or calibration
+are downloaded at dashboard startup, and weights are excluded from Git.
+
+
+## Conversational dashboard assistant
+
+`core/dashboard_chat.py` owns bounded session history and read-only dashboard
+context. Its transports are switchable at runtime from the chat panel
+(`DashboardChat.set_backend`): `core/codex_chat.py` runs the signed-in Codex CLI (the
+default), `core/claude_chat.py` the signed-in Claude CLI (`claude -p` with tools, MCP,
+skills and user settings disabled), both ephemeral with structured JSON output and no
+API key; `openai` uses the Responses API with `OPENAI_API_KEY` and `REINS_CHAT_MODEL`
+(or `REINS_VISION_MODEL`). `--chat-backend claude|codex|openai` picks the first one.
+
+The CLI bridge disables command execution and external tools, runs outside the
+repository in a temporary directory, and never attaches to existing Codex threads.
+Messages go through stdin; executable/flags are server-controlled argument lists.
+Process groups are terminated and reaped on cancel, timeout, excessive output or
+shutdown. Only validated assistant replies reach the UI, not stderr or reasoning.
+Each request carries the bounded dashboard history rather than resuming a CLI
+thread. CLI authentication remains managed by each CLI.
+
+Replies may contain either a grounded object command handled by `route_intent`
+or a newly authored `trajectory`. `core/generated_motion.py` defines the draft:
+a name, one arm, up to 16 hand positions in `robot_base` metres, per-waypoint
+pauses, and an optional return to the starting hand position. The assistant
+receives model-derived shoulder/hand positions and the head envelope. New
+gestures and compound arm sequences need no named skill or predefined plan.
+Drafts and planner failure feedback remain available in follow-up conversation.
+
+**Generate preview** on a chat reply compiles the exact server-held draft with IK
+from the current simulation or measured pose, interpolates and times each segment,
+then checks joint limits, velocity,
+acceleration, swept collisions and available depth clearance. When an authored
+path fails IK, timing or collision checks, the planner requests up to two revised
+drafts from the selected chat backend (three attempts total). Each revision gets
+the failed paths, waypoint/collision details and model geometry, then goes through
+the same checks from the original starting pose. The preview shows progress and
+can be cancelled while recalculating. CLI revision sessions are isolated from
+normal chat; switching chat backends does not switch an in-flight revision.
+When chat uses `plan_hand_path` directly, the tool returns the same structured
+failure feedback and a retryable flag; the calling assistant is instructed to
+revise and call it again, up to three attempts, without a nested model request.
+Missing/stale observations, invalid starting poses and provider errors stop
+planning instead of weakening validation. Explicit camera
+mode requires a calibrated observation; Auto without one is simulation-only.
+Malformed, nonfinite, oversized drafts and stale chat suggestions are rejected.
+**Show once in simulation** passes the validated proposal to MuJoCo in memory.
+The animation runs once, with an optional Stop preview button. No file is saved,
+and the proposal cannot be replayed. The separate legacy export helper remains
+available to code outside the dashboard.
+
+Only one arm's hand position is authored; other joints stay fixed. There is no
+finger articulation, independent wrist orientation, coordinated two-arm motion,
+walking, grasping or contact. Near-face gestures use non-contact approximations
+and may still fail reach/collision checks. Generated paths remain preview-only
+and cannot enter the firmware gesture service. Chatting alone never invokes a
+planner or commands hardware. See the [chat guide](../tools/dashboard/README.md#chat-with-the-dashboard-assistant)
+for configuration, memory, retry, cancellation and data handling.

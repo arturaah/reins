@@ -64,7 +64,7 @@ class ReviewMailbox:
     def take(self, proposal_id, plan_path):
         try:
             proposal = json.loads(self.path.read_text())
-            if (proposal.get("id") != proposal_id or
+            if (time.time() - float(proposal.get("created_at", 0)) > 300 or proposal.get("id") != proposal_id or
                 hashlib.sha256(Path(plan_path).read_bytes()).hexdigest() != proposal.get("plan_sha256")):
                 return None
             answer = json.loads(self.answer.read_text())

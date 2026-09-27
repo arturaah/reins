@@ -64,4 +64,7 @@ def test_vet_ik_fail_and_estop(gate, kin):
 def test_trajectory_check_catches_speed(gate):
     frames = [REST, REST + [0.5, 0, 0, 0, 0]]
     assert "cap" in gate.check_trajectory(frames, 0.02)
-    assert gate.check_trajectory([REST, REST + [0.01, 0, 0, 0, 0]], 0.02) == ""
+    assert gate.check_trajectory([REST, REST + [0.01, 0, 0, 0, 0]], 0.02)  # shared 0.4 rad/s limit
+    assert "Self-collision" in gate.check_trajectory([REST, REST], 0.02)
+    raised = np.array([-.05, -.23, .13, 0., 0.])
+    assert gate.check_trajectory([raised, raised], 0.02) == ""

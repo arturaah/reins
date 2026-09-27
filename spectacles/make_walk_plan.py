@@ -25,6 +25,7 @@ def combine(arm, distance_m, walk_s):
                 "joint_targets_rad": dict(f["joint_targets_rad"])} for f in frames[1:]]
     return {
         "schema_version": 1,
+        "preview_only": True,
         "name": f"walk {distance_m:g} m, then {arm.get('name', 'arm action')}",
         "duration_s": round(walk_s + duration, 5),
         "keyframes": [{"time_s": 0, "joint_targets_rad": initial},

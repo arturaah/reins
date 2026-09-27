@@ -155,7 +155,10 @@ def parse_action(token, limits=None):
 
 def _number(s, unit):
     try:
-        return float(s)
+        value = float(s)
+        if not math.isfinite(value):
+            raise ValueError()
+        return value
     except ValueError:
         raise ActionError(f"expected a number of {unit}, got {s!r}") from None
 
@@ -227,18 +230,3 @@ OUTPUT_SCHEMA = {
         "decision": {"type": "string", "description": "Exactly one action from the vocabulary."},
         "plan": {"type": "array", "items": {"type": "string"},
                  "description": "The next moves as one trajectory, starting with the decision (arm moves and rotations only)."},
-    },
-    "required": ["reasoning", "decision"],
-    "additionalProperties": False,
-}
-OUTPUT_SCHEMA_DUAL = {
-    "type": "object",
-    "properties": {
-        "reasoning": {"type": "string"},
-        "decision": {"type": "object",
-                     "properties": {"left": {"type": "string"}, "right": {"type": "string"}},
-                     "required": ["left", "right"], "additionalProperties": False},
-    },
-    "required": ["reasoning", "decision"],
-    "additionalProperties": False,
-}

@@ -5,6 +5,7 @@ This module never opens the Unitree SDK or sends commands to physical hardware.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import time
 from pathlib import Path
@@ -20,7 +21,12 @@ SAMPLE_PERIOD = 0.04
 
 
 def load_plan(model: mujoco.MjModel, path: Path) -> dict:
-    plan = json.loads(path.read_text())
+    return prepare_plan(model, json.loads(path.read_text()))
+
+
+def prepare_plan(model: mujoco.MjModel, source: dict) -> dict:
+    """Validate an in-memory plan without writing a trajectory file."""
+    plan = copy.deepcopy(source)
     if plan.get("schema_version") != 1:
         raise ValueError("Plan schema_version must be 1")
     frames = plan.get("keyframes")

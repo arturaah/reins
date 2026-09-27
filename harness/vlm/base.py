@@ -22,6 +22,11 @@ class VLMResponse:
 class VLM:
     name = "vlm"
 
+    def close(self):
+        client = getattr(self, "client", None)
+        if client is not None and hasattr(client, "close"):
+            client.close()
+
     def plan(self, prompt, images, schema=None) -> VLMResponse:
         raise NotImplementedError
 

@@ -1,0 +1,18 @@
+{
+  "mcp_replanning": {
+    "state": "blocked",
+    "retryable": true,
+    "attempts": 1,
+    "max_attempts": 1
+  },
+  "walking_wrapper": {
+    "input_preview_only": true,
+    "output_preview_only": null
+  },
+  "ar_approval": {
+    "credential_supplied": false,
+    "mode": "live",
+    "ack_accepted": true,
+    "harness_decision": "approve"
+  }
+}

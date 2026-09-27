@@ -11,12 +11,14 @@
 // @input Component.MarkerTrackingComponent leftMarker
 // @input Component.MarkerTrackingComponent rightMarker
 // @input string websocketUrl = "ws://127.0.0.1:8765"
+// @input string reviewToken = ""
 // @input string fallbackWebsocketUrl = ""
 // @input string pairingToken = ""
 // @input float tagForwardM = 0.03
 // @input float tagSideM = 0.13
 // @input float tagHeightM = 1.019
 // @input float pathRadiusCm = 0.65
+// @input bool demoMode = false
 // @input bool allowTemporaryAnchor = false
 
 var root = script.getSceneObject();
@@ -61,6 +63,7 @@ var reviewText = null;
 var reviewFrame = null;
 var socketReady = false;
 var pairingDeadline = -1;
+var lastHeartbeatAt = -1000;
 var asrModule = null;
 var voiceListening = false;
 var voiceFinal = [];
@@ -408,7 +411,7 @@ function reviewPinch(choice) {
     if (reviewChoice === choice && now - reviewChoiceAt > 0.25 && now - reviewChoiceAt < 4) {
         try {
             socket.send(JSON.stringify({type:"review_decision", version:1,
-                                        id:pendingReview.id, decision:choice}));
+                                        id:pendingReview.id, digest:pendingReview.digest, decision:choice}));
             reviewSent = true;
             reviewMessage = "SENDING " + choice.toUpperCase();
             print("R1 AR: " + choice + " sent for proposal " + pendingReview.id);
@@ -791,17 +794,29 @@ function connect() {
     try {
         socket=script.internetModule.createWebSocket(url);
         socket.onopen=function(){
-            socketReady = !(script.pairingToken || "").trim();
+            socketReady = !script.reviewToken && !(script.pairingToken || "").trim();
             pairingDeadline = socketReady ? -1 : getTime() + 5;
+            if (script.reviewToken) { socket.send(JSON.stringify({type:"authenticate", token:script.reviewToken})); }
             lastNetworkError="";
             print("R1 AR: WebSocket connected to "+url);
         };
         socket.onmessage=function(event){
             try {
                 var trajectory = JSON.parse(event.data);
+                if (trajectory.type === "auth_ack") {
+                    socketReady = trajectory.accepted === true;
+                    pairingDeadline = -1;
+                    return;
+                }
                 if (handlePairingMessage(trajectory) || !socketReady) { return; }
                 if (trajectory.type === "voice_event") {
                     if (trajectory.id === voiceCommandId) { liveVoiceEvent(trajectory.event); }
+                    return;
+                }
+                if (trajectory.clear === true && trajectory.type === "trajectory") {
+                    pendingReview=null; reviewSent=false; latestTrajectory=null;
+                    leftVisual.enabled=false; rightVisual.enabled=false;
+                    lastReceivedAt=getTime(); hasReceivedTrajectory=true;
                     return;
                 }
                 if (trajectory.type === "review_ack") {
@@ -909,11 +924,14 @@ script.createEvent("UpdateEvent").bind(function(){
         }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }
+    if (socketReady && script.reviewToken && getTime()-lastHeartbeatAt > 1) {
+        try { socket.send(JSON.stringify({type:"heartbeat"})); lastHeartbeatAt=getTime(); } catch (e) {}
+    }
     // Keep the last real plan on screen when USB/Wi-Fi drops. Only animate a
     // mock before any robot-frame trajectory has arrived this Lens session.
     if (!hasReceivedTrajectory && getTime()-lastReceivedAt>1.5 &&
         getTime()-lastMockAt>0.3) {
-        applyTrajectory(localMock(getTime()*0.3));
+        if (script.demoMode && !script.reviewToken) { applyTrajectory(localMock(getTime()*0.3)); }
         lastMockAt=getTime();
     }
     if (!tagAnchored) {

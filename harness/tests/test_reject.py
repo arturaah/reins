@@ -83,7 +83,7 @@ def run_cli(args, stdin, tmp_path):
            "--set", f"stats.plot={tmp_path}/plot.png", "--set", f"feedback.path={tmp_path}/fb.jsonl",
            "--set", f"recorder.export_dir={tmp_path}/recordings", *args]
     return subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=180, cwd=ROOT,
-                          env={**os.environ, "MUJOCO_GL": "cgl"})
+                          env={**os.environ, "MUJOCO_GL": "cgl" if sys.platform == "darwin" else "egl"})
 
 
 def test_cli_proposal_protocol(tmp_path):

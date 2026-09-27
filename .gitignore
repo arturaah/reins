@@ -24,4 +24,11 @@ runs/replays/
 .voice-cache/
 
 .venv-voice/
-runs/spectacles_review*.json   # Spectacles review mailbox (proposal and answer), rewritten per proposal
+# Spectacles review mailbox, rewritten per proposal
+runs/spectacles_review*.json
+
+# Downloaded local perception weights
+core/models/*.onnx
+core/models/*.download
+core/models/omdet-turbo-swin-tiny/
+core/models/omdet-turbo-swin-tiny.download/

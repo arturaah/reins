@@ -34,9 +34,15 @@ from .vlm import base as vlm_base
 stdin_lines = queue.Queue()
 
 
-def stdin_reader():
+def stdin_reader(gate=None, backend=None):
     for line in sys.stdin:
-        stdin_lines.put(line.strip())
+        if line.strip() == "x" and gate is not None:
+            gate.estop.set()
+            try: backend.freeze()
+            except (OSError, RuntimeError): pass
+            print("E-STOP set", flush=True)
+        else:
+            stdin_lines.put(line.strip())
 
 
 def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"):
@@ -63,6 +69,7 @@ def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"
         print("  [Enter] send   y [note] Enter send with a note   n [note] Enter reject   x Enter e-stop > ", end="", flush=True)
         try:
             while True:
+                if gate is not None and gate.estop.is_set(): return False
                 try:
                     line = stdin_lines.get(timeout=0.1)
                     break
@@ -150,13 +157,12 @@ def run_episode(a, cfg, mode):
     demos = load_demos(a.demos, cfg) if getattr(a, "demos", None) else []
     for d in demos:
         print(f"demo: {d.name} ({'with' if d.image else 'no'} contact sheet, {len(d.text)} chars)")
-    threading.Thread(target=stdin_reader, daemon=True).start()
+    threading.Thread(target=stdin_reader, args=(ex.gate, backend), daemon=True).start()
     ask = (mode == "live" and not a.no_confirm) or getattr(a, "confirm", False)
     if ask:
         ex.confirm = make_confirm(ex.gate, backend, getattr(a, "preview", None),
                                   getattr(a, "spectacles_review", None), mode)
-    elif mode != "dry-run":
-        threading.Thread(target=estop_watch, args=(ex.gate, backend), daemon=True).start()
+
     if mode == "live":
         if backend.fsm not in (4, 811):
             sys.exit(f"refusing: FSM {backend.fsm} = {backend.fsm_name}")
@@ -197,6 +203,7 @@ def run_episode(a, cfg, mode):
     finally:
         if mode == "live":
             backend.release()
+            backend.close()
 
 
 def cmd_packet(a, cfg):

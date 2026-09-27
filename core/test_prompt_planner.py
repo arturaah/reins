@@ -78,19 +78,16 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(plan['prompt_proposal']['id'],result['id'])
             p.cancel()
             with self.assertRaises(ValueError):p.preview(result['id'])
-    def test_generated_plan_cannot_start_robot_runner(self):
-        from tools.dashboard import Runner
+    def test_dashboard_preview_is_in_memory_and_consumed_once(self):
+        from tools.dashboard import Simulation
         with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp)/'preview.json'
-            path.write_text(json.dumps({'preview_only':True}))
-            runner=Runner('unused-test-interface')
-            with patch('subprocess.Popen') as popen:
-                with self.assertRaisesRegex(ValueError,'preview-only'):
-                    runner.start('dry','generated',path)
-                runner.cleared={'plan':'generated','path':path,'speed':1,'kp_scale':1,'at':time.time()}
-                with self.assertRaisesRegex(ValueError,'preview-only'):
-                    runner.start('execute',None,None,confirm=True)
-                popen.assert_not_called()
+            p=PromptPlanner(output_dir=tmp);p.submit('wave','demo');status=self.wait(p)
+            sim=Simulation()
+            p.show_once(status['id'],sim.show_proposal)
+            self.assertTrue(sim.playing)
+            self.assertFalse(list(Path(tmp).iterdir()))
+            with self.assertRaisesRegex(ValueError,'already been shown'):
+                p.show_once(status['id'],sim.show_proposal)
 
     def test_real_camera_never_falls_back_to_fixture(self):
         p=PromptPlanner();p.submit('touch the bottle','camera'); result=self.wait(p)

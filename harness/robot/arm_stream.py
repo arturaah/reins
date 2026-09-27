@@ -5,9 +5,9 @@ Runs on its own (a Terminal on the Mac, or the Jetson), holds the arms at their 
 over a local TCP socket. Safety it enforces by itself, whatever the client says:
   - refuses to engage outside FSM 4/811; queries the FSM read-only first
   - weight ramps 0->1 over robot.weight_ramp_s on engage and 1->0 on release, abort, Ctrl-C and loss of client
-  - watchdog: no bytes from the client for streamer.watchdog_s while engaged -> ramp down (the loop died); it pauses
-    while a command from that client is being served (engage ramp, frames), since the client is then waiting on the
-    socket and cannot heartbeat, and a dead client shows up as a closed socket instead
+  - watchdog remains active during commands; receive and heartbeat processing never wait behind a stream
+  - stop/release preempts streaming; disconnect cancels frames before ramping weight down
+  - full-path joint, speed, acceleration and collision validation; no implicit lead-in frames
   - tracking error over limits.tracking_abort_rad for 0.3 s, or rt/lowstate stale for 0.5 s -> ramp down
   - per-frame joint speed re-checked against limits.max_joint_vel_rad_s; a faster frame is refused
   - waist yaw and head pitch/yaw are held at their measured values with Unitree's gains (robot.hold_head); with
@@ -21,6 +21,7 @@ over a local TCP socket. Safety it enforces by itself, whatever the client says:
     rt/odommodestate comes back as {dx, dy, dyaw} in the pre-walk frame
 Commands (one JSON object per line):  {"cmd": "hello"} {"cmd": "state"} {"cmd": "engage"}
   {"cmd": "frames", "arm": "right", "frames": [[q1..q5], ...], "dt": 0.02}   (blocks until streamed)
+  {"cmd": "plan", "arm": "right", "plan": {...}, "digest": "..."} (resolved reviewed path)
   {"cmd": "freeze"} {"cmd": "release"} {"cmd": "heartbeat"} (no reply)
 Every other command gets {"ok": false, "error": ...}.
 
@@ -42,6 +43,8 @@ from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_
 from unitree_sdk2py.utils.crc import CRC
 
+from core.robot_lease import RobotLease
+from core import trajectory
 from ..config import load
 from ..kinematics import ARM_JOINTS
 from .lowstate import FSM_ARM_OK, JOINT_TO_SLOT, LowStateReader, query_fsm
@@ -104,6 +107,7 @@ class Streamer:
         if cfg["robot"]["hold_head"]:
             for s in HEAD: self.slots[s] = (15.0, 1.0)
         self.lock = threading.Lock()
+        self.publish_lock = threading.Lock()
         self.targets = {}                                   # slot -> q
         self.weight = 0.0
         self.engaged = False
@@ -113,6 +117,9 @@ class Streamer:
         self.stop = threading.Event()
         self.reason = ""
         self.frames_sent = 0
+        self.motion_cancel = threading.Event()
+        self.release_lock = threading.Lock()
+        self.lease = RobotLease("arm streamer")
 
     # -- DDS side ---------------------------------------------------------------------------------
     def _on_odom(self, m):
@@ -132,12 +139,15 @@ class Streamer:
             fsm, name = query_fsm()
             if fsm in ok or time.time() - t0 >= wait_s:
                 return fsm, name
-            time.sleep(0.25)
+            if self.motion_cancel.wait(0.25) or self.stop.is_set():
+                return fsm, name
 
     def _retake(self, held):
         """After a step: the arms back under the streamer when it held them before; '' or why not."""
         if not held:
             return ""
+        if self.motion_cancel.is_set() or self.stop.is_set():
+            return "arm retake cancelled"
         err = self.engage()
         if err:
             self.log(f"walk: the arms are NOT held again: {err}")
@@ -150,6 +160,10 @@ class Streamer:
         every walk was refused; it is back in 811 at weight 0), asks the loco service for the velocity for duration
         seconds, sends an explicit stop whatever happens, then takes the arms back if it held them before."""
         lo = self.loco
+        if not all(math.isfinite(v) for v in (vx, vy, vyaw, duration)):
+            return "walk parameters must be finite", None
+        if self.motion_cancel.is_set():
+            return "walk cancelled", None
         if not lo.get("enabled", False):
             return "walking is disabled in the streamer's config (locomotion.enabled)", None
         v, w = float(lo["speed_mps"]), float(lo["turn_speed_rps"])
@@ -161,8 +175,10 @@ class Streamer:
         fsm_ok = {int(x) for x in (lo.get("fsm_ok") or [811])}      # which FSM ids may walk: the operator's list (config), 811 by default
         held = self.engaged
         if held:
-            self.release("walk: the arms go back to the controller for the step (the arm topic puts the R1 into FSM 816, which did not walk)")
+            self.release("walk: the arms go back to the controller for the step (the arm topic puts the R1 into FSM 816, which did not walk)", cancel_motion=False)
         fsm, name = self._await_fsm(fsm_ok, float(lo.get("fsm_wait_s", 2.0)))
+        if self.motion_cancel.is_set() or self.stop.is_set():
+            return "walk cancelled", None
         if fsm not in fsm_ok:
             back = self._retake(held)
             return (f"refused: walking is allowed in FSM {sorted(fsm_ok)} (locomotion.fsm_ok); the robot is in {fsm} = {name}"
@@ -177,8 +193,8 @@ class Streamer:
             self.log(f"walk: the controller answered {code} to the velocity command")
             if code not in (0, None):
                 err = f"the controller refused the velocity command (code {code}){CODE_HINTS.get(code, '')}; nothing moved"
-            else:
-                time.sleep(float(duration))
+            elif self.motion_cancel.wait(float(duration)):
+                return "walk cancelled", None
         finally:
             try:
                 lc.StopMove()
@@ -186,7 +202,8 @@ class Streamer:
                 self.walking = False
         odom = None
         if not err:
-            time.sleep(float(lo.get("settle_s", 1.0)))
+            if self.motion_cancel.wait(float(lo.get("settle_s", 1.0))) or self.stop.is_set():
+                return "walk cancelled", None
             after = self._odom_now()
             if before is not None and after is not None:
                 (p0, y0), (p1, y1) = before, after
@@ -211,20 +228,24 @@ class Streamer:
         return {s: float(m.motor_state[s].q) for s in self.slots}
 
     def send(self):
-        with self.lock:
-            w, targets = self.weight, dict(self.targets)
-        self.cmd.mode_pr = int(round(np.clip(w, 0.0, 1.0) * 100))
-        for s, (kp, kd) in self.slots.items():
-            mc = self.cmd.motor_cmd[s]
-            mc.q, mc.dq, mc.tau, mc.kp, mc.kd = float(targets.get(s, 0.0)), 0.0, 0.0, kp, kd
-        self.cmd.crc = self.crc.Crc(self.cmd); self.pub.Write(self.cmd)
-        self.frames_sent += 1
+        with self.publish_lock:
+            with self.lock:
+                w, targets = self.weight, dict(self.targets)
+            self.cmd.mode_pr = int(round(np.clip(w, 0.0, 1.0) * 100))
+            for s, (kp, kd) in self.slots.items():
+                mc = self.cmd.motor_cmd[s]
+                mc.q, mc.dq, mc.tau, mc.kp, mc.kd = float(targets.get(s, 0.0)), 0.0, 0.0, kp, kd
+            self.cmd.crc = self.crc.Crc(self.cmd); self.pub.Write(self.cmd)
+            self.frames_sent += 1
+
 
     def ramp(self, to, seconds):
         t0 = time.time()
         with self.lock:
             w0 = self.weight
         while (el := time.time() - t0) < seconds:
+            if to > 0 and self.motion_cancel.is_set():
+                return
             with self.lock:
                 self.weight = w0 + (to - w0) * el / seconds
             self.send(); time.sleep(self.dt)
@@ -234,9 +255,12 @@ class Streamer:
 
     def engage(self):
         fsm, name = query_fsm()
-        ok = {int(v) for v in (self.cfg["robot"].get("fsm_ok_arms") or FSM_ARM_OK)}   # the operator's list; the SDK's 4 and 811 by default
+        ok = {int(v) for v in (self.cfg["robot"].get("fsm_ok_arms") or FSM_ARM_OK)}
         if fsm not in ok:
             return f"refused: FSM {fsm} = {name}; the arm topic is used only in {sorted(ok)} (robot.fsm_ok_arms)"
+        if self.motion_cancel.is_set():
+            return "engage cancelled"
+        self.lease.acquire()
         with self.lock:
             self.targets = self.measured()                  # hold everything where it is
             if self.head_pitch is not None and HEAD[0] in self.slots:
@@ -247,23 +271,32 @@ class Streamer:
         self.ramp(1.0, self.ramp_s)
         return ""
 
-    def release(self, reason="release", seconds=None):
-        if not self.engaged and self.weight == 0.0:
-            return
-        self.log(f"{reason}: ramping weight down")
-        self.ramp(0.0, seconds or self.ramp_s)
-        with self.lock:
+    def release(self, reason="release", seconds=None, *, cancel_motion=True):
+        if cancel_motion:
+            self.motion_cancel.set()
+        self.stop_walking()
+        with self.release_lock:
+            if not self.engaged and self.weight == 0.0:
+                self.lease.release()
+                return
             self.engaged = False
-        self.reason = reason
+            self.reason = reason
+            self.log(f"{reason}: ramping weight down")
+            try:
+                self.ramp(0.0, seconds or self.ramp_s)
+            finally:
+                self.lease.release()
 
     def hold_loop(self):
         """Background: keep publishing the current targets while engaged, run the watchdogs."""
         while not self.stop.is_set():
             t = time.time()
+            if self.walking and (self.reader.age() > .5 or time.time() - self.last_client > self.watchdog_s):
+                self.release("ABORT: walk telemetry or heartbeat lost", .5)
             if self.engaged:
                 if self.reader.age() > 0.5:
                     self.release("ABORT: rt/lowstate stale", 0.5)
-                elif not self.serving and time.time() - self.last_client > self.watchdog_s:
+                elif time.time() - self.last_client > self.watchdog_s:
                     self.release("ABORT: client heartbeat lost", 1.0)
                 else:
                     m = self.measured()
@@ -285,30 +318,36 @@ class Streamer:
     def stream_frames(self, arm, frames, dt):
         if not self.engaged:
             return "not engaged"
+        if arm not in ARM_JOINTS or not np.isfinite(dt) or not .005 <= dt <= .1:
+            return "invalid arm or command interval"
         names = ARM_JOINTS[arm]; slots = [JOINT_TO_SLOT[n] for n in names]
+        if not 1 <= len(frames) <= 9000 or len(frames)*dt > 180:
+            return "invalid trajectory size"
         frames = [np.asarray(f, float) for f in frames]
         for i, f in enumerate(frames):
             if f.shape != (5,) or not np.all(np.isfinite(f)):
                 return f"frame {i}: expected 5 finite joint values"
         with self.lock:
             prev = np.array([self.targets[s] for s in slots])
-        # The client plans from the measured joints; the hold target differs from them by the gravity droop (about
-        # 0.01 rad), which at 50 Hz would be a 0.5 rad/s jump on the first frame. Approach the first frame from the
-        # current target at the cap first, then play the frames.
-        step = self.vmax * 0.8 * dt
-        jump = float(np.abs(frames[0] - prev).max())
-        k = int(np.ceil(jump / step)) - 1 if jump > step else 0
-        frames = [prev + (frames[0] - prev) * (i + 1) / (k + 1) for i in range(k)] + frames
+        # Never alter an approved trajectory to reconcile a stale starting target.
+        measured = self.reader.joints()
+        plan = trajectory.frame_plan(arm, prev, frames, dt, measured)
+        try:
+            trajectory.validate(plan, arm)
+        except (ValueError, KeyError) as exc:
+            return str(exc)
         for i, f in enumerate(frames):
             v = float(np.abs(f - prev).max() / dt)
             if v > self.vmax * 1.05:
                 return f"frame {i}: {v:.2f} rad/s over the {self.vmax} rad/s cap; refused before sending"
             prev = f
+        if self.motion_cancel.is_set():
+            return "motion stopped; engage again before a new motion"
         self.streaming = True
         try:
             t0 = time.time()
             for i, f in enumerate(frames):
-                if not self.engaged:
+                if not self.engaged or self.motion_cancel.is_set():
                     return f"released during streaming ({self.reason})"
                 with self.lock:
                     for s, q in zip(slots, f):
@@ -323,6 +362,7 @@ class Streamer:
         m = self.reader.joints(); v = self.reader.velocities()
         with self.lock:
             return {"ok": True, "joints": m, "velocities": v, "weight": self.weight, "engaged": self.engaged,
+                    "targets": {n: self.targets[JOINT_TO_SLOT[n]] for names in ARM_JOINTS.values() for n in names if JOINT_TO_SLOT[n] in self.targets},
                     "lowstate_age_s": self.reader.age(), "frames_sent": self.frames_sent, "reason": self.reason}
 
     # -- socket side ------------------------------------------------------------------------------------
@@ -348,36 +388,67 @@ class Streamer:
     def handle(self, conn):
         conn.settimeout(0.2)
         buf = b""
-        while not self.stop.is_set():
+        send_lock = threading.Lock()
+        worker = None
+
+        def answer(req, resp):
             try:
-                chunk = conn.recv(65536)
-            except socket.timeout:
-                continue
-            except OSError:                                  # connection reset: the client died mid-command
-                return
-            if not chunk:
-                return
-            self.last_client = time.time()
-            buf += chunk
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                if not line.strip():
-                    continue
+                with send_lock:
+                    conn.sendall((json.dumps({**resp, "request_id": req.get("request_id")}) + "\n").encode())
+            except OSError:
+                self.motion_cancel.set()
+
+        def run(req):
+            try:
+                answer(req, self.dispatch(req.get("cmd"), req))
+            except Exception as exc:
+                answer(req, {"ok": False, "error": str(exc)})
+            finally:
+                self.serving = False
+
+        try:
+            while not self.stop.is_set():
                 try:
-                    req = json.loads(line)
-                except json.JSONDecodeError:
-                    conn.sendall(b'{"ok": false, "error": "bad json"}\n'); continue
-                cmd = req.get("cmd")
-                if cmd == "heartbeat":
+                    chunk = conn.recv(65536)
+                except socket.timeout:
                     continue
-                self.serving = True
-                try:
-                    resp = self.dispatch(cmd, req)
-                except Exception as e:
-                    resp = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                finally:
-                    self.last_client = time.time(); self.serving = False
-                conn.sendall((json.dumps(resp) + "\n").encode())
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                self.last_client = time.time()
+                buf += chunk
+                if len(buf) > 8*1024*1024:
+                    break
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        req = json.loads(line)
+                        if not isinstance(req, dict): raise ValueError()
+                    except ValueError:
+                        answer({}, {"ok": False, "error": "invalid command"}); continue
+                    cmd = req.get("cmd")
+                    if cmd == "heartbeat":
+                        continue
+                    if cmd in ("frames", "plan", "engage", "walk"):
+                        if worker and worker.is_alive():
+                            answer(req, {"ok": False, "error": "motion command already active"})
+                        else:
+                            if cmd == "engage": self.motion_cancel.clear()
+                            self.serving = True
+                            worker = threading.Thread(target=run, args=(req,), daemon=True)
+                            worker.start()
+                    else:
+                        # Stop/release/state are received even while frames are streaming.
+                        try: answer(req, self.dispatch(cmd, req))
+                        except Exception as exc: answer(req, {"ok": False, "error": str(exc)})
+        finally:
+            self.motion_cancel.set()
+            self.stop_walking()
+            if self.engaged:
+                self.release("client disconnected", .5)
+            if worker:
+                worker.join(3)
 
     def dispatch(self, cmd, req):
         if cmd == "hello":
@@ -388,6 +459,21 @@ class Streamer:
         if cmd == "engage":
             err = self.engage()
             return {**self.state(), "ok": not err, "error": err}       # the flag last: state() carries its own ok
+        if cmd == "plan":
+            plan, arm = req["plan"], req["arm"]
+            if trajectory.digest(plan) != req.get("digest"):
+                return {"ok": False, "error": "plan digest mismatch"}
+            measured = self.reader.joints()
+            trajectory.require_start(plan, measured)
+            trajectory.validate(plan, arm)
+            frames, dt = trajectory.frames(plan, arm)
+            # The streamer verifies the exact reviewed starting targets too.
+            with self.lock:
+                targets = {n: self.targets[JOINT_TO_SLOT[n]] for n in ARM_JOINTS[arm]}
+            if any(abs(targets[n]-plan["keyframes"][0]["joint_targets_rad"][n]) > .002 for n in targets):
+                return {"ok": False, "error": "hold target changed; regenerate the proposal"}
+            err = self.stream_frames(arm, frames, dt)
+            return {**self.state(), "ok": not err, "error": err}
         if cmd == "frames":
             n = len(req.get("frames") or []); t0 = time.time()
             err = self.stream_frames(req["arm"], req["frames"], float(req["dt"]))
@@ -398,6 +484,7 @@ class Streamer:
             self.log("walk -> " + (f"REFUSED: {err}" if err else f"done, odometry {odom}"))
             return {**self.state(), "ok": not err, "error": err, "odom": odom}
         if cmd == "freeze":
+            self.motion_cancel.set()
             self.stop_walking()
             with self.lock:
                 self.targets = self.measured() if not self.engaged else dict(self.targets)
@@ -434,6 +521,8 @@ def main():
     try:
         st.serve(cfg["streamer"]["host"], a.port or int(cfg["streamer"]["port"]))
     finally:
+        st.motion_cancel.set()
+        st.stop_walking()
         if st.engaged:
             st.release("exit")
         st.reader.close()

@@ -27,6 +27,7 @@ measured pose), else 0.
 import argparse
 import asyncio
 import json
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -329,14 +330,29 @@ async def listen_relay(state, url):
         await asyncio.sleep(2)
 
 
-async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None, voice=None,
-                     live_voice_url=None, pairing_token=None):
+async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None,
+                     review_token=None, voice=None, live_voice_url=None, pairing_token=None):
     from websockets.asyncio.server import serve
-    validate_bind(host, live_voice_url, pairing_token)
+    validate_bind(host, live_voice_url, pairing_token or review_token)
+
+    if (review is not None or voice is not None) and not (review_token or pairing_token):
+        raise ValueError("Review and voice feeds require a pairing token; prefer the dashboard glasses bridge.")
 
     async def handler(websocket):
-        if pairing_token and not await authenticate(websocket, pairing_token):
-            return
+        if pairing_token:
+            if not await authenticate(websocket, pairing_token):
+                return
+        elif review_token:
+            try:
+                auth = json.loads(await asyncio.wait_for(websocket.recv(), 5))
+                if (not isinstance(auth, dict) or auth.get("type") != "authenticate" or
+                    not isinstance(auth.get("token"), str) or not secrets.compare_digest(auth["token"], review_token)):
+                    await websocket.close(code=1008, reason="Pairing token required")
+                    return
+                await websocket.send(json.dumps({"type":"auth_ack", "accepted":True}))
+            except (ValueError, asyncio.TimeoutError):
+                await websocket.close(code=1008, reason="Authentication required")
+                return
         print(f"Lens connected: {websocket.remote_address}", file=sys.stderr, flush=True)
         last_review_id = None
         live = LiveVoiceRelay(websocket, live_voice_url) if live_voice_url else None
@@ -434,9 +450,10 @@ def main():
     state_source.add_argument("--robot-iface", help="subscribe to R1 DDS directly on this Mac, e.g. en6")
     ap.add_argument("--base-pose-file", type=Path,
                     help="fresh measured map pose JSON from the walking controller; never inferred from glasses")
+    ap.add_argument("--review-token-file", type=Path, help="Private pairing-token file required for network approval")
     ap.add_argument("--review-file", type=Path,
                     help="Spectacles accept/reject mailbox written by the harness; serve the same --preview plan")
-    ap.add_argument("--voice-inbox", type=Path, default=Path("runs/spectacles_voice.json"),
+    ap.add_argument("--voice-inbox", type=Path,
                     help="mailbox for Spectacles speech; the desktop UI consumes it as a dry-run Claude task")
     ap.add_argument('--live-voice-url', type=local_voice_url,
                     help='GPT-Live service with R1 output, e.g. http://127.0.0.1:8770')
@@ -444,11 +461,13 @@ def main():
                     help='Lens pairing token file (required for live voice over Wi-Fi)')
     ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
+    if (a.review_file or a.voice_inbox) and not (a.review_token_file or a.pairing_file):
+        ap.error("--review-file and --voice-inbox require --review-token-file; or use the dashboard glasses bridge")
     if not 2 <= a.points <= MAX_POINTS:
         ap.error(f"--points must be 2..{MAX_POINTS}")
     try:
         pairing_token = load_token(a.pairing_file) if a.pairing_file else None
-        validate_bind(a.host, a.live_voice_url, pairing_token)
+        validate_bind(a.host, a.live_voice_url, pairing_token or (load_token(a.review_token_file) if a.review_token_file else None))
     except ValueError as exc:
         ap.error(str(exc))
     if a.base_pose_file and not (a.state_url or a.robot_iface):
@@ -466,11 +485,12 @@ def main():
         state = DirectRobotState(a.robot_iface, a.domain) if a.robot_iface else (RelayState() if a.state_url else None)
         if a.state_url:
             asyncio.create_task(listen_relay(state, a.state_url))
-        await serve_feed(feed, a.host, a.port, a.period, state,
-                         BasePoseFile(a.base_pose_file) if a.base_pose_file else None,
-                         ReviewMailbox(a.review_file.resolve()) if a.review_file else None,
-                         VoiceInbox(a.voice_inbox.resolve()), live_voice_url=a.live_voice_url,
-                         pairing_token=pairing_token)
+        await serve_feed(feed, a.host, a.port, a.period, state=state,
+                         base_pose_source=BasePoseFile(a.base_pose_file) if a.base_pose_file else None,
+                         review=ReviewMailbox(a.review_file.resolve()) if a.review_file else None,
+                         review_token=load_token(a.review_token_file) if a.review_token_file else None,
+                         voice=VoiceInbox(a.voice_inbox.resolve()) if a.voice_inbox else None,
+                         live_voice_url=a.live_voice_url, pairing_token=pairing_token)
     asyncio.run(run())
 
 

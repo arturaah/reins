@@ -16,21 +16,29 @@ Where we add value is the interaction between the VLM and the human. Before the 
 
 ## Status
 
-A first simulation-only preview is available in [`sim/`](sim/README.md). It loads Unitree R1, predicts a named-joint plan, and draws the planned hand path. A separate [Spectacles AR prototype](spectacles/README.md) displays mock or WebSocket-fed hand paths aligned with shoulder tracking cards on the R1. The AR prototype currently has its own demo trajectory feed; integrating it with the Reins contract remains to be done. Neither preview commands physical hardware.
+The dashboard connects new trajectory generation, the visual action harness,
+human review, Spectacles and the R1 arm streamer through a shared control pipeline.
+The core trajectory planner runs first. When it needs more context, the visual
+harness proposes camera-guided steps through the same validator and review gate.
 
-## Observatory UI
-
-Launch the modern local dashboard with:
+## Run
 
 ```sh
-.venv/bin/python tools/dashboard.py
+python3 -m pip --python .venv/bin/python install -r requirements.txt
+.venv/bin/python tools/dashboard.py --iface YOUR_ROBOT_INTERFACE
 ```
 
-Open **http://localhost:8090** for the MuJoCo trajectory preview, robot cameras,
-a glasses video or mirrored-window view, and trajectory control (Dry run,
-Execute behind a dry-run gate and confirmation, Abort). See the
-[dashboard guide](tools/dashboard/README.md). The preview is local. Only the
-control panel reaches the robot, through `tools/arm_lift.py`.
+Start in simulation, describe a motion or prepare a nudge, and review the checked
+path. Explicitly connect robot control to approve physical execution. Dashboard
+and paired glasses review the same proposal; Stop releases trajectory control.
+
+See the [dashboard guide](tools/dashboard/README.md) for robot connection,
+camera services, glasses pairing, model providers, operating limits and tests.
+The dashboard keeps firmware preset buttons but has no recording/replay library.
+Session logs retain review and execution evidence.
+
+The simulation is a fixed-base kinematic preview, not a balance or contact model.
+Physical commissioning and Lens tracking still require validation on the actual setup.
 
 ## Voice in simulation
 

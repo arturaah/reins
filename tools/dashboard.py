@@ -1,16 +1,12 @@
-"""Local Reins observatory: MuJoCo plan preview, camera monitors and trajectory control.
+"""Local R1 dashboard: live views, one-time generated previews and firmware gesture buttons.
 
 Run: .venv/bin/python tools/dashboard.py [--iface en6]
-The preview itself never touches the robot. Dry run, Execute and Abort run
-tools/arm_lift.py as a subprocess, exactly like tools/reins_ui.py, so the tool's
-own gates apply (limits, speed cap, FSM 4/811, tracking-error abort). On top of
-that, Execute is only accepted for the plan and settings of a dry run that
-succeeded in the last few minutes, and only with the UI's confirmation. Abort
-sends the tool SIGINT, which ramps the arm weight down. No remote services are
-started.
+Explicit operator approval sends validated trajectories through the shared robot bridge.
+The dashboard does not record or replay trajectories.
 """
 from __future__ import annotations
 import argparse
+import errno
 import io
 import json
 import math
@@ -18,13 +14,12 @@ import os
 from pathlib import Path
 import secrets
 import signal
-import subprocess
 import sys
 import threading
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -33,18 +28,27 @@ os.environ.setdefault('MUJOCO_GL', 'cgl' if sys.platform == 'darwin' else 'egl')
 import mujoco
 import numpy as np
 from PIL import Image
-from sim.preview import load_plan
+from sim.preview import prepare_plan
 from spectacles.plan_feed import hand_paths
 from core.prompt_planner import PromptPlanner
+from core.object_detection import DEFAULT_MODEL, make_detector
+from core.detection_stream import DetectionStream
+from core.perception import Observation
+from core.dashboard_chat import DashboardChat
+from core.r1_gestures import GestureController
+from core.reins_tools import ReinsTools, ToolError
+from core.codex_chat import ToolLink
+from core.robot_pipeline import RobotPipeline
+from core.glasses_bridge import GlassesBridge
 
 ASSETS = ROOT / 'tools/dashboard'
-DRYRUN_PLAN = 'sim/plans/arm_lift_dryrun.json'   # written by every arm_lift dry run
 
 
 class CameraFeed:
     """One upstream reader per feed, bounded memory and stale-frame expiry."""
     def __init__(self, url):
         self.url = url
+        self.lock = threading.Lock()
         self.jpg = b''
         self.updated = 0.0
         self.error = 'Not configured' if not url else 'Connecting'
@@ -70,8 +74,9 @@ class CameraFeed:
                             # Validate the payload so connection status means a usable image.
                             with Image.open(io.BytesIO(jpg)) as im:
                                 im.verify()
-                            self.jpg = jpg
-                            self.updated = time.monotonic()
+                            with self.lock:
+                                self.jpg = jpg
+                                self.updated = time.monotonic()
                             self.error = ''
                         if len(buffer) > 8 * 1024 * 1024:
                             raise ValueError('Stream frame exceeded 8 MB')
@@ -79,6 +84,17 @@ class CameraFeed:
             except Exception:
                 self.error = 'Feed unavailable; retrying'
             time.sleep(1)
+
+    def detection_snapshot(self):
+        with self.lock:
+            jpg, received_at = self.jpg, self.updated
+        if not jpg or time.monotonic()-received_at >= 3:
+            raise ValueError('Camera offline; waiting for a current frame.')
+        with Image.open(io.BytesIO(jpg)) as image:
+            if max(image.size) > 4096:
+                raise ValueError('Detection supports camera images up to 4096 pixels per axis')
+            rgb = np.array(image.convert('RGB'))
+        return rgb, received_at, str(received_at), None
 
     def status(self):
         age = time.monotonic() - self.updated if self.updated else None
@@ -115,84 +131,50 @@ class Simulation:
         self.updated = 0.0
         self.position = 0.0
         self.playing = False
-        self.speed = 1.0
         self.show_paths = True
-        self.files = {}
-        self.plans = []
-        self.library = 0          # bumped on every rescan so the browser refetches the list
-        self.scan()
-        self.select('tools/plans/cup_grab_right.json' if 'tools/plans/cup_grab_right.json' in self.files else next(iter(self.files)))
+        self.paths = {'left': [], 'right': []}
+        self.key = None
+        self.plan = {'name':'No preview', 'duration_s':0, 'held_joints_rad':{},
+                     '_joint_ids':{}, '_times':[], 'keyframes':[],
+                     'prompt_proposal':{'source':'idle'}, 'scene_boxes':[]}
 
-    def scan(self):
-        """(Re)build the plan library from disk; malformed files are left out."""
-        files, plans = {}, []
-        for folder in ('sim/plans', 'tools/plans', 'recordings'):
-            for path in sorted((ROOT / folder).glob('*.json')):
-                try:
-                    plan = load_plan(self.model, path)
-                    duration = float(plan['duration_s'])
-                    if not math.isfinite(duration) or duration <= 0 or not all(math.isfinite(t) for t in plan['_times']):
-                        continue
-                    key = str(path.relative_to(ROOT))
-                    kind = 'Dry run' if key == DRYRUN_PLAN else 'Recording' if folder == 'recordings' else 'Plan'
-                    files[key] = path
-                    plans.append({'id': key, 'name': str(plan.get('name', path.stem)).replace('_', ' '),
-                                  'duration': duration, 'joints': len(plan['_joint_ids']), 'kind': kind, 'preview_only': bool(plan.get('preview_only'))})
-                except (ValueError, KeyError, TypeError, OSError):
-                    continue
-        with self.lock:
-            self.files, self.plans = files, plans
-            self.library += 1
-
-    def select(self, key):
-        if key not in self.files:
-            raise ValueError('Unknown plan')
-        plan = load_plan(self.model, self.files[key])
-        held = plan.get('held_joints_rad', {})
-        for name, value in held.items():
-            jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
-            if jid < 0 or not math.isfinite(float(value)):
+    def show_proposal(self, source, proposal_id):
+        if source.get('preview_only') is not True or source.get('prompt_proposal',{}).get('id') != proposal_id:
+            raise ValueError('Only a validated generated proposal can be shown.')
+        plan = prepare_plan(self.model, source)
+        duration = float(plan['duration_s'])
+        if not math.isfinite(duration) or duration <= 0 or not all(math.isfinite(t) for t in plan['_times']):
+            raise ValueError('Invalid preview timing')
+        for name, value in plan.get('held_joints_rad', {}).items():
+            joint = self.model.joint(name)
+            if not math.isfinite(float(value)) or (joint.limited and not joint.range[0] <= value <= joint.range[1]):
                 raise ValueError('Invalid held joint')
-        self.paths = hand_paths(self.model, plan, 90)
-        self.plan = plan
-        self.key = key
-        self.position = 0.0
-        self.playing = False
+        paths = hand_paths(self.model, plan, 90)
+        with self.lock:
+            if self.key == proposal_id:
+                raise ValueError('This preview has already been shown.')
+            self.plan, self.key, self.paths = plan, proposal_id, paths
+            self.position, self.playing = 0., True
+
+    def advance(self, elapsed):
+        with self.lock:
+            if self.playing:
+                self.position = min(self.plan['duration_s'], self.position + max(0., elapsed))
+                if self.position >= self.plan['duration_s']:
+                    self.playing = False
 
     def control(self, command):
         with self.lock:
-            action = command.get('action')
-            if action == 'plan':
-                self.select(command.get('id'))
-            elif action == 'play':
-                if self.position >= self.plan['duration_s']:
-                    self.position = 0
-                self.playing = True
-            elif action == 'pause':
+            if command.get('action') == 'stop':
                 self.playing = False
-            elif action == 'seek':
-                value = float(command['time'])
-                if not math.isfinite(value):
-                    raise ValueError('Invalid time')
-                self.position = max(0, min(float(self.plan['duration_s']), value))
-            elif action == 'speed':
-                value = float(command['value'])
-                if value not in (.25, .5, 1, 1.5, 2):
-                    raise ValueError('Invalid speed')
-                self.speed = value
-            elif action == 'paths':
-                self.show_paths = bool(command['value'])
-            elif action == 'view':
-                views = {'perspective': (145, -16, 2.35), 'front': (180, -10, 2.3), 'side': (90, -10, 2.3)}
-                self.camera.azimuth, self.camera.elevation, self.camera.distance = views[command['value']]
             else:
-                raise ValueError('Unknown action')
+                raise ValueError('Only stopping the current simulation preview is supported.')
 
     def status(self):
         with self.lock:
-            return {'plan': self.key, 'library': self.library, 'time': self.position, 'duration': self.plan['duration_s'],
-                    'playing': self.playing, 'speed': self.speed, 'paths': self.show_paths,
-                    'ready': bool(self.jpg) and time.monotonic() - self.updated < 3, 'error': self.error}
+            return {'plan':self.key, 'name':self.plan['name'], 'time':self.position,
+                    'duration':self.plan['duration_s'], 'playing':self.playing,
+                    'ready':bool(self.jpg) and time.monotonic()-self.updated<3, 'error':self.error}
 
     def run(self):
         try:
@@ -202,10 +184,7 @@ class Simulation:
                 while True:
                     start = time.monotonic()
                     with self.lock:
-                        if self.playing:
-                            self.position = min(self.plan['duration_s'], self.position + (start - last) * self.speed)
-                            if self.position >= self.plan['duration_s']:
-                                self.playing = False
+                        self.advance(start - last)
                         last = start
                         mujoco.mj_resetData(self.model, self.data)
                         for name, value in self.plan.get('held_joints_rad', {}).items():
@@ -257,133 +236,6 @@ class Simulation:
             print('MuJoCo renderer:', self.error, flush=True)
 
 
-class Runner:
-    """Runs tools/arm_lift.py for one plan at a time, the same way tools/reins_ui.py does.
-
-    Execute is accepted only for the plan, speed and kp scale of the last dry run
-    that exited 0 less than DRY_RUN_VALID_S ago, and only with confirm=True.
-    """
-    DRY_RUN_VALID_S = 300
-    SPEED = (0.1, 2.0)
-    KP_SCALE = (0.5, 2.0)
-    MAX_LINES = 4000
-
-    def __init__(self, iface, tool=ROOT / 'tools/arm_lift.py', python=sys.executable, on_exit=None, simulation_only=False):
-        self.iface, self.tool, self.python, self.on_exit = iface, Path(tool), python, on_exit
-        self.simulation_only = simulation_only
-        self.lock = threading.Lock()
-        self.proc = None
-        self.job = None           # {'kind', 'plan', 'speed', 'kp_scale', 'started'}
-        self.exit = None
-        self.cleared = None       # last successful dry run: {'plan', 'speed', 'kp_scale', 'at', 'fsm'}
-        self.fsm = None           # (id, name) from the last run's "fsm id:" line
-        self.source = None        # plan id of the last dry run, which the resolved dry-run file stands for
-        self.lines = []           # (seq, text)
-        self.seq = 0
-
-    def running(self):
-        return self.proc is not None and self.proc.poll() is None
-
-    def _log(self, text):
-        with self.lock:
-            self.seq += 1
-            self.lines.append((self.seq, text))
-            del self.lines[:-self.MAX_LINES]
-
-    @staticmethod
-    def _number(value, bounds, name):
-        value = float(value)
-        if not math.isfinite(value) or not bounds[0] <= value <= bounds[1]:
-            raise ValueError(f'{name} must be between {bounds[0]} and {bounds[1]}')
-        return round(value, 3)
-
-    def _valid_cleared(self):
-        c = self.cleared
-        return c if c and time.time() - c['at'] < self.DRY_RUN_VALID_S else None
-
-    def start(self, kind, plan, plan_path, speed=1.0, kp_scale=1.0, confirm=False):
-        if self.simulation_only:
-            raise ValueError('Hardware runs are disabled in simulation mode')
-        if self.running():
-            raise ValueError('A run is still active; abort it first')
-        if kind == 'dry':
-            speed, kp_scale = self._number(speed, self.SPEED, 'Speed'), self._number(kp_scale, self.KP_SCALE, 'kp scale')
-        elif kind == 'execute':
-            cleared = self._valid_cleared()
-            if not cleared:
-                raise ValueError('Execute needs a successful dry run from the last 5 minutes')
-            if not confirm:
-                raise ValueError('Execute needs confirmation')
-            # Always the dry-run settings, never whatever the client sends now.
-            plan, plan_path, speed, kp_scale = cleared['plan'], cleared['path'], cleared['speed'], cleared['kp_scale']
-        else:
-            raise ValueError('Unknown run')
-        if json.loads(Path(plan_path).read_text()).get('preview_only'):
-            raise ValueError('Generated prompt plans are preview-only: calibration, contact control and a validated execution adapter are required.')
-        cmd = [self.python, str(self.tool), self.iface, '--plan', str(plan_path),
-               '--speed', str(speed), '--kp-scale', str(kp_scale)] + (['--execute'] if kind == 'execute' else [])
-        with self.lock:
-            self.lines, self.exit = [], None
-            self.job = {'kind': kind, 'plan': plan, 'path': plan_path, 'speed': speed, 'kp_scale': kp_scale, 'started': time.time()}
-            if kind == 'dry':
-                self.source = plan
-            if kind == 'execute':
-                self.cleared = None   # one execute per dry run
-        self._log('$ ' + ' '.join(['arm_lift.py'] + cmd[3:]))
-        self.proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     stdin=subprocess.DEVNULL, text=True, bufsize=1)
-        threading.Thread(target=self._pump, args=(self.proc, dict(self.job)), daemon=True).start()
-
-    def _pump(self, proc, job):
-        for line in proc.stdout:
-            line = line.rstrip('\n')
-            if 'take sample error' in line:   # CycloneDDS noise, as in reins_ui
-                continue
-            if line.startswith('fsm id:'):
-                try:
-                    fid = int(line.split(':')[1].split('=')[0])
-                    self.fsm = (fid, line.split('=', 1)[1].split('fsm mode')[0].strip())
-                except (ValueError, IndexError):
-                    pass
-            self._log(line)
-        proc.stdout.close()
-        code = proc.wait()
-        with self.lock:
-            self.exit = code
-            if job['kind'] == 'dry' and code == 0:
-                self.cleared = {**job, 'at': time.time(), 'fsm': self.fsm}
-        self._log(f'[exit {code}]')
-        if self.on_exit:
-            try:
-                self.on_exit(job, code)
-            except Exception as exc:
-                self._log(f'(dashboard: {exc})')
-
-    def abort(self):
-        if self.running():
-            self.proc.send_signal(signal.SIGINT)
-            self._log('[abort sent: the tool releases the arm]')
-            return True
-        return False
-
-    def shutdown(self, wait=5.0):
-        if self.abort():
-            try:
-                self.proc.wait(wait)
-            except subprocess.TimeoutExpired:
-                pass
-
-    def status(self, since=0):
-        with self.lock:
-            job = {k: v for k, v in self.job.items() if k != 'path'} if self.job else None
-            c = self._valid_cleared()
-            return {'running': self.running(), 'job': job, 'exit': self.exit, 'iface': self.iface, 'source': self.source,
-                    'fsm': {'id': self.fsm[0], 'name': self.fsm[1], 'ok': self.fsm[0] in (4, 811)} if self.fsm else None,
-                    'cleared': {'plan': c['plan'], 'speed': c['speed'], 'kp_scale': c['kp_scale'],
-                                'expires_in': round(self.DRY_RUN_VALID_S - (time.time() - c['at']))} if c else None,
-                    'seq': self.seq, 'lines': [t for n, t in self.lines if n > since]}
-
-
 class TextPoller:
     """Polls a small plain-text status URL (the twin server's /status) once a second."""
     def __init__(self, url):
@@ -401,18 +253,49 @@ class TextPoller:
             time.sleep(1)
 
 
+
+def bind_dashboard_server(port=None):
+    """Reserve the listener before loading models or starting background workers.
+
+    A default launch tries 8090–8099. An explicit port never silently changes;
+    port 0 asks the OS for a free port. The real handler is installed before serving.
+    """
+    candidates = range(8090, 8100) if port is None else (port,)
+    for candidate in candidates:
+        try:
+            return ThreadingHTTPServer(('127.0.0.1', candidate), BaseHTTPRequestHandler)
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise
+            if port is not None:
+                raise OSError(errno.EADDRINUSE,
+                    f'Port {port} is already in use. Open http://localhost:{port} to check the existing service, '
+                    'or run .venv/bin/python tools/dashboard.py --port 0 to start on a free port.') from None
+    raise OSError(errno.EADDRINUSE,
+        'Ports 8090–8099 are already in use. Run .venv/bin/python tools/dashboard.py --port 0 to choose a free port.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--port', type=int, default=8090)
+    parser.add_argument('--port', type=int, default=None, help='HTTP port; default tries 8090–8099, or use 0 for any free port')
     parser.add_argument('--head', default='http://127.0.0.1:8081/cam')
     parser.add_argument('--left-wrist', default='http://127.0.0.1:8080/cam/0')
     parser.add_argument('--right-wrist', default='http://127.0.0.1:8080/cam/2')
     parser.add_argument('--glasses', default='', help='Glasses MJPEG/JPEG video URL, if available')
     parser.add_argument('--twin', default='http://127.0.0.1:8082/twin', help='Live twin MJPEG URL (tools/cockpit.py); empty to disable')
-    parser.add_argument('--iface', default='en6', help='Network interface passed to tools/arm_lift.py')
+    parser.add_argument('--iface', default='en6', help='Network interface connected to the R1 gesture service')
     parser.add_argument('--observation', type=Path, help='Atomically updated calibrated RGB/depth observation NPZ')
-    parser.add_argument('--sim', action='store_true', help='Disable hardware runs, robot feeds and calibrated observations')
+    parser.add_argument('--sim', action='store_true', help='Disable hardware control, robot feeds and calibrated observations')
     parser.add_argument('--voice-url', default='', help='Optional local voice service, e.g. http://127.0.0.1:8770/')
+    parser.add_argument('--detector', choices=('auto', 'omdet', 'nanodet'), default='auto',
+                        help='auto: open-vocabulary OmDet-Turbo if installed, else NanoDet (80 COCO classes)')
+    parser.add_argument('--detector-model', type=Path, default=DEFAULT_MODEL, help='Verified NanoDet ONNX model (fallback)')
+    parser.add_argument('--detection-confidence', type=float, default=None, help='Local detection threshold (0.1–0.95; default 0.4)')
+    parser.add_argument('--no-chat-tools', action='store_true', help='Do not give the chat model the Reins tools (detection, planning, preview)')
+    parser.add_argument('--chat-backend', choices=('claude', 'codex', 'openai'), default=os.environ.get('REINS_CHAT_BACKEND', 'codex'), help='Assistant that answers first (default: signed-in Codex CLI); switch any time in the chat panel')
+    parser.add_argument('--harness-config', type=Path, help='Shared harness configuration')
+    parser.add_argument('--glasses-port', type=int, default=8765, help='Authenticated AR review port (0 chooses a free port)')
+    parser.add_argument('--glasses-host', default='0.0.0.0', help='AR listener; paired clients only')
     args = parser.parse_args()
     if args.voice_url:
         voice = urlparse(args.voice_url)
@@ -426,42 +309,74 @@ def main():
     for url in (args.head, args.left_wrist, args.right_wrist, args.glasses, args.twin):
         if url and urlparse(url).scheme not in ('http', 'https'):
             parser.error('Feed URLs must use http:// or https://')
-    # Abort relies on SIGINT reaching arm_lift.py. A shell that starts us in the
-    # background (`&`, nohup) sets SIGINT to ignored, and children inherit that.
+    if args.port is not None and not 0 <= args.port <= 65535:
+        parser.error('Port must be between 0 and 65535')
+    requested_port = args.port
+    try:
+        server = bind_dashboard_server(requested_port)
+    except OSError as exc:
+        parser.exit(2, f'Dashboard could not start: {exc.strerror or exc}\n')
+    args.port = server.server_address[1]
+    if requested_port is None and args.port != 8090:
+        print(f'Port 8090 is occupied; using http://localhost:{args.port} for this dashboard.', flush=True)
     signal.signal(signal.SIGINT, signal.default_int_handler)
     sim = Simulation()
     def preview_pose():
         with sim.lock:
             return {sim.model.joint(i).name: float(sim.data.qpos[sim.model.jnt_qposadr[i]]) for i in range(sim.model.njnt)}
-    prompt_planner = PromptPlanner(args.observation, preview_pose=preview_pose)
+    detector = make_detector(args.detector, args.detection_confidence, nanodet_model=args.detector_model)
+    print(f'Object detection: {detector.name}' + ('' if detector.available else ' (model not installed: tools/detect_objects.py --download)'), flush=True)
+    prompt_planner = PromptPlanner(args.observation, preview_pose=preview_pose, detector=detector)
     feeds = {name: CameraFeed(url) for name, url in {'head': args.head, 'left': args.left_wrist,
              'right': args.right_wrist, 'glasses': args.glasses, 'twin': args.twin}.items()}
+    detection_sources = {name: feed.detection_snapshot for name, feed in feeds.items() if name != 'twin'}
+    if args.observation:
+        def observation_snapshot():
+            observation = Observation.load(args.observation)
+            received_at = time.monotonic() - (time.time() - observation.captured_at)
+            return observation.rgb, received_at, str(observation.captured_at), observation
+        detection_sources['observation'] = observation_snapshot
+    detections = DetectionStream(detector, detection_sources)
     token = secrets.token_urlsafe(24)
     # The twin server reports rt/lowstate health next to its stream.
     robot_status = TextPoller(args.twin.rsplit('/', 1)[0] + '/status' if args.twin else '')
 
-    def after_run(job, code):
-        sim.scan()                         # new recording or dry-run plan
-        if job['kind'] == 'dry' and code == 0 and DRYRUN_PLAN in sim.files:
-            sim.control({'action': 'plan', 'id': DRYRUN_PLAN})   # preview what the robot would do
-    runner = Runner(args.iface, on_exit=after_run, simulation_only=args.sim)
+    gestures = GestureController(args.iface)
+    if not args.sim:
+        gestures.command({'action':'refresh'})  # Read-only firmware discovery; no gesture at startup.
 
-    def run(command):
-        action = command.get('action')
-        if action == 'abort':
-            return runner.abort()
-        if action == 'dry':
-            plan = command.get('plan')
-            if plan == DRYRUN_PLAN:            # the resolved file stands for the plan it came from
-                plan = runner.source
-            if plan not in sim.files or plan == DRYRUN_PLAN:
-                raise ValueError('Choose a plan or recording to dry run')
-            runner.start('dry', plan, sim.files[plan], command.get('speed', 1.0), command.get('kp_scale', 1.0))
-        elif action == 'execute':
-            runner.start('execute', None, None, confirm=command.get('confirm') is True)
-        else:
-            raise ValueError('Unknown run action')
-        return True
+    def chat_context():
+        simulation = sim.status()
+        planning = prompt_planner.status()
+        detection = detections.status()
+        result = detection.get('result')
+        return {'simulation': {k: simulation.get(k) for k in ('plan', 'playing', 'ready')},
+                'robot_gestures': gestures.status(),
+                'motion_authoring': prompt_planner.motion_context(),
+                'cameras': {k: {'configured': v.status()['configured'], 'online': v.status()['online']} for k, v in feeds.items() if k != 'twin'},
+                'planner': {'state': planning['state'], 'message': planning['message'],
+                            'configured': planning['configured'], 'context': planning.get('context'),
+                            'prompt': planning.get('prompt'), 'events': planning.get('events', [])[-3:]},
+                'detections': {'source': detection['source'], 'ready': detection['ready'],
+                    'age_s': result['age_s'] if result else None,
+                    'objects': [{'label': o['label'], 'confidence': o['confidence']} for o in result['objects'][:20]] if result else []},
+                'execution_of_generated_plans': 'Human approval in dashboard or paired glasses; model tools cannot approve',
+                'control': pipeline.status()}
+    # Tools for the chat model (served below at /api/tools/<name>, reached through tools/reins_mcp.py).
+    # They observe, plan and preview only; nothing here publishes to the robot.
+    tool_token = secrets.token_urlsafe(24)
+    reins_tools = ReinsTools(detector, detection_sources, prompt_planner, sim.show_proposal, sim.status,
+                             camera_status=lambda: {k: v.status()['online'] for k, v in feeds.items() if k != 'twin'})
+    tool_link = None if args.no_chat_tools else ToolLink(f'http://127.0.0.1:{args.port}/api/tools', tool_token)
+    chat = DashboardChat(context=chat_context, backend=args.chat_backend, tools=tool_link)
+    from harness.config import load as load_harness_config
+    pipeline = RobotPipeline(prompt_planner, sim, feeds, args.iface, cfg=load_harness_config(args.harness_config))
+    pipeline.provider = args.chat_backend
+    prompt_planner.reviser_factory = chat.motion_reviser
+    reins_tools.pipeline = pipeline
+    reins_tools.show_proposal = pipeline.show_primary
+    glasses_bridge = GlassesBridge(pipeline, args.glasses_host, args.glasses_port)
+
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -489,20 +404,31 @@ def main():
                 return self.send({'error': 'Local access only'}, code=403)
             path = self.path.split('?')[0]
             if path == '/api/status':
-                try:
-                    since = int(self.path.partition('since=')[2] or 0)
-                except ValueError:
-                    since = 0
                 return self.send({'simulation': sim.status(), 'feeds': {k: v.status() for k, v in feeds.items()},
                                   'mode': 'sim' if args.sim else 'hardware', 'voice_url': args.voice_url,
-                                  'run': runner.status(since), 'robot': robot_status.text, 'prompt': prompt_planner.status()})
+                                  'gestures': gestures.status(), 'robot': robot_status.text, 'prompt': prompt_planner.status(), 'detection': detections.status(), 'chat': chat.status(),
+                                  'tools': reins_tools.recent()[-8:], 'pipeline': pipeline.status()})
+            if path == '/api/robot':
+                return self.send(pipeline.status())
+            if path == '/api/glasses':
+                return self.send({**pipeline.glasses, 'token': pipeline.glasses_token})
+            if path == '/api/chat':
+                return self.send(chat.status())
+            if path == '/api/detection':
+                return self.send(detections.status())
+            if path == '/frame/detection':
+                frame_id = parse_qs(urlparse(self.path).query).get('id', [''])[0]
+                jpg = detections.image(frame_id)
+                return self.send(jpg, 'image/jpeg') if jpg else self.send({'error': 'Detection frame expired'}, code=503)
             if path == '/api/prompt':
                 return self.send(prompt_planner.status())
             if path == '/frame/grounding':
                 jpg = prompt_planner.image
                 return self.send(jpg, 'image/jpeg') if jpg else self.send({'error': 'No grounded image'}, code=404)
-            if path == '/api/plans':
-                return self.send({'plans': sim.plans, 'library': sim.library, 'token': token})
+            if path == '/api/session':
+                return self.send({'token': token})
+            if path == '/api/gestures':
+                return self.send(gestures.status())
             if path.startswith('/frame/'):
                 key = path.removeprefix('/frame/')
                 if key == 'simulation':
@@ -512,7 +438,6 @@ def main():
                     jpg = feed.jpg if feed and feed.status()['online'] else b''
                 return self.send(jpg, 'image/jpeg', 200) if jpg else self.send({'error': 'No current frame'}, code=503)
             files = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css'),
-                     '/minimal.css': ('minimal.css', 'text/css'),
                      '/reins-mark.png': ('reins-mark.png', 'image/png'), '/favicon.ico': ('reins-mark.png', 'image/png')}
             if path in files:
                 name, mime = files[path]
@@ -524,63 +449,95 @@ def main():
                 return self.send({'error': 'Invalid local session'}, code=403)
             try:
                 length = int(self.headers.get('Content-Length', 0))
-                if not 0 < length <= 4096:
+                if not 0 < length <= (32768 if self.path == '/api/chat' else 4096):
                     raise ValueError('Invalid request size')
                 command = json.loads(self.rfile.read(length))
                 if not isinstance(command, dict):
                     raise ValueError('Expected object')
             except (ValueError, TypeError) as exc:
                 return self.send({'error': str(exc)}, code=400)
-            if self.path == '/api/abort-beacon':
-                # sendBeacon cannot set headers, so the token travels in the body. Abort only.
-                if command.get('token') != token:
-                    return self.send({'error': 'Invalid local session'}, code=403)
-                return self.send({'aborted': runner.abort()})
+            if self.path.startswith('/api/tools/'):
+                # The chat model's tools. Own token, never the browser's; loopback only (checked above).
+                if not secrets.compare_digest(self.headers.get('X-Reins-Tool-Token', ''), tool_token):
+                    return self.send({'error': 'Invalid tool token'}, code=403)
+                try:
+                    return self.send(reins_tools.call(self.path.removeprefix('/api/tools/'), command))
+                except ToolError as exc:
+                    return self.send({'error': str(exc)}, code=400)
+                except Exception as exc:
+                    return self.send({'error': f'Tool failed: {type(exc).__name__}'}, code=500)
             if self.headers.get('X-Reins-Token') != token:
                 return self.send({'error': 'Invalid local session'}, code=403)
             try:
+                if self.path == '/api/robot':
+                    if args.sim and command.get('action') == 'connect':
+                        raise ValueError('Hardware control is disabled in simulation mode')
+                    if command.get('action') == 'connect' and gestures.status()['busy']:
+                        raise ValueError('Wait for the firmware gesture to finish.')
+                    return self.send(pipeline.command(command))
+                if self.path == '/api/chat':
+                    action = command.get('action', 'send')
+                    if action == 'send':
+                        return self.send(chat.send(command.get('message')))
+                    if action == 'retry':
+                        return self.send(chat.retry())
+                    if action == 'clear':
+                        return self.send(chat.clear())
+                    if action == 'cancel':
+                        return self.send(chat.cancel())
+                    if action == 'backend':
+                        return self.send(chat.set_backend(command.get('backend')))
+                    raise ValueError('Unknown chat action')
+                if self.path == '/api/detection':
+                    return self.send(detections.configure(command.get('enabled'), command.get('source')))
                 if self.path == '/api/prompt':
                     action = command.get('action', 'submit')
                     if action == 'submit':
-                        if runner.running():
-                            raise ValueError('Wait for the active robot run to finish before planning')
                         if args.sim and command.get('source') == 'camera':
                             raise ValueError('Camera prompts are disabled in simulation mode')
+                        if 'chat_message_id' in command:
+                            suggestion = chat.motion_request(command['chat_message_id'])
+                            return self.send(prompt_planner.submit(suggestion['prompt'], command.get('source', 'auto'),
+                                                                   trajectory=suggestion['trajectory'],
+                                                                   reviser=chat.motion_reviser() if suggestion['trajectory'] is not None else None))
                         return self.send(prompt_planner.submit(command.get('prompt'), command.get('source', 'auto')))
                     if action == 'cancel':
-                        prompt_planner.cancel()
+                        if sim.status()['plan'] == prompt_planner.status().get('id'):
+                            sim.control({'action':'stop'})
+                        pipeline.stop()
                         return self.send(prompt_planner.status())
                     if action == 'preview':
-                        if runner.running():
-                            raise ValueError('Cannot change the preview during an active robot run')
-                        path = prompt_planner.preview(command.get('id'))
-                        sim.scan()
-                        sim.control({'action': 'plan', 'id': str(path.relative_to(ROOT))})
-                        return self.send(prompt_planner.status())
+                        pipeline.show_primary(None, command.get('id'))
+                        return self.send(prompt_planner.show_once(command.get('id'), pipeline.show_primary))
                     raise ValueError('Unknown prompt action')
                 if self.path == '/api/control':
                     sim.control(command)
                     return self.send(sim.status())
-                if self.path == '/api/run':
-                    run(command)
-                    return self.send(runner.status())
+                if self.path == '/api/gestures':
+                    if args.sim:
+                        raise ValueError('Hardware gestures are disabled in simulation mode')
+                    if command.get('action') == 'gesture' and (pipeline.connected or pipeline.status()['busy']):
+                        raise ValueError('Release robot control before using a firmware gesture.')
+                    return self.send(gestures.command(command))
                 return self.send({'error': 'Not found'}, code=404)
-            except (ValueError, KeyError, TypeError, OSError) as exc:
+            except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
                 self.send({'error': str(exc)}, code=400)
 
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
+    server.RequestHandlerClass = Handler
     threading.Thread(target=sim.run, daemon=True).start()
     print(f'Reins Observatory → http://localhost:{args.port}', flush=True)
-    if args.sim:
-        print('SIMULATION ONLY: hardware runs, robot feeds and calibrated observations disabled.', flush=True)
-    else:
-        print(f'Preview is local; Dry run / Execute run tools/arm_lift.py on {args.iface}. Ctrl-C to stop (aborts a run).', flush=True)
+    print(f'Robot control on {args.iface} requires an explicit connection and per-motion review. Pair glasses in Connections.', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        runner.shutdown()
+        glasses_bridge.close()
+        pipeline.close()
+        prompt_planner.cancel()
+        chat.close()
+        detections.close()
+        gestures.close()
         server.server_close()
 
 

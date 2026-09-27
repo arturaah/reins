@@ -45,7 +45,8 @@ class ArmKinematics:
         self.site = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f"{arm}_hand_preview")
         assert self.site >= 0
         self.other_adr = {n: int(self.model.jnt_qposadr[mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, n)])
-                          for n in OTHER_JOINTS}
+                          for n in (self.model.joint(i).name for i in range(self.model.njnt))
+                          if n and n not in self.joint_names}
         self._jacp = np.zeros((3, self.model.nv))
         self._jacr = np.zeros((3, self.model.nv))
 

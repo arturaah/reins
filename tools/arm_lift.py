@@ -184,6 +184,13 @@ def main():
     except Exception as e:
         print(f"fsm query failed: {e}")
 
+    if a.execute:
+        sys.path.insert(0, str(ROOT))
+        from core.robot_lease import RobotLease
+        import atexit
+        lease = RobotLease("legacy arm tool")
+        lease.acquire()
+        atexit.register(lease.release)
     plan, label = build_plan(a, q_meas)
     moving = plan.slots
     names = {s: n for s, n, *_ in JOINTS}
