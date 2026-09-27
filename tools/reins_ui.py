@@ -99,6 +99,7 @@ _, wr_lbl = tile(row, "wrist_r", "Right wrist"); _.pack(side="left")
 
 # ---- AI pane (under the cameras): a VLM drives one arm through the harness, one accepted move at a time ------
 PREVIEW = "runs/ui_preview.json"                      # each proposal, as a plan file the twin previews (hold=1)
+AI_LOG = "/tmp/harness_ui.log"                        # every line of every AI session (the pane's log is not kept otherwise)
 ai = {"p": None, "pending": False, "streamer": None}
 aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
 ttk.Label(aif, text="AI control  (VLM: claude -p on this Mac's Claude login, claude-fable-5-1; every Accept / Reject and its feedback is kept for later sessions)",
@@ -110,11 +111,13 @@ ai_arm = tk.StringVar(value="left"); ttk.Combobox(arow, textvariable=ai_arm, val
 ai_stepp = tk.StringVar(value="coarse_fine"); ttk.Combobox(arow, textvariable=ai_stepp, values=("coarse_fine", "precision"), state="readonly", width=10).pack(side="left")
 ttk.Label(arow, text="floor z").pack(side="left", padx=(6, 2)); ai_floor = tk.StringVar(value="0.50"); ttk.Entry(arow, textvariable=ai_floor, width=5).pack(side="left")
 abtns = ttk.Frame(arow); abtns.pack(side="right")
-ttk.Label(aif, text="Context: recordings the model sees as demonstrations (✓ = with a camera contact sheet; select several)",
+ttk.Label(aif, text="Context: recordings the model sees as demonstrations (✓ = with a camera contact sheet). Click toggles.",
           wraplength=SIZES["head"][0]).pack(anchor="w", pady=(6, 0))
 demo_files = []
-demo_lb = tk.Listbox(aif, height=5, selectmode="extended", bg="#161c23", fg="#c9d1d9", selectbackground="#0f766e", exportselection=False)
+demo_lb = tk.Listbox(aif, height=5, selectmode="multiple", bg="#161c23", fg="#c9d1d9", selectbackground="#0f766e", exportselection=False)
 demo_lb.pack(fill="x", pady=2)
+crow = ttk.Frame(aif); crow.pack(fill="x")
+ai_ctx = ttk.Label(crow, text="0 selected"); ai_ctx.pack(side="left")
 ai_prop = tk.Label(aif, text="", bg="#0f1419", fg="#ffd166", wraplength=SIZES["head"][0], justify="left", anchor="w"); ai_prop.pack(fill="x", pady=(4, 0))
 prow = ttk.Frame(aif); prow.pack(fill="x", pady=2)
 ai_note = tk.StringVar()
@@ -156,9 +159,24 @@ def reload_files(select=None):
     demo_files[:] = [f for f in files if f.startswith("recordings/")]
     demo_lb.delete(0, "end")
     for i, f in enumerate(demo_files):
-        demo_lb.insert("end", ("✓ " if os.path.exists(os.path.join(ROOT, f[:-5] + ".sheet.jpg")) else "    ") + os.path.basename(f))
+        demo_lb.insert("end", ("✓ " if has_sheet(f) else "    ") + os.path.basename(f))
         if f in keep: demo_lb.selection_set(i)
+    ctx_changed()
 ttk.Button(hdr, text="Refresh", width=7, command=reload_files).pack(side="right")
+def has_sheet(f):
+    return os.path.exists(os.path.join(ROOT, f[:-5] + ".sheet.jpg"))
+def ctx_changed(*_):
+    n = len(demo_lb.curselection()); ai_ctx.configure(text=f"{n} selected as context" if n else "0 selected: the model gets no demonstrations")
+def ctx_select(which):
+    demo_lb.selection_clear(0, "end")
+    if which == "sheets":
+        for i, f in enumerate(demo_files):
+            if has_sheet(f): demo_lb.selection_set(i)
+    ctx_changed()
+demo_lb.bind("<<ListboxSelect>>", ctx_changed)
+ttk.Button(crow, text="All with ✓", width=10, command=lambda: ctx_select("sheets")).pack(side="right")
+ttk.Button(crow, text="None", width=5, command=lambda: ctx_select("none")).pack(side="right", padx=4)
+
 def delete_selected():
     """Delete the selected trajectory file after a confirmation. Plans and recordings are plain files; git has the committed ones."""
     if busy(): return
@@ -379,12 +397,19 @@ def ai_launch(cmd, task):
     ai_log(f"▶ {ai_mode.get()} · {ai_arm.get()} arm: {task}   {time.strftime('%H:%M:%S')}\n")
     p = subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
                          env={**os.environ, "PYTHONUNBUFFERED": "1"})
-    ai.update(p=p, pending=False); ai_prop.configure(text="thinking…")
+    ai.update(p=p, pending=False, mode=ai_mode.get()); ai_prop.configure(text="thinking…", fg="#9cdcfe" if ai_mode.get() == "dry run" else "#ffd166")
     def pump():
+        with open(AI_LOG, "a") as f:                             # everything the session prints, kept for post-mortems
+            f.write(f"\n===== {time.strftime('%F %T')} {ai_mode.get()} {ai_arm.get()}: {task}\n{' '.join(cmd)}\n")
         for line in p.stdout:
+            try:
+                with open(AI_LOG, "a") as f: f.write(time.strftime("%H:%M:%S ") + line)
+            except OSError:
+                pass
             if "take sample error" in line: continue
             line = ANSWER_PROMPT.sub("", line)
             if line.startswith("PROPOSAL:"): events.put(("ai_proposal", line[9:].strip()))
+            elif line.startswith("EXPORTED "): events.put(("ai_log", "→ saved as a recording; it is in the trajectory list and the context list (✓)\n"))
             elif line.startswith("ENGAGE:"): ai_write("")                      # the dialog before Run was the yes
             if line.strip(): events.put(("ai_log", line))
         events.put(("ai_done", p.wait()))
@@ -412,8 +437,8 @@ def ai_stop():
 
 def ai_finished(code):
     ai["pending"] = False; accept_btn.state(["disabled"]); reject_btn.state(["disabled"]); ai_prop.configure(text="")
-    cockpit("/preview/stop")
-    ai_log("■ " + {0: "session ended", 130: "stopped on request", -2: "stopped on request"}.get(code, f"session ended with code {code}") + "\n")
+    cockpit("/preview/stop"); reload_files()                       # the session's accepted moves are now a recording (✓) in both lists
+    ai_log("■ " + {0: "session ended", 130: "stopped on request", -2: "stopped on request"}.get(code, f"session ended with code {code}") + f"   (full log: {AI_LOG})\n")
 
 ttk.Button(abtns, text="Run", style="Go.TButton", width=4, command=ai_run).pack(side="left")
 ttk.Button(abtns, text="Stop", style="Danger.TButton", width=4, command=ai_stop).pack(side="left", padx=(4, 0))
@@ -477,7 +502,8 @@ def drain():
             elif kind == "done": finished(val)
             elif kind == "ai_log": ai_log(val)
             elif kind == "ai_proposal":
-                ai["pending"] = True; ai_prop.configure(text="PROPOSAL  " + val)
+                ai["pending"] = True
+                ai_prop.configure(text=("DRY RUN, nothing is sent · " if ai.get("mode") == "dry run" else "LIVE · ") + "PROPOSAL  " + val)
                 accept_btn.state(["!disabled"]); reject_btn.state(["!disabled"])
                 cockpit(f"/preview?file={PREVIEW}&hold=1")
             elif kind == "ai_done": ai_finished(val)
