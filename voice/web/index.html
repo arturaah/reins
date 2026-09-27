@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reins · Voice simulation</title><link rel="stylesheet" href="/style.css"></head>
+<body><main>
+<div class="eyebrow">VOICE LAB <span>SIMULATION</span></div>
+<h1>Speech input and output</h1>
+<p id="description">Dictate into the existing prompt box, then use Read reply to hear its answer.</p>
+<div class="voice"><strong id="voiceName">CHARON</strong> <span>Metallic voice effect</span></div>
+<p id="acoustics" class="small"></p>
+<section><div id="status" role="status" aria-live="polite">Microphone off</div>
+<div class="buttons"><button id="connect">Connect</button><button id="talk" disabled>Talk</button><button id="hello" disabled>Test greeting</button><button id="stop" disabled>Stop</button></div>
+<p id="hint">Connect, then click Talk. Send manually or let VAD finish after a pause.</p>
+<label class="toggle"><input type="checkbox" id="autoEnd" checked> Send after a speech pause (VAD)</label>
+<form id="textForm"><label for="text">Text-to-speech test (reads exactly this text)</label><div class="text-row"><input id="text" maxlength="1000" placeholder="Hello. I am Reins." autocomplete="off" required><button id="sendText" disabled>Read text</button></div></form>
+<p id="privacy" class="small">Loading voice configuration…</p><p id="error" role="alert"></p></section>
+<section id="result" hidden><div id="metrics" class="small"></div><p id="qualityNote" class="small"></p></section>
+<div id="transcript" aria-live="polite"></div>
+</main><script src="/app.js"></script></body></html>

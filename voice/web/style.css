@@ -1,0 +1,36 @@
+:root { color-scheme:dark; font-family:Inter,system-ui,sans-serif; background:#1c1e21; color:#f6f7f8; }
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+body { margin:0; padding:24px; }
+main { max-width:900px; margin:auto; }
+.eyebrow { color:#c4cbd4; font-size:12px; letter-spacing:.06em; display:flex; justify-content:space-between; }
+h1 { font-size:24px; font-weight:600; letter-spacing:-.025em; margin:18px 0 10px; }
+p { font-size:14px; color:#c4cbd4; line-height:1.55; }
+.voice { font-size:12px; color:#d7dce2; margin:18px 0; }
+.voice span { color:#c4cbd4; margin-left:12px; }
+section { background:#191b1e; border:1px solid #48505a; border-radius:8px; padding:20px; }
+#status { font-size:18px; margin-bottom:16px; }
+.buttons,.text-row { display:flex; gap:8px; flex-wrap:wrap; }
+button { border:1px solid #737d89; color:#f6f7f8; background:#30353c; border-radius:6px; padding:11px 15px; font-size:14px; cursor:pointer; }
+#talk { background:#d8dce0; color:#1a1c1f; border-color:#d8dce0; }
+#stop { color:#e5bdbd; }
+button:disabled { opacity:.55; cursor:default; }
+button:focus-visible,input:focus-visible { outline:2px solid #e0e6ee; outline-offset:3px; }
+label { display:block; font-size:13px; color:#d7dce2; margin:18px 0 8px; }
+input { background:#111316; color:#fff; border:1px solid #6c7683; border-radius:6px; padding:10px; font-size:14px; min-width:100px; flex:1; }
+.small { font-size:12px; margin-bottom:0; }
+#error { color:#e5bdbd; margin-bottom:0; }
+#transcript { max-height:230px; overflow:auto; white-space:pre-wrap; line-height:1.5; font-size:14px; }
+.line { margin:15px 0; }
+.label { color:#cbd2db; font-size:12px; text-transform:uppercase; display:block; margin-bottom:5px; }
+.toggle { display:flex; align-items:center; gap:8px; }
+.toggle input { flex:none; min-width:0; }
+#result { margin-top:14px; }
+#metrics { line-height:1.7; overflow-wrap:anywhere; }
+#acoustics { margin-bottom:18px; }
+@media(max-width:480px) {
+  body { padding:14px; }
+  section { padding:15px; }
+  button { padding:10px 12px; }
+  .voice span { display:block; margin:5px 0; }
+}

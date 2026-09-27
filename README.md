@@ -31,3 +31,11 @@ a glasses video or mirrored-window view, and trajectory control (Dry run,
 Execute behind a dry-run gate and confirmation, Abort). See the
 [dashboard guide](tools/dashboard/README.md). The preview is local. Only the
 control panel reaches the robot, through `tools/arm_lift.py`.
+
+## Voice in simulation
+
+The optional [voice lab](voice/README.md) adds speech-to-text to the existing
+prompt box and Gemini/Cartesia text-to-speech for replies. Voice Focus, VAD and
+Tyto 1.1 process microphone input. The team retains its existing LLM and harness.
+Run the dashboard with `--sim --voice-url http://127.0.0.1:8770/` beside the
+MuJoCo preview. The UI uses a neutral theme with the colourful Reins logo.
