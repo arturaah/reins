@@ -16,7 +16,7 @@ from ..executor import Backend, StreamError
 from ..kinematics import ARM_JOINTS, OTHER_JOINTS, ROOT
 
 CUBE_START = np.array([0.30, 0.16, 0.685])       # y is mirrored for the right arm (the scene XML places it for the left)
-PLATE_POS = np.array([0.22, 0.28, 0.665])        # a target spot on the table for "place it on the plate"
+PLATE_POS = np.array([0.34, 0.28, 0.665])        # the white plate on the table (geom pickup_plate): in the head camera's view, in reach
 CONTEXT_CAM = {"pos": [0.13, 0.0, 1.22], "lookat": [0.34, 0.0, 0.70]}   # head camera stand-in: in front of the face, looking forward-down
 
 
@@ -64,6 +64,9 @@ class MockBackend(Backend):
         table = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "pickup_table")
         if table >= 0:
             self.model.geom_pos[table] = [0.28, 0.20 * self.side, 0.3325]; self.model.geom_size[table] = [0.16, 0.16, 0.3325]
+        plate = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "pickup_plate")
+        if plate >= 0:                                                     # drawn where the success checks expect it
+            self.model.geom_pos[plate] = self.plate + [0, 0, 0.004]
         self.hand_closed = {"left": False, "right": False}
         self.holding = {"left": None, "right": None}           # offset of the cube from the hand tip while held
         self.engaged = False
