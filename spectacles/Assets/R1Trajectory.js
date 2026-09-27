@@ -12,6 +12,7 @@
 // @input Component.MarkerTrackingComponent rightMarker
 // @input string websocketUrl = "ws://127.0.0.1:8765"
 // @input string reviewToken = ""
+// @input string deviceId = ""
 // @input string fallbackWebsocketUrl = ""
 // @input string pairingToken = ""
 // @input float tagForwardM = 0.03
@@ -63,6 +64,8 @@ var reviewText = null;
 var reviewFrame = null;
 var socketReady = false;
 var pairingDeadline = -1;
+var socketSession = "";
+var reviewExpiresAt = 0;
 var lastHeartbeatAt = -1000;
 var asrModule = null;
 var voiceListening = false;
@@ -138,7 +141,7 @@ function stopLiveVoice(notify) {
     try { if (liveMic) { liveMic.stop(); } } catch (e) {}
     liveMic = liveSamples = null;
     if (notify && socketReady) {
-        socket.send(JSON.stringify({type:"voice_stop", version:1, id:voiceCommandId}));
+        socket.send(JSON.stringify({type:"voice_stop", version:1, id:voiceCommandId, session:socketSession}));
     }
 }
 function liveVoiceEvent(event) {
@@ -227,13 +230,13 @@ function stopVoice(send) {
     voiceNotice("VOICE CANCELLED");
 }
 function startVoice() {
-    if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
+    if (!socketReady || (script.reviewToken && !socketSession)) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
     if (script.useLiveVoice) {
         if (!script.microphoneAudio) { voiceNotice("MICROPHONE ASSET MISSING - RESEND LENS"); return; }
         voiceFinal = []; voicePartial = ""; liveRole = "";
         voiceListening = true; liveReady = liveSpeaking = false; voiceStartedAt = getTime();
         voiceCommandId = "live-" + Date.now() + "-" + (++voiceSequence);
-        socket.send(JSON.stringify({type:"voice_start", version:1, sample_rate:16000, id:voiceCommandId}));
+        socket.send(JSON.stringify({type:"voice_start", version:1, sample_rate:16000, id:voiceCommandId, session:socketSession}));
         voiceNotice("CONNECTING GPT-LIVE"); return;
     }
     if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
@@ -298,11 +301,11 @@ function finishVoiceSend() {
     var phrase = voiceText().slice(0, 500);
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
     if (!phrase) { noSpeechNotice(); return; }
-    if (!socketReady) { voiceNotice("NO NETWORK"); return; }
+    if (!socketReady || !socketSession) { voiceNotice("NO PAIRED CONNECTION"); return; }
     voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
     try {
         socket.send(JSON.stringify({type:"voice_command", version:1,
-                                    id:voiceCommandId, text:phrase}));
+                                    id:voiceCommandId, text:phrase, session:socketSession}));
         voiceNotice("SENDING: " + phrase.slice(0, 44));
     } catch (e) { voiceNotice("VOICE SEND FAILED"); }
 }
@@ -405,13 +408,24 @@ try {
     reviewObject.enabled = false;
 } catch (e) { print("R1 AR: review card unavailable: " + e); }
 
+function trackingState() {
+    var left = observedTags.left, right = observedTags.right;
+    return {registered: !!(tagAnchored && left && right),
+            age_s: left && right ? Math.max(0, getTime()-Math.min(left.time, right.time)) : 999999};
+}
 function reviewPinch(choice) {
-    if (!pendingReview || !tagAnchored || !socketReady || reviewSent) { return; }
+    if (!pendingReview || !socketReady || !socketSession || reviewSent) { return; }
+    if (getTime() >= reviewExpiresAt) { reviewMessage = "PROPOSAL EXPIRED"; return; }
+    var tracking = trackingState();
+    if (choice === "approve" && (!tracking.registered || tracking.age_s > 3)) {
+        reviewMessage = "SCAN BOTH TAGS AGAIN"; reviewChoice = ""; return;
+    }
     var now = getTime();
     if (reviewChoice === choice && now - reviewChoiceAt > 0.25 && now - reviewChoiceAt < 4) {
         try {
             socket.send(JSON.stringify({type:"review_decision", version:1,
-                                        id:pendingReview.id, digest:pendingReview.digest, decision:choice}));
+                                        id:pendingReview.id, digest:pendingReview.digest, revision:pendingReview.revision,
+                                        decision:choice, session:socketSession, tracking:tracking}));
             reviewSent = true;
             reviewMessage = "SENDING " + choice.toUpperCase();
             print("R1 AR: " + choice + " sent for proposal " + pendingReview.id);
@@ -739,9 +753,14 @@ function applyTrajectory(message) {
         print("R1 AR: coordinate frame changed; rescan both shoulder tags");
     }
     var incoming = message.review;
-    if (incoming && typeof incoming.id === "string" && incoming.id.length >= 16 &&
+    if (incoming && message.phase === "review" && socketSession && incoming.session === socketSession &&
+        typeof incoming.id === "string" && incoming.id.length >= 16 &&
+        typeof incoming.digest === "string" && incoming.digest.length === 64 &&
+        typeof incoming.revision === "number" && incoming.revision > 0 &&
+        typeof incoming.expires_in_s === "number" && incoming.expires_in_s > 0 &&
         (incoming.mode === "live" || incoming.mode === "dry-run" || incoming.mode === "sim")) {
-        if (!pendingReview || pendingReview.id !== incoming.id) {
+        if (!pendingReview || pendingReview.id !== incoming.id ||
+            pendingReview.digest !== incoming.digest || pendingReview.revision !== incoming.revision) {
             // A new proposal takes the gesture and HUD priority immediately.
             if (voiceListening) { stopVoice(false); }
             voicePinchAt = -1000;
@@ -751,6 +770,7 @@ function applyTrajectory(message) {
             print("R1 AR: proposal ready: " + incoming.text);
         }
         pendingReview = incoming;
+        reviewExpiresAt = getTime() + Math.min(300, incoming.expires_in_s);
     } else {
         if (pendingReview) { voicePinchAt = -1000; voiceCancelPinchAt = -1000; }
         pendingReview = null; reviewChoice = ""; reviewSent = false; reviewMessage = "";
@@ -794,9 +814,10 @@ function connect() {
     try {
         socket=script.internetModule.createWebSocket(url);
         socket.onopen=function(){
+            socketSession = "";
             socketReady = !script.reviewToken && !(script.pairingToken || "").trim();
             pairingDeadline = socketReady ? -1 : getTime() + 5;
-            if (script.reviewToken) { socket.send(JSON.stringify({type:"authenticate", token:script.reviewToken})); }
+            if (script.reviewToken) { socket.send(JSON.stringify({type:"authenticate", device_id:script.deviceId, token:script.reviewToken})); }
             lastNetworkError="";
             print("R1 AR: WebSocket connected to "+url);
         };
@@ -804,11 +825,13 @@ function connect() {
             try {
                 var trajectory = JSON.parse(event.data);
                 if (trajectory.type === "auth_ack") {
-                    socketReady = trajectory.accepted === true;
+                    socketReady = trajectory.accepted === true && typeof trajectory.session === "string";
+                    socketSession = socketReady ? trajectory.session : "";
                     pairingDeadline = -1;
                     return;
                 }
-                if (handlePairingMessage(trajectory) || !socketReady) { return; }
+                if (!script.reviewToken && handlePairingMessage(trajectory)) { return; }
+                if (!socketReady || (script.reviewToken && (!socketSession || trajectory.session !== socketSession))) { return; }
                 if (trajectory.type === "voice_event") {
                     if (trajectory.id === voiceCommandId) { liveVoiceEvent(trajectory.event); }
                     return;
@@ -828,7 +851,7 @@ function connect() {
                 }
                 if (trajectory.type === "voice_ack") {
                     if (trajectory.id === voiceCommandId) {
-                        voiceNotice(trajectory.accepted ? "COMMAND QUEUED FOR CLAUDE" : "ARTUR BUSY; TRY AGAIN");
+                        voiceNotice(trajectory.accepted ? "TASK SENT TO DASHBOARD" : String(trajectory.error || trajectory.message || "DASHBOARD BUSY; TRY AGAIN").slice(0, 60));
                     }
                     return;
                 }
@@ -858,7 +881,7 @@ function connect() {
             }
         };
         socket.onclose=function(event){
-            socketReady=false;pairingDeadline=-1;socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
+            socketReady=false;socketSession="";pairingDeadline=-1;pendingReview=null;reviewChoice="";socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
             if (voiceListening) { stopVoice(false); }
             if (event && event.code && event.code!==1000 && !lastNetworkError) {
                 print("R1 AR: WebSocket closed with code "+event.code);
@@ -866,7 +889,7 @@ function connect() {
             }
         };
     } catch(e) {
-        socketReady=false;
+        socketReady=false; socketSession=""; pendingReview=null;
         if (lastNetworkError!=="unavailable") {
             print("R1 AR: WebSocket unavailable: "+e);
             lastNetworkError="unavailable";
@@ -902,7 +925,8 @@ script.createEvent("UpdateEvent").bind(function(){
         if (statusTextObject) { statusTextObject.enabled = false; }
     }
     if (reviewObject && script.cameraObject) {
-        reviewObject.enabled = !!pendingReview || voiceListening || getTime() < voiceMessageUntil;
+        reviewObject.enabled = !!pendingReview || voiceListening || getTime() < voiceMessageUntil ||
+            !!(latestTrajectory && latestTrajectory.phase === "draft");
         if (reviewObject.enabled) {
             var cameraTransform = script.cameraObject.getTransform();
             var panel = reviewObject.getTransform();
@@ -915,17 +939,19 @@ script.createEvent("UpdateEvent").bind(function(){
             reviewText.text = pendingReview ?
                 "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
                 String(pendingReview.text || "NEW PATH").slice(0, 38) + "\n" +
-                (reviewMessage || (!tagAnchored ? "SCAN BOTH TAGS FIRST" :
-                 !socketReady ? "WAITING FOR CONNECTION" :
+                (getTime() >= reviewExpiresAt ? "PROPOSAL EXPIRED" :
+                 !trackingState().registered || trackingState().age_s > 3 ? "SCAN BOTH TAGS AGAIN" :
+                 reviewMessage || (!socketReady ? "WAITING FOR CONNECTION" :
                  "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
                 (voiceListening ? (script.useLiveVoice ? (liveSpeaking ? "R1 SPEAKING\n" : liveReady ? "GPT-LIVE LISTENING\n" : "CONNECTING\n") : voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
                  (voiceText() || (getTime() - voiceStartedAt > 3 ? "NO WORDS YET" : "SPEAK NOW")).slice(-55) +
-                 (script.useLiveVoice ? "\nDOUBLE PINCH TO STOP" : "\nRIGHT x2 SEND   LEFT x2 CANCEL") : voiceMessage);
+                 (script.useLiveVoice ? "\nDOUBLE PINCH TO STOP" : "\nRIGHT x2 SEND   LEFT x2 CANCEL") : getTime() < voiceMessageUntil ? voiceMessage :
+                 "DRAFT PREVIEW\nNO MOTION SUBMITTED");
         }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }
-    if (socketReady && script.reviewToken && getTime()-lastHeartbeatAt > 1) {
-        try { socket.send(JSON.stringify({type:"heartbeat"})); lastHeartbeatAt=getTime(); } catch (e) {}
+    if (socketReady && socketSession && getTime()-lastHeartbeatAt > 1) {
+        try { socket.send(JSON.stringify({type:"heartbeat", session:socketSession, tracking:trackingState()})); lastHeartbeatAt=getTime(); } catch (e) {}
     }
     // Keep the last real plan on screen when USB/Wi-Fi drops. Only animate a
     // mock before any robot-frame trajectory has arrived this Lens session.
@@ -934,7 +960,7 @@ script.createEvent("UpdateEvent").bind(function(){
         if (script.demoMode && !script.reviewToken) { applyTrajectory(localMock(getTime()*0.3)); }
         lastMockAt=getTime();
     }
-    if (!tagAnchored) {
+    if (!tagAnchored || (pendingReview && trackingState().age_s > 3)) {
         leftVisual.enabled = false;
         rightVisual.enabled = false;
     }

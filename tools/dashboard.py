@@ -29,7 +29,7 @@ import mujoco
 import numpy as np
 from PIL import Image
 from sim.preview import prepare_plan
-from spectacles.plan_feed import hand_paths
+from spectacles.plan_feed import hand_paths, base_path
 from core.prompt_planner import PromptPlanner
 from core.object_detection import DEFAULT_MODEL, make_detector
 from core.detection_stream import DetectionStream
@@ -103,8 +103,11 @@ class CameraFeed:
 
 
 class Simulation:
-    def __init__(self):
+    def __init__(self, pose_source=None):
         self.lock = threading.RLock()
+        self.pose_source = pose_source
+        self.closed = threading.Event()
+        self.measured_online = False
         self.model = mujoco.MjModel.from_xml_path(str(ROOT / 'sim/models/r1/scene_fixed_base.xml'))
         # A navy-black stage (matching the page) keeps the model and the neon hand paths readable.
         for index in range(self.model.ntex):
@@ -133,6 +136,7 @@ class Simulation:
         self.playing = False
         self.show_paths = True
         self.paths = {'left': [], 'right': []}
+        self.base_path = None
         self.key = None
         self.plan = {'name':'No preview', 'duration_s':0, 'held_joints_rad':{},
                      '_joint_ids':{}, '_times':[], 'keyframes':[],
@@ -150,10 +154,11 @@ class Simulation:
             if not math.isfinite(float(value)) or (joint.limited and not joint.range[0] <= value <= joint.range[1]):
                 raise ValueError('Invalid held joint')
         paths = hand_paths(self.model, plan, 90)
+        bases = base_path(plan, np.linspace(0, duration, 90))
         with self.lock:
             if self.key == proposal_id:
                 raise ValueError('This preview has already been shown.')
-            self.plan, self.key, self.paths = plan, proposal_id, paths
+            self.plan, self.key, self.paths, self.base_path = plan, proposal_id, paths, bases
             self.position, self.playing = 0., True
 
     def advance(self, elapsed):
@@ -172,17 +177,57 @@ class Simulation:
 
     def status(self):
         with self.lock:
+            kind = self.plan.get('motion_kind', self.plan.get('prompt_proposal', {}).get('kind', 'arm'))
+            description = self.plan.get('description', '') or {
+                'walk': 'Planned base displacement; gait and balance are not simulated.',
+                'hand': 'Hand action preview; this A5 model has no finger articulation.',
+            }.get(kind, '')
             return {'plan':self.key, 'name':self.plan['name'], 'time':self.position,
                     'duration':self.plan['duration_s'], 'playing':self.playing,
+                    'description':description, 'motion_kind':kind,
+                    'base_path':self.base_path.tolist() if self.base_path is not None else None,
                     'ready':bool(self.jpg) and time.monotonic()-self.updated<3, 'error':self.error}
+
+    def measured_pose(self):
+        """A cached coordinator snapshot only; this renderer never opens DDS."""
+        snapshot = self.pose_source() if self.pose_source else None
+        state = snapshot.get('state', {}) if snapshot else {}
+        self.measured_online = bool(snapshot and snapshot.get('connected') and state.get('lowstate_age_s', 999) <= .5)
+        return dict(state.get('joints', {})) if self.measured_online else None
+
+    def close(self):
+        self.closed.set()
+
+    def pose_scene_base(self, scene):
+        """Show the planned base displacement without pretending to simulate gait dynamics."""
+        if self.base_path is None:
+            return
+        x, y, yaw = base_path(self.plan, [self.position])[0]
+        c, s = math.cos(yaw), math.sin(yaw)
+        rotation = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+        pelvis = self.model.body('pelvis').id
+        for geom in scene.geoms[:scene.ngeom]:
+            if geom.objtype != mujoco.mjtObj.mjOBJ_GEOM or geom.objid < 0:
+                continue
+            body = int(self.model.geom_bodyid[geom.objid])
+            while body and body != pelvis:
+                body = int(self.model.body_parentid[body])
+            if body == pelvis:
+                geom.pos[:] = rotation @ geom.pos + [x, y, 0]
+                geom.mat[:] = rotation @ geom.mat
 
     def run(self):
         try:
             # Renderer and GL context live on the same thread for CGL/EGL portability.
             with mujoco.Renderer(self.model, height=540, width=960) as renderer:
                 last = time.monotonic()
-                while True:
+                while not self.closed.is_set():
                     start = time.monotonic()
+                    measured = self.measured_pose() if self.pose_source else None
+                    if self.pose_source and measured is None:
+                        self.jpg = b''
+                        self.closed.wait(.1)
+                        continue
                     with self.lock:
                         self.advance(start - last)
                         last = start
@@ -192,8 +237,14 @@ class Simulation:
                         for name, jid in self.plan['_joint_ids'].items():
                             self.data.qpos[self.model.jnt_qposadr[jid]] = np.interp(self.position, self.plan['_times'],
                                 [f['joint_targets_rad'][name] for f in self.plan['keyframes']])
+                        if measured is not None:
+                            for name, value in measured.items():
+                                try: joint = self.model.joint(name)
+                                except KeyError: continue
+                                self.data.qpos[joint.qposadr[0]] = value
                         mujoco.mj_forward(self.model, self.data)
                         renderer.update_scene(self.data, camera=self.camera)
+                        self.pose_scene_base(renderer.scene)
                         if self.plan.get('prompt_proposal'):
                             # Replace demonstration props with this proposal's collision scene.
                             for geom in renderer.scene.geoms[:renderer.scene.ngeom]:
@@ -225,6 +276,15 @@ class Simulation:
                                     mujoco.mjv_initGeom(geom, mujoco.mjtGeom.mjGEOM_CAPSULE, np.zeros(3), np.zeros(3), np.eye(3).ravel(), np.array(rgba, dtype=np.float32))
                                     mujoco.mjv_connector(geom, mujoco.mjtGeom.mjGEOM_CAPSULE, .004, a, b)
                                     renderer.scene.ngeom += 1
+                            if self.base_path is not None:
+                                points = np.column_stack((self.base_path[:, :2], np.full(len(self.base_path), .035)))
+                                for a, b in zip(points, points[1:]):
+                                    if np.linalg.norm(b-a) < 1e-5 or renderer.scene.ngeom >= renderer.scene.maxgeom:
+                                        continue
+                                    geom = renderer.scene.geoms[renderer.scene.ngeom]
+                                    mujoco.mjv_initGeom(geom, mujoco.mjtGeom.mjGEOM_CAPSULE, np.zeros(3), np.zeros(3), np.eye(3).ravel(), np.array([.7, 1, .3, 1], dtype=np.float32))
+                                    mujoco.mjv_connector(geom, mujoco.mjtGeom.mjGEOM_CAPSULE, .008, a, b)
+                                    renderer.scene.ngeom += 1
                         frame = renderer.render()
                     out = io.BytesIO()
                     Image.fromarray(frame).save(out, 'JPEG', quality=88)
@@ -234,6 +294,15 @@ class Simulation:
         except Exception as exc:
             self.error = f'{type(exc).__name__}: {exc}'
             print('MuJoCo renderer:', self.error, flush=True)
+
+
+class MeasuredRobotView(Simulation):
+    """Feed-compatible local view of the coordinator's measured robot state."""
+    def status(self):
+        state = super().status()
+        return {'configured': True, 'online': self.measured_online and state['ready'],
+                'age': time.monotonic()-self.updated if self.updated else None,
+                'detail': self.error or 'Connect robot to view measured joints; base position is not localized.'}
 
 
 class TextPoller:
@@ -282,7 +351,7 @@ def main():
     parser.add_argument('--left-wrist', default='http://127.0.0.1:8080/cam/0')
     parser.add_argument('--right-wrist', default='http://127.0.0.1:8080/cam/2')
     parser.add_argument('--glasses', default='', help='Glasses MJPEG/JPEG video URL, if available')
-    parser.add_argument('--twin', default='http://127.0.0.1:8082/twin', help='Live twin MJPEG URL (tools/cockpit.py); empty to disable')
+    parser.add_argument('--twin', default='', help='Optional external twin MJPEG override; default renders pipeline telemetry locally')
     parser.add_argument('--iface', default='en6', help='Network interface connected to the R1 gesture service')
     parser.add_argument('--observation', type=Path, help='Atomically updated calibrated RGB/depth observation NPZ')
     parser.add_argument('--sim', action='store_true', help='Disable hardware control, robot feeds and calibrated observations')
@@ -370,12 +439,27 @@ def main():
     tool_link = None if args.no_chat_tools else ToolLink(f'http://127.0.0.1:{args.port}/api/tools', tool_token)
     chat = DashboardChat(context=chat_context, backend=args.chat_backend, tools=tool_link)
     from harness.config import load as load_harness_config
-    pipeline = RobotPipeline(prompt_planner, sim, feeds, args.iface, cfg=load_harness_config(args.harness_config))
-    pipeline.provider = args.chat_backend
+    pipeline = RobotPipeline(prompt_planner, sim, feeds, args.iface, cfg=load_harness_config(args.harness_config),
+                             simulation_only=args.sim)
+    chat.before_turn = reins_tools.begin_turn
+    chat.on_cancel = reins_tools.cancel
+    pipeline.on_result = chat.record_motion_result
+    pipeline.on_stop = chat.cancel
     prompt_planner.reviser_factory = chat.motion_reviser
     reins_tools.pipeline = pipeline
     reins_tools.show_proposal = pipeline.show_primary
-    glasses_bridge = GlassesBridge(pipeline, args.glasses_host, args.glasses_port)
+    measured_view = None
+    if not args.sim and not args.twin:
+        def measured_state():
+            with pipeline.lock:
+                return {'connected': pipeline.connected, 'state': dict(pipeline.robot_state)}
+        measured_view = MeasuredRobotView(pose_source=measured_state)
+        feeds['twin'] = measured_view
+        threading.Thread(target=measured_view.run, daemon=True).start()
+    def glasses_voice(text, command_id, device_id):
+        result = chat.send(text)
+        return {'accepted': True, 'task_id': result['session_id'], 'message': 'Task sent to the assistant. Motions still need review.'}
+    glasses_bridge = GlassesBridge(pipeline, args.glasses_host, args.glasses_port, on_voice=glasses_voice)
 
 
     class Handler(BaseHTTPRequestHandler):
@@ -411,7 +495,7 @@ def main():
             if path == '/api/robot':
                 return self.send(pipeline.status())
             if path == '/api/glasses':
-                return self.send({**pipeline.glasses, 'token': pipeline.glasses_token})
+                return self.send({**pipeline.glasses, 'paired_devices': glasses_bridge.pairing.list_devices()})
             if path == '/api/chat':
                 return self.send(chat.status())
             if path == '/api/detection':
@@ -469,6 +553,12 @@ def main():
             if self.headers.get('X-Reins-Token') != token:
                 return self.send({'error': 'Invalid local session'}, code=403)
             try:
+                if self.path == '/api/glasses':
+                    if command.get('action') == 'create_device':
+                        return self.send({'device': glasses_bridge.pairing.create_device(command.get('label', 'Spectacles'))})
+                    if command.get('action') == 'revoke_device':
+                        return self.send({'revoked': glasses_bridge.pairing.revoke_device(command.get('device_id'))})
+                    raise ValueError('Unknown pairing action')
                 if self.path == '/api/robot':
                     if args.sim and command.get('action') == 'connect':
                         raise ValueError('Hardware control is disabled in simulation mode')
@@ -516,9 +606,7 @@ def main():
                 if self.path == '/api/gestures':
                     if args.sim:
                         raise ValueError('Hardware gestures are disabled in simulation mode')
-                    if command.get('action') == 'gesture' and (pipeline.connected or pipeline.status()['busy']):
-                        raise ValueError('Release robot control before using a firmware gesture.')
-                    return self.send(gestures.command(command))
+                    return self.send(pipeline.firmware(command, gestures))
                 return self.send({'error': 'Not found'}, code=404)
             except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
                 self.send({'error': str(exc)}, code=400)
@@ -526,12 +614,17 @@ def main():
     server.RequestHandlerClass = Handler
     threading.Thread(target=sim.run, daemon=True).start()
     print(f'Reins Observatory → http://localhost:{args.port}', flush=True)
-    print(f'Robot control on {args.iface} requires an explicit connection and per-motion review. Pair glasses in Connections.', flush=True)
+    if args.sim:
+        print('SIMULATION ONLY: hardware connection, firmware gestures and robot feeds are disabled.', flush=True)
+    else:
+        print(f'Connect reads robot state on {args.iface}; each complete motion requires review. Pair glasses in Connections.', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        sim.close()
+        if measured_view: measured_view.close()
         glasses_bridge.close()
         pipeline.close()
         prompt_planner.cancel()

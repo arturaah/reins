@@ -1,5 +1,6 @@
 #!/bin/sh
-# Browser dashboard: preview, cameras, and Dry run / Execute / Abort via tools/arm_lift.py.
-# Existing camera services reconnect automatically. Pass --iface IFACE for the robot link.
+# Unified dashboard; use --sim for offline operation, --iface for robot telemetry.
+# Hardware ownership and motion require explicit connection and complete review.
+set -eu
 cd "$(dirname "$0")/.." || exit 1
 exec .venv/bin/python tools/dashboard.py "$@"

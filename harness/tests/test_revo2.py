@@ -1,12 +1,15 @@
 """Revo2 hands: the hand server and the harness client over a real local socket, DDS replaced by a fake that moves the
 fingers toward each command and stops them where an object would. Nothing is published."""
+import json
 import socket
+import uuid
 import threading
 import time
 
 import numpy as np
 import pytest
 
+from contract.runtime import digest
 from harness.executor import ArmExecutor
 from harness.interpreter import Proposal
 from harness.kinematics import ArmKinematics
@@ -33,7 +36,9 @@ class FakeDds:
 
 
 @pytest.fixture
-def server(cfg):
+def server(cfg, tmp_path):
+    token = tmp_path/"hand.token"; token.write_text("private-hand-controller-capability"*2); token.chmod(0o600)
+    cfg["streamer"]["control_token_file"] = str(token)
     def start(dds):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]
@@ -49,26 +54,32 @@ def server(cfg):
     return start
 
 
+def approved_hand(client, arm, closed):
+    payload = {"kind": "hand", "arm": arm, "closed": closed}
+    approval = {"proposal_id": uuid.uuid4().hex, "revision": 1, "digest": digest(payload), "expires_at": time.time()+60}
+    return client.execute_motion(payload, approval)["hand_feedback"]
+
+
 def test_close_on_nothing_is_an_empty_grasp(server):
     dds = FakeDds(block_at=1.0)
     c = Revo2Client(server(dds), log=lambda *a: None)
-    assert c.hand("right", True).startswith("EMPTY")
+    assert approved_hand(c, "right", True).startswith("EMPTY")
     assert dds.sets == [("right", [0.98, 0.7, 0.98, 0.98, 0.98, 0.98])]
     assert c.hand_state("right") is True
-    assert c.hand("right", False) == "hand opened" and c.hand_state("right") is False
+    assert approved_hand(c, "right", False) == "hand opened" and c.hand_state("right") is False
 
 
 def test_close_on_an_object(server):
     c = Revo2Client(server(FakeDds(block_at=0.5)), log=lambda *a: None)
-    fb = c.hand("left", True)
+    fb = approved_hand(c, "left", True)
     assert fb.startswith("hand closed on an object") and "51%" in fb
 
 
 def test_no_state_means_no_command(server):
     dds = FakeDds(sides=("left",))
     c = Revo2Client(server(dds), log=lambda *a: None)
-    fb = c.hand("right", True)
-    assert "did not move" in fb and "brainco_hand_server" in fb
+    with pytest.raises(RuntimeError, match="brainco_hand_server"):
+        approved_hand(c, "right", True)
     assert dds.sets == [] and c.hand_state("right") is None
 
 
@@ -127,3 +138,50 @@ def test_sim_pick_and_place_with_the_revo2_prompts(cfg, tmp_path):
     assert all("HAND (five fingers" in p and "GRASP, RELEASE" in p for p in acts)
     assert any("Last hand command: EMPTY grasp" in p for p in acts)
     assert any("Last hand command: hand closed on the object" in p and "Holding an object" in p for p in acts)
+
+
+def test_public_state_but_no_raw_hand_actuation(server):
+    dds = FakeDds(); cfg = server(dds)
+    public_cfg = {**cfg, "streamer": {k: v for k, v in cfg["streamer"].items() if k != "control_token_file"}}
+    client = Revo2Client(public_cfg, log=lambda *a: None)
+    assert client.read("right") is not None
+    assert not client.call({"cmd": "set", "side": "right", "q": [.9]*6})["ok"]
+    with pytest.raises(RuntimeError, match="Unreviewed"):
+        client.hand("right", True)
+    assert not dds.sets
+    client.close()
+
+
+def test_hand_digest_expiry_and_duplicate_are_rejected(server):
+    dds = FakeDds(); client = Revo2Client(server(dds), log=lambda *a: None)
+    payload = {"kind": "hand", "arm": "right", "closed": True}
+    approval = {"proposal_id": uuid.uuid4().hex, "revision": 1, "digest": digest(payload), "expires_at": time.time()+60}
+    for bad in ({**approval, "digest": "wrong"}, {**approval, "expires_at": 1}):
+        with pytest.raises(ValueError): client.execute_motion(payload, bad)
+    assert not dds.sets
+    client.execute_motion(payload, approval)
+    count = len(dds.sets)
+    with pytest.raises(RuntimeError, match="consumed"):
+        client.execute_motion(payload, approval)
+    assert len(dds.sets) == count
+    client.close()
+
+
+def test_hand_disconnect_holds_measured_fingers(server):
+    dds = FakeDds(block_at=.5); client = Revo2Client(server(dds), log=lambda *a: None)
+    approved_hand(client, "right", True)
+    client.close()
+    for _ in range(50):
+        if len(dds.sets)>1: break
+        time.sleep(.01)
+    assert dds.sets[-1][1][2:] == [.5]*4
+    assert len(dds.sets) == 2
+
+
+def test_hand_nonfinite_configuration_never_publishes(server):
+    dds = FakeDds(); cfg = server(dds); cfg["hand"]["revo2"]["close"][2] = float("nan")
+    client = Revo2Client(cfg, log=lambda *a: None)
+    with pytest.raises(RuntimeError, match="finite"):
+        approved_hand(client, "right", True)
+    assert not dds.sets
+    client.close()

@@ -1,74 +1,126 @@
-# CLAUDE.md
+# Reins contributor guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Read this before changing robot control. Current code, schemas and tests are the
+source of truth; the historical hardware notes at the end record a particular
+setup and do not prove that a new integration has been commissioned.
 
-## What this is
+## Project and supported workflow
 
-Reins is a VLM-agnostic harness for robot control: the model's plan is surfaced for human review before any actuator fires. See README.md. Status: the simulation-only trajectory preview lives in `sim/`, and a separate Spectacles AR trajectory prototype lives in `spectacles/`; no integrated hardware harness exists yet.
+Reins is a VLM-agnostic harness for the Unitree R1 EDU A5. One dashboard agent
+observes, detects, plans with core IK, validates and previews without approvals.
+It submits one complete immutable motion with `propose_motion`. A human reviews
+that exact motion in the dashboard or paired Spectacles, then the coordinator
+rechecks and executes through an authenticated private actuator connection.
+Any additional or changed motion needs a new proposal and approval. The model
+never approves, executes or invokes firmware gestures itself.
 
-Target hardware: Unitree R1 EDU humanoid. 26 DoF on the A5 arm variant (7-DoF arms on A7), Jetson Orin NX onboard at 192.168.123.164, DDS over the 192.168.123.x subnet.
+The supported UI is `tools/dashboard.py`. `--sim` disables hardware connection
+and physical feeds. Without it, **Connect robot** reads telemetry; it does not
+engage the arms. The operator CLI `python -m tools.reins prompt|status|stop` is a
+loopback HTTP client of the same dashboard. No recording/replay UI is supported.
+`tools/reins_ui.py` only opens the browser; old launchers do not start Jetson
+services. Direct `arm_lift --execute`, kinesthetic teaching, and `harness live`
+are retired. Offline datasets/evaluations remain useful.
 
-## Layout
+## Architecture and invariants
 
-- `unitree_sdk2/` is a plain vendored copy of https://github.com/unitreerobotics/unitree_sdk2 at upstream commit 63096d0, minus its `.github/` workflows. Edit in place and commit here. It is deliberately not a submodule and is never synced with upstream. R1 code lives in `unitree_sdk2/example/r1/` (`high_level/`, `low_level/`, `audio/`).
-- `contract/` defines the messages between the harness parts (VLM harness, core/IK, review surfaces such as the MuJoCo preview and Spectacles, and the `rt/arm_sdk` streamer): `README.md` is the spec, `reins.schema.json` the source of truth, `examples/` full sessions, `reins_contract.py` a validator. Change all four together and run `python3 -m pytest contract`.
-- `core/ik.py` is the arm IK solver: prioritised damped least squares in numpy with a closed-form fast path. Kinematics come from Pinocchio on the vendored A5 URDF (`sim/models/r1/r1_a5.urdf`, Apache-2.0 from xr_teleoperate; needs only `pin` from PyPI, no CasADi), anchored to the MuJoCo world at `torso_link` and cross-checked against MuJoCo at start-up; without Pinocchio, or if the models disagree, it falls back to MuJoCo Jacobians (`--backend mujoco` forces that). Hand tips are the MuJoCo `{side}_hand_preview` sites, so solutions land where every preview draws them. Measured 2026-09-26: cold solve median ~0.45 ms (MuJoCo ~0.55), warm path step ~0.09 ms (MuJoCo ~0.11); CasADi+IPOPT (xr_teleoperate's method) was 100-600x slower and CasADi+fatrop found only ~44% of cold targets and needs an optimal-control formulation. It solves hand position with shoulder pitch/roll/yaw + elbow (wrist roll does not move the tip), with an optional soft pointing direction. `plan_from_waypoints` turns targets into a straight-line, speed-capped (0.4 rad/s), dense-keyframe plan in the sim contract; CLI `core/ik.py --side right --to X Y Z [--to ...] --start sim/plans/arm_lift_dryrun.json --out PLAN`.
-- `core/object_detection.py`: local 2D detection. Default OmDet-Turbo swin-tiny (Apache-2.0, open vocabulary: COCO's 80 names plus 24 tabletop extras, or any names via `detect(labels=...)`; CUDA/MPS/CPU), falling back to NanoDet (80 COCO classes, OpenCV CPU) when torch/transformers or the weights are missing. Measured 2026-09-27 on 500 COCO val images: 43.0 mAP vs NanoDet 22.2, 26.5 mAP on 30 non-COCO household classes (NanoDet 0), 78 ms/image on an RTX 4060, 1.2 s on CPU; Mac MPS speed not yet measured. Ultralytics YOLO (40.5 mAP) was rejected for its AGPL-3.0 license. Setup: `-r core/requirements.txt`, then `tools/detect_objects.py --download` (pinned revision, SHA-256 checked).
-- Chat tools: `core/tool_specs.py` (definitions), `core/reins_tools.py` (implementations on the dashboard's detector, planner and simulation, served at `/api/tools/<name>` with a separate token) and `tools/reins_mcp.py` (stdio MCP server the Claude/Codex CLIs start per reply). Tools: get_robot_context, detect_objects, plan_hand_path, preview_plan. None moves the robot; there is deliberately no execute or gesture tool. No depth estimation (decision 2026-09-27): objects are 2D detections only, so the model is told it cannot reach real objects and must not invent their positions; the depth-based planner code in `core/` stays but is not offered to the model. Codex needs the tool annotations and `default_tools_approval_mode="approve"` or it hides MCP tools in `codex exec`. `--no-chat-tools` disables them. Tests: `core.test_reins_tools`.
-- `spectacles/` contains a Lens Studio project, two shoulder tracking cards, and a standalone mock WebSocket trajectory feed. Its demo message format has not yet been bridged to `contract/`.
-- In this workspace, project knowledge lives one level up at `../.knowledge/reins/` (index.md, concepts/, worklog/). The R1 ecosystem survey is `concepts/r1-edu-ecosystem.md`; read it before researching R1 repos again.
+- `core/reins_tools.py`, `tool_specs.py`, `tools/reins_mcp.py`: model-facing
+  `get_robot_context`, `observe`, `detect_objects`, `plan_hand_path`, configured
+  `plan_base_motion`/`plan_hand_action`, `preview_plan`, `propose_motion`, and
+  `get_motion_result`. Bounded tool/revision budgets; no approval tool. Actual
+  images travel as image content, not only detection summaries.
+- `core/dashboard_chat.py`, `codex_chat.py`, `claude_chat.py`: provider lifecycle,
+  cancellable chat and tool execution. Preserve provider independence and actual
+  outcome feedback. Untrusted camera text and operator notes are data, not tool
+  instructions. CLI transports run in isolated workspaces.
+- `core/ik.py`: A5 hand-position solver, optional Pinocchio fast path and MuJoCo
+  fallback; hand-tip sites match the renderer. Do not introduce another live IK.
+  `generated_motion.py` compiles novel multi-waypoint gestures without requiring
+  predefined recordings.
+- `core/trajectory.py`, `motion_validation.py`, `motion_policy.py`: resolve the
+  exact samples before review; validate held joints, both arms, swept geometry,
+  limits, velocity/acceleration and configured table/workspace. Reject bad
+  authored geometry instead of silently clamping it. Do not prepend a hidden
+  approach or compensate tracking lag by changing an approved path.
+- `core/robot_pipeline.py`: sole supported proposal/execution coordinator.
+  Draft handles, idempotent submissions, session/revision/digest, expiry,
+  fresh-state rechecks, cancellation and measured outcomes belong here. Model
+  planning does not automatically ask for review; only final submission does.
+- `contract/runtime.py`: canonical live motion payload/approval validation;
+  `contract/motion.schema.json`, `runtime_examples/` and tests document it.
+  `reins.schema.json`/`reins_contract.py` are retained offline session experiments,
+  not the active WebSocket protocol or a parallel execution authority.
+- `harness/robot/arm_stream.py`: supported `rt/arm_sdk` publisher and bounded
+  loco command owner. Private capability authentication, single-use approvals,
+  concurrent reception/cancellable work and active watchdogs are required. Keep
+  **both** motion cancellation and `stop_walking()` on abort/disconnect. Digest
+  identity alone is not authentication.
+- `harness/robot/revo2.py`, `hand_client.py`: configured Revo2 hand open/close
+  uses the same approval boundary over its private channel. `odometry.py`
+  reports measured base displacement. `poseview.py` renders a labelled
+  synthetic view of robot joints, never a camera view of real objects.
+- `harness/loop.py`, kinematics/executor/safety and legacy `vlm/` modules remain
+  offline evaluation utilities, not the live camera fallback. Preserve useful
+  prompts, feedback, demonstration/episode exports and regression tests.
+- `core/glasses_bridge.py`, `glasses_pairing.py`, `spectacles/Assets/R1Trajectory.js`:
+  persistent revocable device pairing, fresh socket sessions, draft-vs-review
+  display, exact proposal checks, tag-freshness gate, heartbeats and authenticated
+  speech-to-chat. Retain upstream ASR/review priority and error handling. Voice
+  submits tasks, never approval. Default AR port8765 is also used by standalone
+  prototype feeds; do not run competing listeners there.
+- `voice/`: optional separate voice conversation/simulation service with its own
+  requirements. Dashboard transcription goes to chat; conversation-only model
+  adapters do not obtain robot authority.
+- `core/r1_gestures.py`, `tools/r1_gestures.py`: human-only firmware presets with
+  shared ownership arbitration. Onboard paths are opaque, not a validated
+  authored-trajectory preview.
 
-## Building the SDK
+## Capability limits
 
-Linux only (Ubuntu 20.04, x86_64 or aarch64). The prebuilt libraries in `unitree_sdk2/lib/` and `unitree_sdk2/thirdparty/lib/` exist only for those two targets, so it does not build on macOS. Build on the R1's Jetson or a Linux box.
+No metric depth estimation or camera calibration is part of the supported agent
+workflow. Detector boxes are 2D; never label guessed object coordinates as
+measured. Image-informed free-space gestures are uncertain proposals, not
+verified reaches/grasping or environmental collision avoidance. Retained depth
+experiments are not a requirement for the dashboard.
 
+One proposal currently contains one single-arm trajectory, one bounded base
+motion, or one open/close hand action. No general dual-arm, mixed arm/base/hand,
+full contact-aware manipulation or grasp-success guarantee exists. Walking and
+hands are explicitly configured capabilities; model text cannot enable them.
+The MuJoCo preview is kinematic, not balance/contact simulation. Physical robot,
+Lens tracking and ASR behavior need staged commissioning after software checks.
+
+## Development and dependencies
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-test.txt
+.venv/bin/python tools/dashboard.py --sim
+.venv/bin/python -m pytest -q core harness/tests contract/tests spectacles/tests tools/test_*.py
 ```
-apt-get install -y cmake g++ build-essential libyaml-cpp-dev libeigen3-dev libboost-all-dev libfmt-dev
-cd unitree_sdk2 && mkdir -p build && cd build && cmake .. && make
-```
 
-Binaries land in `unitree_sdk2/build/bin/`. Every R1 example takes the network interface connected to the robot (e.g. `eth0`) as an argument; the exact flags are in each file's header comment. To use the SDK from a separate CMake project, `make install` it and copy `unitree_sdk2/example/cmake_sample`.
+Base requirements include PyYAML and WebSockets compatible with the optional
+voice service. Heavy detector libraries live in `core/requirements-detector.txt`;
+voice dependencies remain in `voice/requirements.txt`. Provider API SDKs and
+robot SDK installation are optional and platform-specific. Tests must use fake
+robots/models or read-only fixtures; do not silently turn a test into hardware
+or paid-model execution. Node enables Lens protocol tests (`REINS_NODE` selects
+its path). Do not claim physical testing from fake DDS or simulated task success.
 
-Tests: the contract's (`python3 -m pytest contract`, needs `jsonschema` and `pytest`), the dashboard's, the IK solver's and the detector's (`.venv/bin/python -m unittest tools.test_dashboard core.test_ik core.test_object_detection`). No linters.
+`unitree_sdk2/` is vendored C++ SDK code, not a submodule. R1 references are under
+`example/r1` and `include/unitree/robot/r1`. Preserve the R1-specific mapping:
+arm slots15–19 and22–26, waist yaw13, head29–30 in the controller's35-slot
+layout; `mode_pr`0..100 is arm blend weight. Do not substitute G1 arm action IDs.
+The default reviewed arm command samples are50Hz. The robot's onboard controller
+owns balance; the supported manipulation path does not use `rt/lowcmd`.
 
-## Chosen control method (decision, 2026-09-26)
+For SDK builds use the vendored Linux build instructions/dependencies; do not
+assume its x86_64/aarch64 libraries run on macOS. Project knowledge is also in
+`../.knowledge/reins/`; read the R1 ecosystem notes before repeating repository
+research. See [dashboard setup](tools/dashboard/README.md), [core](core/README.md),
+[offline harness](harness/README.md), and [runtime contract](contract/README.md).
 
-Reins drives the R1 through the **`rt/arm_sdk` DDS topic**: stream arm and head joint targets at 250 Hz with the blend weight ramped 0 to 1, while the robot's onboard controller keeps balance. Everything the harness does for manipulation maps onto this one path:
-
-- **Plan**: the VLM proposes end-effector goals; IK on the R1 URDF (Pinocchio, as Unitree's xr_teleoperate does) turns them into a joint trajectory `q(t)`.
-- **Preview**: replay `q(t)` kinematically in MuJoCo on the official R1 model (set joint positions, render). No physics; balance is the robot's job. This is the human review step.
-- **Execute**: on approval, publish `q(t)` to `rt/arm_sdk` at 250 Hz. Ramp the weight down to hand the arms back.
-- **Teleop and record**: Unitree's xr_teleoperate publishes the same topic and records episodes; replay is the execute step.
-
-The **high-level loco client** is used as the session's safety wrapper (Stance before streaming, Damp on abort, FSM checks) and, since 2026-09-27 and only when the harness's `locomotion.enabled` is set, which the window does only when the task text contains the word "walk" (the operator's explicit consent), for bounded whole-body steps (SetVelocity for a capped duration, then StopMove) that the VLM may propose and the operator accepts one by one; see `harness/README.md`. The arm topic and walking exclude each other on the R1: with any weight above 0 on `rt/arm_sdk` the robot reports FSM 816 (ArmSdkLoco) and the walks sent there were refused, so the streamer hands the arms back to the controller for every step and takes them again afterwards, and logs the controller's answer code to the velocity command. Decided 2026-09-27 14:27: with the arms released and the robot in 811 the controller answered 127 to the velocity command (the answer unitreerobotics/xr_teleoperate#319 reports for every velocity command on ai_sport 1.0.2.154), so SDK walking is switched off in this unit's firmware; the feature is complete on our side and waits for a firmware that accepts velocity commands (`locomotion.note` in the config says so and the window shows it). The **low-level `rt/lowcmd`** surface is not used; it takes balance away from the robot for no manipulation benefit.
-
-Live twin: DDS is many-to-many, so a subscriber-only MuJoCo viewer can read `rt/arm_sdk` (commanded) and `rt/lowstate` (actual) alongside the robot. Do not run Unitree's MuJoCo bridge on the robot's DDS domain (0): it publishes `rt/lowstate` and would collide. Unitree's own config puts sim on domain 1. `tools/twin.py IFACE [--plan FILE]` is that viewer: it poses the fixed-base model from `rt/lowstate`, draws commanded hand tips while `rt/arm_sdk` is active, and overlays a plan's hand paths. To watch from other computers, run `tools/relay.py IFACE` on the robot-side machine (subscribe-only, rebroadcasts joint state as JSON on ws port 8766, ignores anything clients send) and `tools/twin.py ws://HOST:8766` elsewhere; that side needs only mujoco and websockets. Both tested only against a fake publisher on loopback (domain 1), not yet on the robot.
-
-Machine roles: the Mac hosts the harness, VLM calls, IK and the MuJoCo preview. The DDS streamer runs on the R1's Jetson first (guaranteed path), then optionally on the Mac. The Python SDK is pure Python with a pure-Python checksum fallback off Linux, and CycloneDDS ships Apple Silicon wheels for Python 3.8 to 3.10, so a native Mac streamer is feasible but untested by Unitree.
-
-## R1 control surfaces (which one to reach for)
-
-1. **High-level loco client** (`high_level/r1_loco_client_example.cpp`): Move, SetVelocity, Stance, Damp, Lie2StandUp, SetFsmId, WaveHand, ShakeHand. The onboard policy keeps balance. Used only as the safety wrapper (see the decision above).
-2. **Arm action service and the `rt/arm_sdk` topic** (`high_level/r1_arm_action_example.cpp`, `r1_arm_sdk_dds_example.cpp`): run preset or teach-recorded arm actions, or stream upper-body joint targets with a 0..1 blend weight while the robot balances itself. Do not substitute G1's arm action client: same service name and API IDs, different action IDs and error codes.
-3. **Low-level `rt/lowcmd` / `rt/lowstate`** (`low_level/`): all 26 motors under PD control on a 2 ms loop. You own balance.
-
-R1 facts that differ from the G1, all verified against the vendored SDK on 2026-09-26:
-- `rt/arm_sdk` carries an hg `LowCmd`; the blend weight is `mode_pr` in 0..100 (G1 uses a spare motor slot). Joints use the controller's 35-slot layout from `unitree_sdk2/include/unitree/dds_wrapper/robots/r1/defines.h`: left arm 15-19, right arm 22-26, waist yaw 13, head 29-30. `rt/lowstate` uses the same slots. The 26-motor numbering in the Python low-level example is a compact index mapped through `joint_idx_in_idl`.
-- Loco FSM ids (`r1_loco_client.hpp`): 0 ZeroTorque, 1 Damp, 4 StandUp (position lock), 811 Start (balance control). The SDK names no others; the R1 table in legion1581/unitree_webrtc_connect (`constants.py`) adds 816 ArmSdkLoco, 812 to 815 and 830/831 locomotion variants, 800 Motion, 701/702 stand up / lie down and the dances. Verified 2026-09-27 with a subscribe-only monitor: the robot reports 816 from the first `rt/arm_sdk` message with a weight above 0 until the weight is 0 again, and 811 otherwise; `harness/robot/lowstate.py` FSM_NAMES has the list. The arm topic only takes effect with the built-in controller active (4 or 811). Activation is the operator's job with the remote: L2+UP to stand prep while holding the rear handle, then R2+A.
-- Python SDK packaging gap: `unitree_sdk2py/r1/` has no `__init__.py` upstream, so pip skips it. Setup copies the two loco files into the venv (see step 6). The Python API file also lacks `ROBOT_API_ID_LOCO_GET_FSM_MODE` (7002); `tools/arm_lift.py` defines it locally.
-- Kinesthetic teaching: `tools/teach.py IFACE NAME` makes both arms compliant (arm topic, kp 20, follow-while-moving clutch), records them at 20 Hz for --seconds, then hands them back. The replay speed gate is 1.5 rad/s (Artur raised it from 0.5 on 2026-09-26 evening so hand-taught takes replay at real speed; the tool names a passing `--speed` when a take is faster); `--kp-scale` stiffens a replay against gravity droop. First teach + replay verified 2026-09-26.
-- Cameras, two kinds. (1) Head camera, wide-angle RGB: on the controller, read over DDS with the SDK's Go2-style video service (`unitree_sdk2py.go2.video.video_client.VideoClient().GetImageSample()` returns a JPEG, about 440 KB in 15 ms). `tools/headcam.py en6` serves it live at http://localhost:8081/ from the Mac; no Jetson needed. (2) Wrist cameras: two USB UVC devices on the Jetson (`v4l2-ctl --list-devices`: "Abham Image", capture nodes `/dev/video0` and `/dev/video2`). `tools/camstream.py` runs on the Jetson (OpenCV 3.4 preinstalled) and serves MJPEG on port 8080; start it with `setsid nohup python3 ~/camstream.py --devices 0,2 &` over ssh (never `pkill -f` with a pattern that appears in the launching command line). Because of the faulty module switch, cabling Mac→module→body gives the Jetson but no controller; body cable→Mac gives control but no Jetson. Working dual-link setup (2026-09-26): two USB Ethernet adapters on the Mac, body cable on one (`en6`, 192.168.123.99, DDS interface), Jetson module on the other (`en8`, 192.168.123.98). Both sit in the same /24, so macOS needs a host route or the Jetson is unreachable: `sudo networksetup -setmanual "USB 10/100/1000 LAN 2" 192.168.123.98 255.255.255.0`, then `sudo route -n delete -host 192.168.123.164` (macOS holds an ARP-derived entry on en6 that blocks the add) and `sudo route -n add -host 192.168.123.164 -interface en8`; check with `route -n get 192.168.123.164`. The route is not persistent; re-add after a reboot or re-plug. Without root, `tools/via_iface.py` reaches the Jetson through a chosen interface (IP_BOUND_IF): use it as an ssh ProxyCommand, or as a local forwarder for the camera page (`--listen 8080`, then open http://localhost:8080/). `networksetup -setmanual` may work without sudo from an admin account. A gigabit switch would remove all of this.
-- Voice: the R1's onboard `voice` RPC service (`unitree_sdk2/include/unitree/robot/r1/audio/`) does text-to-speech (`TtsMaker`, speaker 1 English, 0 Chinese), plays raw 16 kHz mono 16-bit PCM (`PlayStream` in 3 s chunks, then `PlayStop`), volume and head LED; it publishes recognized speech on `rt/audio_msg` and streams mic PCM on UDP multicast 239.168.123.161:5555. No prerecorded prompts are exposed; `example/r1/audio/test.wav` is only a demo clip. The Python SDK's G1 AudioClient matches the R1's service name, API ids and JSON fields (unlike the arm action client) but never increments its TTS index, so `tools/say.py IFACE "text" [--speaker 1] [--volume N]` redefines the client. Verified 2026-09-26 evening from the Mac over `en6` with the body cable only: GetVolume returned 100 and TtsMaker("six seven") returned 0, so the service is reachable on the controller side without the Jetson. A TTS call is a DDS publish and needs Artur's yes.
-- Cockpit: `tools/cockpit.py en6` serves http://localhost:8082/ with the head camera, both wrist cameras and a live MuJoCo twin posed from `rt/lowstate` (controller slots mapped to the free-standing model's joints, IMU quaternion on the floating base, offscreen render via MUJOCO_GL=cgl). It needs `tools/headcam.py en6` (8081) and the Jetson's `camstream.py` forwarded to 8080 running alongside. Trajectory preview: `GET /preview?file=sim/plans/arm_lift_dryrun.json` plays the resolved plan (lead-in and return included, exactly what `--execute` would stream) as translucent ghost arms over the live robot, looping with a 1 s pause, both hands' full paths as lines ending in an arrowhead at the destination (cyan left, orange right) and a caption with time and loop; `/preview/stop` ends it. The cockpit also subscribes to `rt/arm_sdk`: whenever any publisher sends with weight > 0 the ghost switches to the commanded targets, yellow, captioned SENDING, so every command to the arms is visible in the twin next to the measured robot; when the topic goes quiet for 0.5 s the ghost returns to the plan playback. `--domain 1` with `lo0` runs it against a loopback fake publisher for tests (how this was verified; nothing reaches the robot). The ghost is the same model posed a second time and added to the renderer's scene with `mjv_addGeoms`; non-arm ghost geoms get alpha 0. Hand tips are the wrist roll links plus 0.13 m along x, as the fixed-base model's preview sites.
-- Desktop window: `tools/start_all.sh` starts the stream servers if needed and opens `tools/reins_ui.py` (Tk): cameras pane, live twin pane, and a control pane that lists `tools/plans/` and `recordings/` with Dry run, Execute (confirmation dialog) and Abort (SIGINT to arm_lift, which ramps the weight down). Every passing dry run starts the twin preview (button "Dry run + preview"); an Execute reloads the plan the moment the tool prints EXECUTE (the resolved file is rewritten just before), so the paths plus the yellow sent pose show during streaming; "Stop preview" (under the twin) clears the paths; a teach clears them too. A "Say" row (text, English/Chinese voice, optional volume, Enter or the Say button) runs `tools/say.py` in its own thread, so the robot can speak while a trajectory streams. Below it, "Record a new skill": name, seconds, teach kp, then Teach by hand (confirmation dialog, runs `tools/teach.py`) or Passive log (runs `tools/record.py`, subscribe-only); a red timer shows the recording, Finish & save sends SIGINT and the tool writes `recordings/<name>.json`; the list then refreshes with the new file selected and speed preset to 0.4 after a teach. Tools run unbuffered so their lines show live; arm_lift runs with `--brief` (FSM, plan summary, hand reach and contact warning, checks verdict, progress every 2 s, worst lag) and the log keeps runs until its Clear button. `--selftest NAME` runs a 3 s passive log through the button path and exits (subscribe-only; how the window was verified). Delete… removes the selected file after a confirmation. A second Ctrl-C while a tool is releasing is ignored by the tools (the ramp to weight 0 always completes) and by the window. Launch the window from Terminal (`open -a Terminal tools/start_all.sh`), not from an agent shell: the venv python is ad-hoc signed, so macOS does not remember privacy grants given to it directly and re-prompts on every tool start, while a grant to Terminal persists. Under the cameras, the AI pane (2026-09-27) runs the VLM harness as a subprocess (`python -m harness ... --vlm claude-cli --confirm --preview runs/ui_preview.json --demos ...`, see `harness/README.md`): task, dry run | live, arm, step profile, floor z, a click-to-toggle list of recordings as demonstrations (✓ = with a contact sheet; `teach.py` and `record.py` sample the cameras and write `recordings/<name>.sheet.jpg`, and every AI session exports its accepted moves as `recordings/ai_*.json` with a sheet), then one proposal at a time (a single move, or a TRAJECTORY of up to `loop.chunk_max` moves planned from the predicted poses and drawn whole; Accept runs it move by move, stopping where the arm is blocked) shown as ghost arms in the twin (`/preview?...&hold=1`, stays on top of the live arm topic) with Accept / Reject and a feedback field the model reads with either answer; every answer is appended to `runs/operator_feedback.jsonl` and shown to later sessions as OPERATOR FEEDBACK, and every answered proposal also becomes a picture card in `runs/experience/` (pose view with the proposed path, context view, verdict, note, outcome; `harness/experience.py`) of which the most relevant six go with every later VLM call, this session's included; the pane shows the count and has a Forget… button. Every VLM call is logged to `runs/inference_log.jsonl` and the inference-time-vs-context plot `runs/inference_stats.png` under the twin is redrawn after each call. Live mode starts `harness.robot.arm_stream` if port 8790 is closed and asks once before engaging; Stop sends the session Ctrl-C, which releases the arms.
-- Browser dashboard: `tools/dashboard.py [--iface en6]` (http://localhost:8090) has the same cameras, twin and Dry run / Execute / Abort controls as `reins_ui.py`, plus the MuJoCo plan preview. Execute unlocks only after a successful dry run of the same plan, speed and kp scale within 5 minutes, and asks for confirmation. Tests: `.venv/bin/python -m unittest tools.test_dashboard` (arm_lift is faked; they never reach the robot).
-- Revo2 hands (2026-09-27): BrainCo Revo2 hands are fitted. The harness expects `brainco_hand_server` (unitreerobotics/brainco_hand_service) on the Jetson to bridge them to DDS (`rt/brainco/{left,right}/{cmd,state}`, 6 motors, q 0 open..1 closed) and drives them with `--set hand.type=revo2` through its own hand server (`harness/robot/revo2.py`, localhost:8791, the only publisher on the cmd topics; `tools/harness_hands.sh [IFACE]` runs it, default IFACE = the non-body adapter); `python -m harness.robot.revo2 IFACE state` is the subscribe-only check. The window's AI pane has a "hand" dropdown (none | revo2): revo2 adds the `--set`, starts the hand server on the Jetson adapter (`--jetson-iface`, auto-detected) when port 8791 is closed, log `/tmp/harness_hands.log`, and shows GRASP/RELEASE as HAND proposals with Accept / Reject (the twin holds the arm). A hand command is a DDS publish and needs Artur's yes, like `--execute`. Status 2026-09-27 afternoon: the hands are wired to the Jetson (Unitree's udev rule `99-ttyhand.rules` maps the WCH CH343 dual USB-serial to `/dev/ttyHAND0` and `/dev/ttyHAND1`; the BrainCo SDK examples are unpacked in `~/Downloads/brainco-hand-sdk-main`), but no bridge is installed or running (`brainco_hand.service` does not exist, no `bc_stark_sdk`, no internet on the Jetson), so `state` shows no hands on either adapter; hand commands, `hand.revo2.empty_reach` and `robot.ee_offset_m` with the hand (still the bare-wrist 0.13 m) are unverified. Their DDS will arrive on the Jetson adapter. Verified so far on loopback only (fake hands + server on lo0 domain 1) and by a dry run with `hand.type=revo2` against the real server (the hand client reports NO STATE and pretends). See `harness/README.md` "Revo2 hands".
-- Trajectory logging: every `tools/arm_lift.py --execute` run writes `runs/replays/<timestamp>_<name>.json` (commanded + measured; until 2026-09-27 these went to `recordings/` and filled the window's lists with a copy per Execute). `tools/record.py IFACE NAME` logs the arms passively from `rt/lowstate` for any motion source into `recordings/`. Both replay with `tools/arm_lift.py IFACE --plan <file>.json`, dry run first.
-- `tools/arm_lift.py IFACE` is the reference actuation script: dry run by default (reads pose, queries FSM, checks limits and speed, kinematic hand check, writes a preview plan), `--execute` streams one joint at 50 Hz with weight ramps and a tracking-error abort. It refuses to execute outside FSM 4/811. Recorded plans (median sample gap under 0.25 s) keep their first sample and get a lead-in from the measured pose at 0.25 rad/s (at least 0.5 s), because a teach recording starts a little drooped from where the controller holds the arm; without it the jump failed the speed cap "at t=0.00 s". Hand-authored plans still have their t=0 frame replaced by the measured pose. A speed rejection names the --speed that would pass (or, when the appended return leg is the fast part, says so and suggests --return-s); the window fills the speed field from that line. Exit codes: 2 aborted while streaming, 3 wrong FSM, 4 plan rejected by the checks (nothing sent), 130 interrupted.
-
-Sim: `unitreerobotics/unitree_mujoco` ships an R1 model that consumes the same DDS topics, so a plan can be dry-run before touching hardware. Its MJCF has 29 actuators (3-DoF waist and wrists) while the A5 low-level joint map has 26. Check the variant before trusting joint indices.
-
-## Connecting a Mac to the robot
+## Historical hardware connection notes (verify against the current setup)
 
 Port facts from Unitree's docs: the **RJ45 Gigabit Ethernet** port on the R1's upper body is the PC link. The R1's **USB-C port is the internal link to the EDU Jetson**; plugging a Mac into it gives no network connection.
 

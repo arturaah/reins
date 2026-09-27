@@ -1,0 +1,15 @@
+{
+  "cmd": "execute_motion",
+  "request_id": "example-request-hand",
+  "payload": {
+    "kind": "hand",
+    "arm": "right",
+    "closed": false
+  },
+  "approval": {
+    "proposal_id": "example-proposal-hand",
+    "revision": 1,
+    "digest": "dc98a7f687ff102323575e384cb1ec59269f31237a2225cd0da9e7159be51062",
+    "expires_at": 1800000120.0
+  }
+}

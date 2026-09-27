@@ -1,177 +1,145 @@
-# Reins dashboard and reviewed robot control
+# Reins dashboard
 
-The dashboard is the main operator interface. It connects the trajectory planner,
-visual harness and Spectacles to one proposal/review/execution pipeline.
+The dashboard is the operator interface for one reviewed motion pipeline. The
+assistant can observe cameras, detect objects, compile paths with core IK,
+inspect rejection reasons and revise drafts. A complete motion becomes a
+proposal only when it is submitted for human review.
 
-## Start
-
-From the repository root:
+## Start locally
 
 ```sh
 python3 -m pip --python .venv/bin/python install -r requirements.txt
+.venv/bin/python tools/dashboard.py --sim
+```
+
+Open the printed browser URL, normally http://localhost:8090. `--sim` disables
+hardware connection, firmware discovery, physical controls and robot feeds.
+No model request runs until you send a task. Use a configured assistant in the
+chat selector. The optional provider SDKs and credentials depend on that choice.
+
+The HTTP API listens on loopback. An occupied default port advances through
+8091–8099; `--port 0` chooses a free one. No JavaScript build is required.
+
+## Prompt → preview → approve and run
+
+1. Describe a task in chat. The assistant chooses observations and planning tools;
+   planning and revisions do not need approvals.
+2. Inspect the draft in MuJoCo or paired glasses. A draft cannot be approved.
+3. The assistant submits the complete motion with `propose_motion`. For a manual
+   chat suggestion, **Generate preview** creates a draft and **Submit complete
+   motion for review** submits it. Robot control buttons submit their short motion
+   directly for review.
+4. Approve or reject once, in the dashboard or glasses. The decision binds the
+   complete motion, revision and digest. Any further motion needs a new proposal.
+5. The coordinator rechecks the current pose and validation, runs the approved
+   motion, and returns measured feedback. The last outcome remains visible.
+
+There is no per-step camera fallback or permission to keep steering after
+approval. Camera context and planning errors go back to the same assistant
+before it submits a new complete motion. Model tools cannot approve, execute a
+preset or alter a pending approved path.
+
+Approvals expire after two minutes. A changed start pose invalidates execution;
+no unseen approach motion is added. **Stop / release** cancels the current work
+and invalidates its proposal. Escape also stops connected control.
+
+There is no replay library or recording UI. Diagnostic proposals, decisions and
+measured results are retained by the coordinator for debugging.
+
+The optional operator CLI uses the running dashboard's same entry point:
+`python -m tools.reins prompt "wave with the right arm"`. Its `status` and `stop`
+commands share the same session; it has no approval or direct execution command.
+The old Tk and live harness launchers now lead to the dashboard. Teaching and
+direct legacy `arm_lift --execute` are retired from the supported control path.
+
+## Connect the physical robot
+
+Run without `--sim`, with the interface connected to the R1:
+
+```sh
 .venv/bin/python tools/dashboard.py --iface YOUR_ROBOT_INTERFACE
 ```
 
-The server prints its local browser URL (normally http://localhost:8090).
-An occupied default HTTP port advances to 8091–8099. Use `--port 0` for a free port.
-The browser API stays on loopback. No JavaScript build step is needed.
+Enter the measured table height in metres in the robot-base frame and click
+**Connect robot**. Connection reads telemetry; it does not engage the arms.
+An approved arm motion takes control through the single arm streamer. The
+operator must select the supported onboard controller state using the remote.
+The configuration is selected with `--harness-config FILE`.
 
-The dashboard starts in **Simulation** mode. Startup only discovers firmware
-gestures; it does not engage the trajectory controller or run a preset.
+The manual controls propose 2 cm nudges, 5° wrist turns and a home pose. Walking
+and Revo2 hand controls are enabled only when the coordinator reports support.
+Walking previews show planned base displacement, not simulated gait, balance or
+foot contact. Hand actions show their description; the A5 model has no animated
+finger joints. Disabled capabilities cannot be enabled by model text.
 
-## One motion workflow
+Firmware presets remain separate human buttons and are coordinated by the same
+pipeline ownership gate. They run onboard; the dashboard does not possess their
+joint trajectory. Their **Release arms** preset is distinct from stopping a
+reviewed trajectory. Follow the current controller state reported by the robot.
 
-1. Describe a motion in chat, or prepare a 2 cm nudge, 5° wrist roll or home pose in **Robot control**.
-2. The core planner compiles the path and checks joint limits, speed,
-   acceleration and the swept arm volume, including the other arm.
-3. The resolved proposal appears automatically in MuJoCo and paired glasses.
-4. Approve or reject that exact proposal in either interface. The approval button
-   explicitly says whether it applies to simulation or the physical robot.
-5. The runtime checks the current pose again, sends the reviewed samples unchanged,
-   and records the result. A new move requires a new approval.
+Arm validation checks sampled motion, robot geometry and the configured table
+volume. RGB detections locate objects in an image, not in 3D. Image-guided motions
+are approximate; this pipeline does not claim a measured obstacle map or contact
+control. Hardware behavior still requires commissioning on the actual robot.
 
-The model can propose paths and request context. It has no approval or execution
-tool. Approvals expire after two minutes and cannot be reused for another revision.
-Pose changes invalidate execution rather than adding an unseen approach motion.
+## Pair Spectacles
 
-There is no replay library or recording workflow. Session diagnostics under
-`runs/dashboard/<session>/` retain proposals, decisions and execution feedback;
-they are not offered as executable recordings.
+The dashboard starts its AR bridge; do not start a second `plan_feed.py` on the
+same port.
 
-### New gestures and visual fallback
+1. Open **Connections → Glasses motion review**, name the device and select
+   **Pair a device**.
+2. Set the Lens `websocketUrl` to `ws://DASHBOARD_COMPUTER_LAN_IP:8765`.
+3. Save the displayed `deviceId` and `reviewToken` in the updated
+   `spectacles/Assets/R1Trajectory.js` Inspector inputs. The token is displayed
+   once; the dashboard stores its hash.
+4. Scan the shoulder markers. Draft paths are labelled as drafts; only the
+   complete proposal can be approved or rejected.
+5. Double-pinch right to approve or left to reject the current complete proposal.
 
-A new gesture does not need a predefined trajectory. Chat can author a single-arm
-path with intermediate waypoints, pauses and a return. Both the chat tool and
-Generate preview button use the same host-managed budget: an initial draft plus
-up to two revisions.
+Pairing survives restarts. Revoke a device in Connections to close its active
+session and remove its authority. Pairing metadata is stored under
+`REINS_STATE_DIR`, or `~/.local/state/reins/` by default; keep that directory when
+restarting the dashboard. `--glasses-port NUMBER` changes the AR port; zero picks
+a free port. The default listener is `0.0.0.0`; the default WebSocket connection
+is not encrypted, so use the local robot network.
 
-If primary planning fails or lacks object context, the visual harness gathers
-fresh head/wrist camera frames and optional wearer frames. It proposes small,
-non-contact steps through the same core compiler and validation. Each step is
-reviewed separately; open-loop action chunks are disabled in the dashboard.
+Authenticated Lens voice tasks go to the same assistant as browser prompts.
+A voice task never approves a motion. The bridge deduplicates command IDs and
+requires the current authenticated session. Camera-window sharing is separate
+from the AR trajectory and voice protocol.
 
-The **Visual fallback** settings select Codex CLI, Claude CLI, OpenAI API or
-Anthropic API. Codex and Claude reuse the isolated, cancellable dashboard CLI
-transport. API providers require their optional SDK and account configuration.
-For OpenAI, set `OPENAI_API_KEY` and `REINS_CHAT_MODEL` (or `REINS_VISION_MODEL`).
-For Anthropic, install `anthropic`, set `ANTHROPIC_API_KEY`, and configure
-`vlm.model` in the harness config. There are no model calls until requested work
-needs them. The selected provider receives the camera frames used for visual planning.
+## Cameras, measured state and voice
 
-A missing head-camera frame produces **Needs context**, with a **Retry with
-cameras** button. The wearer view is supplementary; an uncalibrated wearer camera
-does not define metric object positions or robot-relative movement directions.
-A browser-shared glasses window is display-only and is not sent to the visual policy.
-
-## Physical robot control
-
-Enter the measured table height in metres in the robot-base frame, then click
-**Connect & hold arms**. This is an explicit physical action: the bridge takes
-arm control and holds the current pose. The robot must already be in a supported
-controller state (FSM 4 or 811).
-
-The dashboard connects to the local harness streamer or starts one if needed.
-The optional `--harness-config FILE` configures the streamer address, workspace,
-model-provider settings and home poses. Camera endpoints are configured on the
-dashboard command line.
-
-The arm path is checked against the robot model and a table volume covering the
-configured forward workspace. RGB images and human review provide context; they
-are not a calibrated obstacle map. The fixed-base model does not validate balance
-or walking. This pipeline supports one arm, including wrist roll for incremental
-actions, but no finger articulation, grasping or physical contact.
-
-**Stop / release** cancels planning, invalidates approvals, interrupts trajectory
-streaming and releases this arm controller. Escape also stops connected arm
-control. Loss of both authenticated operator heartbeats for ten seconds releases
-control. The streamer separately handles client disconnects, telemetry staleness
-and tracking failures.
-
-A cross-process lease prevents Reins firmware presets, the legacy arm tool and
-the streamer from taking local control simultaneously. Release trajectory control
-before using a firmware preset. An onboard preset is run by the firmware; the
-trajectory Stop button does not cancel it. Its separate **Release arms** preset
-is available after the firmware action finishes.
-
-## Spectacles review
-
-The dashboard includes the AR WebSocket service; a separate `plan_feed.py`
-process is not needed for this workflow.
-
-1. Open **Connections → Glasses motion review**.
-2. Set the Lens's `websocketUrl` to
-   `ws://DASHBOARD_COMPUTER_LAN_IP:8765`.
-3. Copy the session's review token into the Lens's `reviewToken` input.
-4. Scan the shoulder markers to anchor the robot frame.
-5. Double-pinch right to approve or left to reject the displayed proposal.
-
-Use the updated `spectacles/Assets/R1Trajectory.js`. The Lens authenticates,
-sends operator heartbeats, and includes the exact proposal digest in its decision.
-An idle/cancelled pipeline clears the AR proposal. A paired Lens does not replace
-missing live data with a mock trajectory. Prototype mock paths require explicitly enabling the Lens demoMode input.
-
-`--glasses-port NUMBER` changes the AR port; zero chooses a free one. The default
-listener is `0.0.0.0` for access from the glasses. Only authenticated clients
-receive proposal paths or submit decisions. Pairing tokens change when the
-dashboard restarts. Use the local robot network; the default WebSocket transport
-is not encrypted.
-
-The older standalone feed remains available for development. A review-enabled
-feed now requires `--review-token-file FILE`; read-only visualization does not.
-It uses the existing proposal ID/hash mailbox. Dashboard review uses the in-memory
-runtime directly.
-
-## Cameras and views
-
-Existing camera services are reused:
+The dashboard reuses these JPEG/MJPEG camera endpoints:
 
 - Head: `http://127.0.0.1:8081/cam` from `tools/headcam.py YOUR_INTERFACE`.
 - Left/right wrist: `http://127.0.0.1:8080/cam/0` and `/cam/2`.
-- Optional live twin: `http://127.0.0.1:8082/twin`.
-- Optional wearer feed: `--glasses http://HOST:PORT/stream`.
+- Optional wearer camera: `--glasses http://HOST:PORT/stream`.
+- Optional existing live twin: `--twin http://127.0.0.1:8082/twin`.
 
-Override with `--head`, `--left-wrist`, `--right-wrist`, `--twin`, and
-`--glasses`. Empty URLs disable sources. These are JPEG/MJPEG inputs, not
-trajectory WebSockets or RTSP. Camera status reflects receipt of a usable frame,
-not synchronized physical capture timestamps.
+Override with `--head`, `--left-wrist`, `--right-wrist`, `--glasses`, or `--twin`;
+empty values disable a source. Receipt freshness is checked, but capture times
+are not synchronized. The selected model receives frames when using observation
+tools. Browser window sharing is display-only and is not a server camera source.
 
-The browser can also display a mirrored glasses window using its screen-sharing
-picker. This does not add video capture to the Lens or make the window available
-to server-side planning.
+The Robot control panel exposes measured state and the last motion's measured
+end pose. The optional cockpit/twin view remains a subscribe-only visualization.
+Linux rendering defaults to EGL and macOS to CGL; override `MUJOCO_GL` if needed.
 
-Linux rendering defaults to EGL and macOS to CGL; set `MUJOCO_GL` before startup
-if the graphics environment requires another backend.
+For the existing local voice service, pass
+`--voice-url http://127.0.0.1:8770/`. Only a local HTTP origin is accepted.
+Dictation inserts text in the chat field for review and submission; **Read reply**
+plays an assistant reply through the voice panel. It cannot approve motions.
 
-## Implementation and checks
-
-- `core/robot_pipeline.py`: task state, primary/fallback routing, shared review,
-  pose freshness, execution and operator liveness.
-- `core/trajectory.py`: five-joint resolution, smooth command-grid resampling,
-  plan digest and starting-state checks.
-- `core/ik.py` and `core/motion_validation.py`: geometry and full-path validation.
-- `core/visual_policy.py`: harness policy adapters and dashboard camera packets.
-- `core/glasses_bridge.py`: authenticated review and heartbeat protocol.
-- `harness/robot/arm_stream.py`: cancellable hardware streaming and independent checks.
-- `core/robot_lease.py`: local cross-process ownership.
+## Offline verification
 
 ```sh
-.venv/bin/python -m pytest -q harness/tests contract/tests spectacles/tests core \
-  tools/test_dashboard.py tools/test_dashboard_http.py
+.venv/bin/python -m pytest -q core tools/test_dashboard.py tools/test_dashboard_http.py \
+  harness/tests contract/tests spectacles/tests
 ```
 
-Tests use scripted models, fake telemetry/publishers and local sockets. Browser
-checks can use the same fake backend; they do not qualify the physical robot,
-camera calibration, network or Lens tracking.
+Tests use scripted models, fake robot state and loopback sockets. They do not
+publish on robot DDS, start Jetson services or qualify physical robot operation.
 
-The action schema requires all properties, using an empty plan array for a
-single step, following the [official Structured Outputs documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
-
-## Simulation lockout and voice
-
-Run `--sim` to disable hardware controls, robot feeds and calibrated observations.
-Firmware discovery is also disabled. Generated motions stay in the local preview.
-
-Pass `--voice-url http://127.0.0.1:8770/` to embed the optional local voice service.
-Only a local HTTP origin is accepted. Dictation inserts text into the chat field;
-review and send it yourself. The **Read reply** button sends the reply to the
-voice panel for playback. Voice input never approves a motion.
+The default Live robot twin is rendered from the coordinator’s cached joint telemetry. It needs no cockpit or relay process and stays unavailable until connected. It shows joint configuration with a fixed base, not localized global position. `--twin URL` remains an optional external-view override.

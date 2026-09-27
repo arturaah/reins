@@ -668,3 +668,10 @@ footer { font-size:9px;padding:17px 0; }
 /* Local voice service, preserved from the voice integration. */
 #voicePanel{margin-bottom:14px;overflow:hidden}
 #voiceFrame{width:100%;height:340px;border:0;background:#0d1119}
+
+.motion-outcome{padding:12px;margin:14px 0 0;background:#122322;border:1px solid #31524a;border-radius:8px;font-size:12px}
+.motion-outcome p{color:var(--muted);line-height:1.6}.state-json,.motion-outcome pre{font-size:10px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}
+.paired-devices{list-style:none;padding:0;font-size:11px}.paired-devices li{display:flex;align-items:center;gap:12px;padding:9px 0;overflow-wrap:anywhere}.paired-devices li span{flex:1;min-width:0}
+#pairGlassesForm input{max-width:180px}#draftActions .motion-help{margin-top:9px}
+
+@media(max-width:600px){.prompt-panel>.panel-head{height:auto;min-height:43px;flex-wrap:wrap;gap:8px;padding:9px 12px}.prompt-panel .panel-actions{flex-wrap:wrap;gap:8px;justify-content:flex-end}.chat-backend select{max-width:170px}.prompt-panel .panel-title{min-height:22px}}

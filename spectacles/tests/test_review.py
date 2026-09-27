@@ -102,13 +102,15 @@ class WebSocketReviewTests(unittest.IsolatedAsyncioTestCase):
                     self.fail("feed did not start")
                 async with client as websocket:
                     await websocket.send(json.dumps({"type":"authenticate", "token":"test-pairing-token"}))
-                    self.assertEqual(json.loads(await websocket.recv())["type"], "auth_ack")
+                    auth = json.loads(await websocket.recv())
+                    self.assertEqual(auth["type"], "auth_ack")
                     first = json.loads(await asyncio.wait_for(websocket.recv(), 2))
                     self.assertEqual(first["review"]["id"], proposal["id"])
                     self.assertEqual(len(first["hands"]["right"]), 20)
                     for proposal_id, accepted in (("wrong", False), (proposal["id"], True)):
                         await websocket.send(json.dumps({"type": "review_decision", "version": 1,
-                                                         "id": proposal_id, "decision": "decline"}))
+                                                         "id": proposal_id, "decision": "decline", "session":auth["session"],
+                                                         "digest":first["review"]["digest"], "revision":first["review"]["revision"]}))
                         while True:
                             reply = json.loads(await asyncio.wait_for(websocket.recv(), 2))
                             if reply.get("type") == "review_ack":

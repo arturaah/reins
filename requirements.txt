@@ -1,5 +1,7 @@
 -r core/requirements.txt
 PyYAML>=6,<7
-websockets>=14,<16
+websockets>=15,<17
 jsonschema>=4,<5
+# Optional: core/requirements-detector.txt for open-vocabulary detection.
 # Optional API providers: install anthropic and/or openai when selected.
+# Optional voice service: install voice/requirements.txt in its own environment.

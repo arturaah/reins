@@ -1,227 +1,126 @@
-# Reins contract v0.1
+# Live motion boundary and historical session experiments
 
-The messages that connect the parts of Reins: the VLM harness, IK and the core,
-the review surfaces (MuJoCo preview, Spectacles) and the DDS streamer. It maps
-onto the architecture in `CLAUDE.md` ("Chosen control method"):
+[`runtime.py`](runtime.py) is the shared live payload/approval validator used by
+`RobotPipeline` and the private actuator transports. Its structural companion is
+[`motion.schema.json`](motion.schema.json); examples are in
+[`runtime_examples/`](runtime_examples/). This is the active execution boundary.
 
-```
-operator ──command──► core ──command──► planner (VLM harness)
-                        ▲                  │
-                        └──── goals ───────┘   end-effector goals
-                      core: IK → q(t) → preview
-                        │
-                        ├──plan_proposed──► review surfaces (MuJoCo, Spectacles)
-                        │◄─────decision──── operator
-                        │
-                        └──execute (approved q(t))──► streamer ──rt/arm_sdk 250 Hz──► R1
-```
+`reins.schema.json`, `reins_contract.py` and the older `examples/*.jsonl` describe
+an earlier offline multi-role session design. They retain their regression tests,
+but do **not** govern the dashboard, Spectacles WebSocket or streamer. In
+particular their `hello/welcome`, 250 Hz description, preset steps and provisional
+corridor replanning are not promises of the current runtime.
 
-**Out of scope:** the robot-side DDS topics (`rt/arm_sdk`, `rt/lowstate`). Those
-are Unitree's contract and stay as they are. This contract ends where the
-streamer receives an approved plan.
+## Supported flow
 
-The machine-readable source of truth is [`reins.schema.json`](reins.schema.json).
-[`examples/`](examples/) holds full example sessions that validate against it.
-Where this page and the schema disagree, the schema wins; fix the page.
-
-## Transport
-
-- WebSocket, text frames, one JSON object per frame. The core is the server,
-  default `ws://<mac>:8765/reins`.
-- Every client opens with `hello`. The core answers `welcome` with the current
-  state, so a client that reconnects mid-plan can catch up.
-- Camera images for the VLM are **not** carried here. The planner gets them its own way.
-
-## Conventions
-
-| | |
-|---|---|
-| Units | metres, radians, seconds |
-| Timestamps | `t`: sender's Unix time in seconds (float). `time_s`/`times_s`: seconds from the start of a step |
-| Quaternions | `[w, x, y, z]` (MuJoCo order) |
-| Joint names | MuJoCo/URDF joint names, e.g. `left_shoulder_pitch_joint`. Never motor indices |
-| Frames | `robot`: origin on the floor under the pelvis, x forward, y left, z up. Moves with the robot. `map`: fixed world frame. In sim it is `mujoco_world` |
-
-Geometry always says its frame. Review surfaces that track the robot (Spectacles
-with a marker on the robot) can draw `robot`-frame geometry directly, with no
-room calibration.
-
-**Joint names, not indices.** The MuJoCo model has 29 actuators; the R1 EDU A5
-hardware has 26 motors. The streamer owns the name→`rt/arm_sdk` index map and
-**rejects** any plan that names a joint it cannot map. No component besides the
-streamer uses indices.
-
-## Envelope
-
-Every message has:
-
-```json
-{"type": "plan_proposed", "id": "m-0192", "t": 1790000000.12, ...}
+```text
+Agent tools → immutable validated draft → draft preview
+                               ↓ propose_motion
+                  complete proposal, ID/revision/digest
+                               ↓ one human decision
+             fresh-state/expiry/cancellation/validation recheck
+                               ↓ authenticated private connection
+                      execute_motion → measured outcome
 ```
 
-`id` is unique per sender. Replies that refer to a message put its id in `ref`.
+Planning does not confer execution authority. Model tools cannot create an
+approval receipt. A digest identifies content; it is not a secret, operator
+identity or permission to execute. An approved path cannot change afterward.
+A new physical observation requiring another motion needs a new proposal.
 
-## Roles
+## Payloads
 
-Sent in `hello`. The core enforces who may send what.
-
-| role | who | may send |
-|---|---|---|
-| `operator` | Spectacles, MuJoCo review window, CLI | `command`, `decision`, `abort` |
-| `viewer` | live twin, dashboards | `abort` |
-| `planner` | VLM harness | `goals`, `abort` |
-| `executor` | DDS streamer (or the sim standing in for it) | `progress`, `robot_state`, `done`, `abort` |
-
-Anyone may send `abort`. Only `operator` may send `decision`.
-
-## State machine (core)
-
-```
-          command            goals ok           approve (matching revision)
-  idle ───────────► planning ────────► proposed ─────────────────────► executing
-   ▲                  │  ▲               │  │                              │
-   │     plan_rejected│  └───decline + ──┘  │ decline, no feedback         │ done
-   │    (after retries)     feedback        ▼                              ▼
-   └──────────────────────────────────── idle ◄────────────────────────────┘
-
-  abort from any state → halting → idle
-```
-
-- The core broadcasts `state` on every transition.
-- **Revisions.** Each plan has `plan_id` and an integer `revision`. Anything that
-  changes what the robot will do creates a new revision. A `decision` must name
-  the exact revision it approves. A decision for a stale revision is refused
-  with `error` `stale_revision`. No one can approve a plan they haven't seen.
-- **Decline with feedback** ("use the other hand") goes back to `planning`. The
-  core forwards the feedback to the planner with the original command.
-  Declining without feedback returns to `idle`.
-
-## Safety rules
-
-These are requirements, not suggestions.
-
-1. The core sends `heartbeat` at least every 100 ms. The executor **halts** if
-   it hears nothing from the core for 500 ms.
-2. On `halt`, or on losing the core, the executor ramps the `rt/arm_sdk` blend
-   weight to 0 over at most 1 s. The robot's own controller keeps balance. The
-   core may then have the loco client `Damp` as the session safety wrapper.
-3. The executor only runs a plan received in `execute`, and only if its
-   `plan_id`/`revision` equals the latest `state` it saw with `state: executing`.
-4. The core validates every trajectory before proposing it: known joints, finite
-   values, within URDF limits, velocity within `limits.max_joint_vel_rad_s`. The
-   streamer validates again before streaming. Two independent checks.
-5. The streamer never extrapolates past the last sample. It interpolates linearly
-   to 250 Hz and holds the final pose until the blend ramps out.
-
-## Messages
-
-### Session
-
-| type | from → to | fields |
-|---|---|---|
-| `hello` | client → core | `role`, `name`, `protocol` (`"reins/0.1"`) |
-| `welcome` | core → client | `protocol`, `session_id`, `state` (a `state` payload) |
-| `heartbeat` | core → all | none |
-| `error` | core → client | `code`, `message`, optional `ref` |
-
-Error codes: `bad_message`, `not_allowed` (wrong role), `stale_revision`,
-`invalid_plan`, `busy` (a command arrived while a plan is active).
-
-### Planning
-
-| type | from → to | fields |
-|---|---|---|
-| `command` | operator → core, core → planner | `command_id`, `text`, optional `feedback` (with the rejected plan id) |
-| `goals` | planner → core | `command_id`, `summary`, `steps`: end-effector goals per step (below) |
-| `plan_rejected` | core → planner | `command_id`, `reasons` (e.g. IK unreachable), so the planner can retry |
-| `plan_proposed` | core → all | `plan` |
-
-The planner speaks in **end-effector goals**, and the core turns them into joint
-trajectories with IK. A goal step:
-
-```json
-{"step_id": "s1", "kind": "reach", "description": "Reach over the cup",
- "goals": [{"effector": "left_hand", "time_s": 2.0,
-            "position_m": [0.35, 0.16, 0.78], "quat_wxyz": [1, 0, 0, 0], "frame": "robot"}]}
-```
-
-Effectors: `left_hand`, `right_hand`, `head`. `quat_wxyz` is optional; without it
-IK solves for position only. A planner may also ask for a `preset` step, which
-runs a named arm action.
-
-### Review
-
-| type | from → to | fields |
-|---|---|---|
-| `decision` | operator → core | `plan_id`, `revision`, `decision` (`approve`/`decline`), optional `feedback` |
-| `state` | core → all | `state`, `plan_id`, `revision`, optional `step_id` |
-
-### Execution
-
-| type | from → to | fields |
-|---|---|---|
-| `execute` | core → executor | `plan` (full, self-contained) |
-| `halt` | core → executor | `reason` |
-| `abort` | anyone → core | `reason` |
-| `progress` | executor → core → all | `plan_id`, `revision`, `step_id`, `time_s` |
-| `robot_state` | executor → core → all | `joint_positions_rad` (name → value), optional `effectors` (positions), `blend_weight`. At most 30 Hz. For clients that aren't on DDS, such as the Spectacles |
-| `done` | executor → core → all | `plan_id`, `revision`, `outcome` (`succeeded`/`halted`/`failed`), optional `detail` |
-
-## The plan
-
-What reviewers see and what the streamer runs. Both get the same object.
+The private newline-delimited JSON request has this shape:
 
 ```json
 {
-  "plan_id": "p-7", "revision": 2, "command_id": "c-3",
-  "summary": "Pick up the cup with the left hand",
-  "source": {"planner": "vlm-harness", "model": "claude-opus-5-5"},
-  "limits": {"max_joint_vel_rad_s": 1.5},
-  "steps": [{
-    "step_id": "s1", "kind": "arm", "description": "Reach over the cup",
-    "trajectory": {
-      "joint_names": ["left_shoulder_pitch_joint", "left_elbow_joint"],
-      "times_s": [0.0, 1.0, 2.0],
-      "positions_rad": [[0.0, 0.0], [0.28, 0.23], [0.55, 0.45]]
-    },
-    "preview": {
-      "effector_paths": {"left_hand": {"frame": "robot",
-        "points": [[0.16, 0.17, 0.78], [0.25, 0.17, 0.80], [0.35, 0.16, 0.78]],
-        "times_s": [0.0, 1.0, 2.0]}}
-    }
-  }]
+  "cmd": "execute_motion",
+  "request_id": "transport-request-id",
+  "payload": {"kind": "hand", "arm": "right", "closed": false},
+  "approval": {
+    "proposal_id": "human-reviewed-proposal-id",
+    "revision": 1,
+    "digest": "64 lowercase hexadecimal SHA-256 characters",
+    "expires_at": 1800000120.0
+  }
 }
 ```
 
-- `trajectory` is q(t) as samples. `times_s` starts at 0 and strictly increases,
-  and each `positions_rad` row matches `joint_names`. Samples may be sparse
-  keyframes or dense; the streamer interpolates linearly to 250 Hz. Joints not
-  named are held where they are.
-- `preview.effector_paths` are the predicted hand paths from the MuJoCo replay:
-  the lines people see in the preview and the glasses.
-- Step kinds: `arm` (q(t) on `rt/arm_sdk`), `preset` (a named arm action),
-  and `walk` (provisional, below).
+The snippet illustrates field meanings; the files in `runtime_examples/` contain
+valid digests. Their fixed timestamps are test fixtures, not usable approvals.
 
-### `walk` steps (provisional)
+| Kind | Exact payload fields | Meaning |
+|---|---|---|
+| `arm` | `kind`, `arm`, `plan` | One resolved schema-version1 single-arm trajectory; default command samples50Hz |
+| `walk` | `kind`, `vx`, `vy`, `vyaw`, `duration_s` | One bounded constant body-velocity motion; explicit stop afterward |
+| `hand` | `kind`, `arm`, `closed` | One configured Revo2 open/close action |
 
-The control decision in `CLAUDE.md` uses the loco client only as a safety
-wrapper, so walking isn't in the approved architecture yet. The locomotion work
-is in progress, so this shape is reserved for it and may change:
+Positions use metres; angles use radians; times use seconds. Robot-base axes
+are x forward, y left, z up, with origin on the floor below the pelvis. Arm plans
+name model joints, not DDS motor slots. `held_joints_rad` carries the assumed
+other-joint configuration. The streamer owns the mapping to R1 hardware slots.
 
-```json
-{"step_id": "s0", "kind": "walk", "description": "Walk to the counter",
- "goal": {"frame": "map", "x": 1.8, "y": 1.8, "yaw": 1.5708},
- "corridor_half_width_m": 0.4,
- "path": {"frame": "map", "points": [[0, 0], [1.2, 0], [1.8, 0.8], [1.8, 1.8]]}}
+The coordinator hashes the **entire payload**, including plan metadata, with
+sorted JSON object keys, compact separators and non-finite values prohibited.
+The receipt contains exactly `proposal_id`, integer `revision`, matching `digest`
+and `expires_at`. Runtime validation checks that expiry is in the future and no
+more than180 seconds away; the dashboard normally offers120 seconds for review.
+
+## Checks that JSON Schema cannot replace
+
+The JSON schema checks structure and individual bounds. Live execution must
+also use `validate_motion`, `validate_approval`, the trajectory/policy checks and
+an authenticated transport:
+
+- All numbers must be finite. Arm times increase from zero to the stated
+  duration, with2–36,001 keyframes and duration at most180 seconds.
+- Walk duration is at most15 seconds; combined linear speed at most0.3 m/s,
+  angular speed at most0.5 rad/s, distance at most0.6 m and turn at most45°.
+  Configuration may tighten these limits; disabled capabilities stay disabled.
+- The arm validator checks joints, limits, velocity/acceleration, held pose and
+  swept model geometry; the coordinator adds the configured table/workspace.
+- Before actuation, fresh measured state must still match the reviewed starting
+  assumptions. No unreviewed lead-in, return, online steering or path repair is
+  permitted. A changed path needs a new draft and review.
+- The private connection must authenticate using its coordinator capability.
+  The receiver consumes each approved proposal ID once; replaying a receipt
+  cannot execute it again. Stop/disconnect invalidates active motion and keeps
+  watchdogs effective while command execution is in progress.
+
+The actual arm/base and hand bridge envelopes also carry transport request IDs
+for concurrent response matching. Read-only `hello`/state traffic does not grant
+authority. Unreviewed old `frames`, `walk` and hand-set commands are not supported
+operator interfaces.
+
+## Operator surfaces and outcomes
+
+The dashboard uses its local browser session for human decisions. Spectacles
+uses revocable paired-device credentials plus a fresh connection session, exact
+proposal ID/digest/revision and registration freshness. AR `trajectory` messages
+carry `phase`; drafts have `review:null` and cannot be approved. The AR wire
+adapter is in `core/glasses_bridge.py`, not the old session schema.
+
+`propose_motion(plan_id, request_id)` is idempotent and returns immediately.
+`get_motion_result(proposal_id)` reads the current state or a terminal outcome:
+`executed`, `declined`, `expired`, `cancelled`, `blocked` or `failed`. Available
+measured end pose, tracking error and base/hand feedback are recorded separately
+from predicted preview geometry. Model claims of task success are not outcomes.
+
+This boundary does not prove environmental clearance, grasp success, AR accuracy,
+walking balance or physical task completion. Camera observations are2D, without
+metric object depth. Those capability limits remain visible to the model and
+operator.
+
+## Changing the boundary
+
+Change runtime validation, `motion.schema.json`, examples and regression tests
+together. Retain the historical contract tests while those fixtures remain.
+
+```sh
+.venv/bin/python -m pytest -q contract/tests
 ```
 
-With `path_update` (core → all: `plan_id`, `revision`, `step_id`, `path`,
-`within_corridor`), the path can be replanned live around obstacles, the
-"self-driving line". Replans that stay within `corridor_half_width_m` of the
-approved path and keep the same goal need no new approval. Anything else halts
-the robot and proposes a new revision.
-
-## Changing the contract
-
-Bump `protocol` for breaking changes. Update the schema, this page and the
-examples in the same commit, and run `python3 -m pytest contract`.
+Runtime tests validate examples against both the schema and executable checks,
+freeze time for their example receipts, and reject mutated payloads, stale
+receipts, non-finite values and excessive combined walking limits. Streamer and
+pipeline tests separately cover authentication, one-time use and fault injection.

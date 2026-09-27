@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8,<10
+matplotlib>=3.7,<4
+# Node is optional for the executable Lens JavaScript protocol tests.

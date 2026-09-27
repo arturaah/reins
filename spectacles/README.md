@@ -1,14 +1,38 @@
-## Integrated dashboard review
+## Integrated dashboard review and speech
 
-For the current workflow, run the dashboard and pair this Lens using **Connections
-→ Glasses motion review**. Set `websocketUrl` and the new `reviewToken` input.
-The dashboard serves the exact resolved proposal; double right pinch approves,
-double left pinch rejects. Heartbeats keep operator control active. No separate
-plan-feed process is needed. See the [dashboard guide](../tools/dashboard/README.md).
+Run the dashboard and open **Connections → Glasses motion review**. Create a
+paired device, then copy its `deviceId`, `reviewToken`, and WebSocket URL into
+the Lens Inspector. The secret is shown once. Keep `demoMode` disabled for this
+workflow. Pairing survives dashboard restarts; revoke a lost device in the same
+panel. Credentials are stored as hashes in `$REINS_STATE_DIR/glasses_pairing.json`
+(default `~/.local/state/reins`), outside the repository.
+
+The model can show draft paths without requesting approval. A complete proposal
+shows a review card: double right pinch approves once; double left pinch rejects.
+Both shoulder tags must have been seen within the last three seconds to approve;
+rejection remains available when tracking is stale. This freshness check does not
+establish the accuracy of the printed-tag alignment, which still needs a physical
+check. Every decision is bound to the current connection, proposal revision and
+exact plan digest. A reconnect clears any partly completed acceptance gesture.
+
+When no proposal is pending, double right pinch starts speech and double right
+pinch again sends the transcribed task to the dashboard agent. Double left pinch
+cancels speech. A proposal takes priority over speech immediately. Voice can
+request planning, but never substitutes for motion approval. Speech recognition
+needs the Lens microphone permission and internet connection. The dashboard
+shows the same task and tools as browser-entered prompts.
+
+No separate plan-feed process is needed. The dashboard bridge, standalone
+`plan_feed.py`, and mock `trajectory_server.py` all default to port 8765; run one
+listener on that port. The bridge uses local-network `ws://`, without transport
+encryption. See the [dashboard guide](../tools/dashboard/README.md).
 
 The standalone development feed requires `--review-token-file FILE` whenever
-`--review-file` is supplied. Read-only feeds remain available without approval.
-The setup notes below also cover historical prototype workflows.
+`--review-file` or the opt-in `--voice-inbox FILE` is supplied. Its token-file mode
+is retained for older development clients; dashboard pairing is the integrated
+workflow. Read-only standalone feeds require no credential. The setup notes below
+also describe historical prototype workflows; local mock animation now requires
+explicit `demoMode=true` and no review token.
 
 # R1 hand trajectories on Spectacles
 

@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reins.local/schemas/motion.schema.json",
+  "title": "Private Reins execute_motion request",
+  "type": "object",
+  "properties": {
+    "cmd": {
+      "const": "execute_motion"
+    },
+    "payload": {
+      "$ref": "#/$defs/motion"
+    },
+    "approval": {
+      "$ref": "#/$defs/approval"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "cmd",
+    "payload",
+    "approval"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "motion": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "arm"
+            },
+            "arm": {
+              "enum": [
+                "left",
+                "right"
+              ]
+            },
+            "plan": {
+              "type": "object",
+              "required": [
+                "schema_version",
+                "duration_s",
+                "keyframes"
+              ],
+              "properties": {
+                "schema_version": {
+                  "const": 1
+                },
+                "duration_s": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 180
+                },
+                "keyframes": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 36001,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "time_s"
+                    ],
+                    "properties": {
+                      "time_s": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              },
+              "description": "Resolved plan envelope. Runtime verifies increasing times/duration; the shared trajectory validator checks joint samples and geometry. Metadata remains covered by the payload digest."
+            }
+          },
+          "required": [
+            "kind",
+            "arm",
+            "plan"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "walk"
+            },
+            "vx": {
+              "type": "number",
+              "minimum": -0.3,
+              "maximum": 0.3
+            },
+            "vy": {
+              "type": "number",
+              "minimum": -0.3,
+              "maximum": 0.3
+            },
+            "vyaw": {
+              "type": "number",
+              "minimum": -0.5,
+              "maximum": 0.5
+            },
+            "duration_s": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 15
+            }
+          },
+          "required": [
+            "kind",
+            "vx",
+            "vy",
+            "vyaw",
+            "duration_s"
+          ],
+          "additionalProperties": false,
+          "not": {
+            "properties": {
+              "vx": {
+                "const": 0
+              },
+              "vy": {
+                "const": 0
+              },
+              "vyaw": {
+                "const": 0
+              }
+            }
+          },
+          "description": "Runtime also bounds combined speed and distance/turn products; scalar JSON Schema limits alone are insufficient."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "hand"
+            },
+            "arm": {
+              "enum": [
+                "left",
+                "right"
+              ]
+            },
+            "closed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "arm",
+            "closed"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "proposal_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "expires_at": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "revision",
+        "digest",
+        "expires_at"
+      ],
+      "additionalProperties": false,
+      "description": "Not a credential. Runtime verifies the payload digest and fresh bounded expiry; the authenticated receiver consumes each proposal ID once."
+    }
+  }
+}

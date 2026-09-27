@@ -195,3 +195,111 @@ class Episode:
             self.record(step, packet, prompt, resp, stage, state, action, result, extra, planned)
             if result.asked and self.exp is not None and not self.ex.gate.estop.is_set():
                 self.remember(task, stage, label, proposal, result, state, packet)
+            stage_steps += 1
+        return self.finish({"success": False, "reason": "max steps", "steps": int(lp["max_steps"])})
+
+    # -- pieces ------------------------------------------------------------------------------------------
+    def build_prompt(self, task, stage, state, history, recovery, last, wrist_missing=False, pose_view=False):
+        sigma, _ = step_size(self.cfg["steps"], False)
+        h = height_above_table_cm(state.p, self.table_z)
+        stall = clamped = ik = None
+        if last is not None:
+            if last.ok and last.requested_dp is not None and np.linalg.norm(last.requested_dp) > 1e-6:
+                want = np.linalg.norm(last.requested_dp); got = float(last.achieved_dp @ last.requested_dp / want)
+                if got < 0.3 * want:
+                    stall = f"Last move achieved {got * 100:.1f} of {want * 100:.1f} cm -> already in contact, do NOT repeat it."
+            if last.clamped:
+                clamped = "; ".join(last.notes)
+            if last.ik_fail:
+                ik = "The last target was unreachable (IK failed); the arm did not move."
+        if last is not None and not last.ok:
+            recovery = (recovery or "") + "\nRejected action: " + last.feedback
+        hand = "no hand" if self.cfg["hand"]["type"] == "none" else ("closed" if state.hand_closed else "open")
+        hand_note = last.feedback if last is not None and last.hand_closed is not None and not last.declined else None
+        pro = proprio_text(h, sigma * 100, hand, stall, clamped, ik, holding=state.hand_closed and self.holding, hand_note=hand_note)
+        return self.with_context(controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing,
+                                                   locomotion=self.loco, pose_view=pose_view))
+
+    def with_context(self, prompt):
+        """Demonstrations, earlier sessions' operator feedback, the experience cards' text, then the prompt itself."""
+        return "\n\n".join([p for p in (self.demo_text, self.fb_text, self.exp_text()) if p] + [prompt])
+
+    def exp_text(self):
+        return self.exp.block(self.task) if self.exp is not None else ""
+
+    def exp_images(self):
+        return self.exp.images(self.task) if self.exp is not None else []
+
+    def remember(self, task, stage, label, proposal, result, state, packet):
+        """An answered proposal -> an experience card: the pose view with the proposed path, the context view, the verdict."""
+        pts = list(result.waypoints) or ([np.asarray(proposal.p, float)] if proposal.kind in ("move", "rotate") else [])
+        pose_im = None
+        if getattr(self.per, "pose_view", None) is not None and state.q:
+            pose_im = self.per.pose_view.render(state.q, path=[np.asarray(state.p, float)] + pts if pts else None)
+        try:
+            self.exp.add(task, stage["id"], label, not result.declined, result.operator_note, "" if result.declined else result.feedback,
+                         pose_im, packet.pil.get("CONTEXT VIEW"), self.ex.backend.name)
+        except Exception as e:                                        # a card is context, never a reason to stop the episode
+            self.log(f"experience card not saved: {e}")
+
+    with_demos = with_context
+
+    def stat(self, kind, resp, prompt, images):
+        if self.stats is not None:
+            self.stats.record(kind, resp, prompt, images)
+
+    def ask(self, prompt, images):
+        images = self.demo_images + self.exp_images() + list(images)
+        resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA); self.stat("act", resp, prompt, images)
+        for attempt in range(2):
+            if resp.error:
+                return None, resp
+            try:
+                return parse_decision(resp.text, (self.arm,), self.limits), resp
+            except ActionError as e:
+                if attempt == 1 or not self.cfg["loop"]["reprompt_once"]:
+                    resp.error = f"invalid answer: {e}"
+                    return None, resp
+                resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA, retry_note=str(e)); self.stat("act", resp, prompt, images)
+        return None, resp
+
+    @staticmethod
+    def same_token(hist_token, action):
+        try:
+            return parse_action(hist_token.split("(")[0]).key == action.key
+        except ActionError:
+            return False
+
+    @staticmethod
+    def grasp_stage(stages, i):
+        for k in range(i, -1, -1):
+            if "GRASP" in stages[k].get("motion", "").upper():
+                return k
+        return i
+
+    def record(self, step, packet, prompt, resp, stage, state, action, result, extra, planned=None):
+        if not self.rec:
+            return
+        rec = {"stage": stage["id"], "action": action.raw if action else None,
+               "hand_tip_before": state.p, "roll_before": state.roll, "joints_before": state.q,
+               "images_missing": packet.missing, **extra}
+        if result is not None:
+            rec.update({"ok": result.ok, "feedback": result.feedback, "hand_tip_after": result.p_after,
+                        "requested_dp": result.requested_dp, "achieved_dp": result.achieved_dp,
+                        "q_target": result.q_target, "q_after": result.q_after, "ik_fail": result.ik_fail,
+                        "timeout": result.timeout, "clamped": result.clamped, "notes": result.notes, "duration_s": result.duration_s})
+            if result.moves:                                         # a trajectory: every move with its own targets, for the export
+                subs, jb = [], dict(state.q)
+                for a, r in zip(planned or [], result.moves):
+                    subs.append({"action": a.raw, "ok": r.ok, "feedback": r.feedback, "joints_before": jb, "q_target": r.q_target,
+                                 "q_after": r.q_after, "hand_tip_after": r.p_after})
+                    if r.ok and r.q_target is not None:
+                        jb = {**jb, **{n: float(v) for n, v in zip(self.ex.kin.joint_names, r.q_target)}}
+                rec["moves"], rec["planned"] = subs, result.planned
+        self.rec.step(step, rec, packet, prompt, resp)
+
+    def finish(self, summary):
+        self.log(f"episode: {summary}")
+        if self.rec:
+            summary["run_dir"] = str(self.rec.finish(summary))
+        return summary

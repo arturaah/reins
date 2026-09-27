@@ -1,31 +1,13 @@
-"""The arm_sdk streamer process: the ONLY publisher on rt/arm_sdk in the harness.
+"""The single arm publisher and capped locomotion bridge.
 
-Runs on its own (a Terminal on the Mac, or the Jetson), holds the arms at their commanded targets at
-50 Hz with the blend weight at 1, and accepts short JSON-line commands from harness.robot.arm_client
-over a local TCP socket. Safety it enforces by itself, whatever the client says:
-  - refuses to engage outside FSM 4/811; queries the FSM read-only first
-  - weight ramps 0->1 over robot.weight_ramp_s on engage and 1->0 on release, abort, Ctrl-C and loss of client
-  - watchdog remains active during commands; receive and heartbeat processing never wait behind a stream
-  - stop/release preempts streaming; disconnect cancels frames before ramping weight down
-  - full-path joint, speed, acceleration and collision validation; no implicit lead-in frames
-  - tracking error over limits.tracking_abort_rad for 0.3 s, or rt/lowstate stale for 0.5 s -> ramp down
-  - per-frame joint speed re-checked against limits.max_joint_vel_rad_s; a faster frame is refused
-  - waist yaw and head pitch/yaw are held at their measured values with Unitree's gains (robot.hold_head); with
-    robot.head_pitch_rad the head pitch is commanded there on engage instead, so the head camera sees the hand
-  - arm gains are Unitree's example gains times robot.arm_kp_scale (gravity droop at 1.0 was 2 to 3 cm per 4 cm step)
-  - walk: {"cmd": "walk", "vx", "vy", "vyaw", "duration"} hands the arms back to the controller first (any weight > 0 on
-    rt/arm_sdk puts the R1 into FSM 816 ArmSdkLoco, in which every walk was refused; it is back in 811 at weight 0), waits
-    for an allowed FSM (locomotion.fsm_ok, fsm_wait_s), asks the loco service for that velocity for that long, logs the
-    controller's answer code, sends an explicit stop whatever happens, and takes the arms back; only with
-    locomotion.enabled in its own config, velocities and duration capped by the config on its own; odometry from
-    rt/odommodestate comes back as {dx, dy, dyaw} in the pre-walk frame
-Commands (one JSON object per line):  {"cmd": "hello"} {"cmd": "state"} {"cmd": "engage"}
-  {"cmd": "frames", "arm": "right", "frames": [[q1..q5], ...], "dt": 0.02}   (blocks until streamed)
-  {"cmd": "plan", "arm": "right", "plan": {...}, "digest": "..."} (resolved reviewed path)
-  {"cmd": "freeze"} {"cmd": "release"} {"cmd": "heartbeat"} (no reply)
-Every other command gets {"ok": false, "error": ...}.
-
-    .venv/bin/python -m harness.robot.arm_stream en6 [--port 8790]
+Anonymous connections expose only hello/state. RobotPipeline authenticates with a
+private local capability and submits an immutable motion plus one-use human review
+receipt. Raw frames, engage, plan and walk socket commands are retired. Arm plans
+are fully checked before hold-only engage; no hidden head target or lead-in is added.
+Stop, disconnect, stale telemetry and heartbeat loss cancel both arm and base motion.
+Reviewed walking releases arm weight before waiting for an allowed locomotion FSM.
+The arms remain released afterwards; an arm motion requires a separate approval.
+Odometry uses rt/odommodestate, with rt/sportmodestate as an optional fallback.
 """
 import argparse
 import json
@@ -45,8 +27,10 @@ from unitree_sdk2py.utils.crc import CRC
 
 from core.robot_lease import RobotLease
 from core import trajectory
+from core.motion_policy import table_obstacles
 from ..config import load
 from ..kinematics import ARM_JOINTS
+from .control_auth import ReviewLedger, matches, read_token
 from .lowstate import FSM_ARM_OK, JOINT_TO_SLOT, LowStateReader, query_fsm
 
 # gains as in unitree_sdk2/example/r1/high_level/r1_arm_sdk_dds_example.cpp
@@ -98,9 +82,10 @@ class Streamer:
             for n in ARM_JOINTS[side]:
                 kp, kd = GAINS[n[len(side) + 1:-len("_joint")]]
                 self.slots[JOINT_TO_SLOT[n]] = (kp * scale, kd)
-        self.head_pitch = cfg["robot"].get("head_pitch_rad")          # None: hold the head where it is; else look there on engage
         self.loco = dict(cfg.get("locomotion") or {})
         self.walking = False
+        self.walked_m = self.turned_rad = 0.
+        self.loco_command_lock = threading.Lock()
         self.odom = {"pos": None, "yaw": None, "t": 0.0}
         self.odom_sub = _odom_sub(self._on_odom)
         self.slots[WAIST_YAW] = (50.0, 3.0)
@@ -120,6 +105,11 @@ class Streamer:
         self.motion_cancel = threading.Event()
         self.release_lock = threading.Lock()
         self.lease = RobotLease("arm streamer")
+        self.control_token = read_token(cfg["streamer"].get("control_token_file"))
+        self.owner_lock = threading.Lock()
+        self.control_owner = None
+        self.reviews = ReviewLedger()
+        self.active_motion = threading.Lock()
 
     # -- DDS side ---------------------------------------------------------------------------------
     def _on_odom(self, m):
@@ -142,84 +132,87 @@ class Streamer:
             if self.motion_cancel.wait(0.25) or self.stop.is_set():
                 return fsm, name
 
-    def _retake(self, held):
-        """After a step: the arms back under the streamer when it held them before; '' or why not."""
-        if not held:
-            return ""
-        if self.motion_cancel.is_set() or self.stop.is_set():
-            return "arm retake cancelled"
-        err = self.engage()
-        if err:
-            self.log(f"walk: the arms are NOT held again: {err}")
-            return f"the arms could not be taken back after the step: {err}"
-        return ""
-
     def walk(self, vx, vy, vyaw, duration):
-        """-> (error, odometry). The streamer checks everything itself: enabled, caps, an allowed FSM. It hands the arms
-        back to the controller for the step (any weight > 0 on rt/arm_sdk puts the R1 into FSM 816 ArmSdkLoco, in which
-        every walk was refused; it is back in 811 at weight 0), asks the loco service for the velocity for duration
-        seconds, sends an explicit stop whatever happens, then takes the arms back if it held them before."""
+        """Execute a capped step after handing arm control back to the balance controller."""
         lo = self.loco
         if not all(math.isfinite(v) for v in (vx, vy, vyaw, duration)):
             return "walk parameters must be finite", None
-        if self.motion_cancel.is_set():
+        if self.motion_cancel.is_set() or self.stop.is_set():
             return "walk cancelled", None
         if not lo.get("enabled", False):
             return "walking is disabled in the streamer's config (locomotion.enabled)", None
         v, w = float(lo["speed_mps"]), float(lo["turn_speed_rps"])
-        if abs(vx) > v * 1.05 or abs(vy) > v * 1.05 or abs(vyaw) > w * 1.05:
+        if not math.isfinite(v) or not math.isfinite(w) or v <= 0 or w <= 0:
+            return "invalid configured walking speed", None
+        if math.hypot(vx, vy) > v * 1.05 or abs(vyaw) > w * 1.05:
             return f"refused: velocity over the cap ({v} m/s, {w} rad/s)", None
         t_max = max(float(lo["param_max_walk_m"]) / v, math.radians(float(lo["param_max_turn_deg"])) / w) * 1.05 + 0.3
         if not (0.0 < duration <= t_max):
             return f"refused: duration {duration:.1f} s over the cap ({t_max:.1f} s)", None
-        fsm_ok = {int(x) for x in (lo.get("fsm_ok") or [811])}      # which FSM ids may walk: the operator's list (config), 811 by default
+        if math.hypot(vx, vy) * duration > float(lo["param_max_walk_m"]) * 1.05 or abs(vyaw) * duration > math.radians(float(lo["param_max_turn_deg"])) * 1.05:
+            return "refused: walk distance or turn angle over the cap", None
+        if self.reader.age() > .5:
+            return "robot telemetry is stale", None
+        distance, angle = math.hypot(vx, vy)*duration, abs(vyaw)*duration
+        if self.walked_m+distance > float(lo.get("max_total_m", 5.)) or self.turned_rad+angle > math.radians(float(lo.get("max_total_turn_deg", 360.))):
+            return "refused: controller session walking budget exceeded", None
+        fsm_ok = {int(x) for x in (lo.get("fsm_ok") or [811])}
         held = self.engaged
         if held:
-            self.release("walk: the arms go back to the controller for the step (the arm topic puts the R1 into FSM 816, which did not walk)", cancel_motion=False)
+            # This is part of the reviewed step, not a stop/reset of its cancellation latch.
+            self.release("walk: returning the arms to the balance controller", cancel_motion=False)
         fsm, name = self._await_fsm(fsm_ok, float(lo.get("fsm_wait_s", 2.0)))
         if self.motion_cancel.is_set() or self.stop.is_set():
             return "walk cancelled", None
         if fsm not in fsm_ok:
-            back = self._retake(held)
             return (f"refused: walking is allowed in FSM {sorted(fsm_ok)} (locomotion.fsm_ok); the robot is in {fsm} = {name}"
-                    + (" even with the arm topic released" if held else "") + (f"; {back}" if back else "")), None
+                    + (" even with the arm topic released" if held else "")), None
+        if self.reader.age() > .5:
+            return "robot telemetry is stale", None
         before = self._odom_now()
         lc = _loco()
+        self.lease.acquire()
         self.walking = True
         self.log(f"walk: vx={vx:+.2f} vy={vy:+.2f} m/s yaw={vyaw:+.2f} rad/s for {duration:.1f} s in FSM {fsm}")
-        err = ""
         try:
-            code = lc.SetVelocity(float(vx), float(vy), float(vyaw), float(duration))
+            with self.loco_command_lock:
+                if self.motion_cancel.is_set() or self.stop.is_set():
+                    return "walk cancelled", None
+                # Reserve the full command even on uncertain delivery or interruption.
+                self.walked_m += distance
+                self.turned_rad += angle
+                code = lc.SetVelocity(float(vx), float(vy), float(vyaw), float(duration))
             self.log(f"walk: the controller answered {code} to the velocity command")
             if code not in (0, None):
-                err = f"the controller refused the velocity command (code {code}){CODE_HINTS.get(code, '')}; nothing moved"
-            elif self.motion_cancel.wait(float(duration)):
+                self.walked_m -= distance
+                self.turned_rad -= angle
+                return f"the controller refused the velocity command (code {code}){CODE_HINTS.get(code, '')}; nothing moved", None
+            if self.motion_cancel.wait(float(duration)) or self.stop.is_set():
                 return "walk cancelled", None
         finally:
             try:
                 lc.StopMove()
             finally:
                 self.walking = False
-        odom = None
-        if not err:
-            if self.motion_cancel.wait(float(lo.get("settle_s", 1.0))) or self.stop.is_set():
-                return "walk cancelled", None
-            after = self._odom_now()
-            if before is not None and after is not None:
-                (p0, y0), (p1, y1) = before, after
-                dxw, dyw = p1[0] - p0[0], p1[1] - p0[1]
-                c, s = math.cos(-y0), math.sin(-y0)
-                dyaw = (y1 - y0 + math.pi) % (2 * math.pi) - math.pi
-                odom = {"dx": c * dxw - s * dyw, "dy": s * dxw + c * dyw, "dyaw": dyaw}
-        back = self._retake(held)
-        if back:
-            err = (err + "; " if err else "the step was sent, but ") + back
-        return err, odom
+                if not self.engaged:
+                    with self.release_lock:
+                        self.lease.release()
+        if self.motion_cancel.wait(float(lo.get("settle_s", 1.0))) or self.stop.is_set():
+            return "walk cancelled", None
+        after = self._odom_now()
+        if before is None or after is None:
+            return "", None
+        (p0, y0), (p1, y1) = before, after
+        dxw, dyw = p1[0] - p0[0], p1[1] - p0[1]
+        c, s = math.cos(-y0), math.sin(-y0)
+        dyaw = (y1 - y0 + math.pi) % (2 * math.pi) - math.pi
+        return "", {"dx": c * dxw - s * dyw, "dy": s * dxw + c * dyw, "dyaw": dyaw}
 
     def stop_walking(self):
         if self.walking:
             try:
-                _loco().StopMove()
+                with self.loco_command_lock:
+                    _loco().StopMove()
             except Exception as e:
                 self.log(f"stop failed: {e}")
 
@@ -249,6 +242,8 @@ class Streamer:
             with self.lock:
                 self.weight = w0 + (to - w0) * el / seconds
             self.send(); time.sleep(self.dt)
+        if to > 0 and self.motion_cancel.is_set():
+            return
         with self.lock:
             self.weight = to
         self.send()
@@ -260,12 +255,13 @@ class Streamer:
             return f"refused: FSM {fsm} = {name}; the arm topic is used only in {sorted(ok)} (robot.fsm_ok_arms)"
         if self.motion_cancel.is_set():
             return "engage cancelled"
-        self.lease.acquire()
-        with self.lock:
-            self.targets = self.measured()                  # hold everything where it is
-            if self.head_pitch is not None and HEAD[0] in self.slots:
-                self.targets[HEAD[0]] = float(self.head_pitch)   # the head camera looks at the workspace (positive = down)
-            self.engaged = True
+        with self.release_lock:
+            if self.motion_cancel.is_set():
+                return "engage cancelled"
+            self.lease.acquire()
+            with self.lock:
+                self.targets = self.measured()                  # hold everything where it is
+                self.engaged = True
         self.err_since = None
         self.log(f"engage: FSM {fsm} = {name}; ramping weight up over {self.ramp_s} s")
         self.ramp(1.0, self.ramp_s)
@@ -333,7 +329,7 @@ class Streamer:
         measured = self.reader.joints()
         plan = trajectory.frame_plan(arm, prev, frames, dt, measured)
         try:
-            trajectory.validate(plan, arm)
+            trajectory.validate(plan, arm, obstacles=table_obstacles(self.cfg, live=True))
         except (ValueError, KeyError) as exc:
             return str(exc)
         for i, f in enumerate(frames):
@@ -363,48 +359,48 @@ class Streamer:
         with self.lock:
             return {"ok": True, "joints": m, "velocities": v, "weight": self.weight, "engaged": self.engaged,
                     "targets": {n: self.targets[JOINT_TO_SLOT[n]] for names in ARM_JOINTS.values() for n in names if JOINT_TO_SLOT[n] in self.targets},
+                    "walking": self.walking, "odometry": self.odom,
+                    "walked_m": self.walked_m, "turned_rad": self.turned_rad,
+                    "control_protocol": 2, "control_available": self.control_token is not None,
                     "lowstate_age_s": self.reader.age(), "frames_sent": self.frames_sent, "reason": self.reason}
 
-    # -- socket side ------------------------------------------------------------------------------------
+    # -- private command surface; anonymous clients are telemetry-only -------------------------------
     def serve(self, host, port):
-        srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind((host, port)); srv.listen(1)
-        self.log(f"arm streamer listening on {host}:{port}; publishes on rt/arm_sdk only while engaged (Ctrl-C releases)")
-        while not self.stop.is_set():
-            srv.settimeout(0.5)
-            try:
-                conn, _ = srv.accept()
-            except socket.timeout:
-                continue
-            self.log("client connected"); self.last_client = time.time()
-            try:
-                self.handle(conn)
-            finally:
-                conn.close()
-                self.log("client gone")
-                if self.engaged:
-                    self.release("client disconnected", 1.0)
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            raise ValueError("Robot control must bind to loopback; use a private tunnel for remote telemetry")
+        with socket.socket() as srv:
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind((host, port)); srv.listen(8); srv.settimeout(.5)
+            self.log(f"arm streamer on {host}:{port}; read-only until a reviewed motion from its private controller")
+            while not self.stop.is_set():
+                try:
+                    conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
+                threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
 
     def handle(self, conn):
-        conn.settimeout(0.2)
-        buf = b""
+        conn.settimeout(.2)
+        buf, authenticated = b"", False
         send_lock = threading.Lock()
         worker = None
 
         def answer(req, resp):
             try:
                 with send_lock:
-                    conn.sendall((json.dumps({**resp, "request_id": req.get("request_id")}) + "\n").encode())
+                    conn.sendall((json.dumps({**resp, "request_id": req.get("request_id")}, allow_nan=False)+"\n").encode())
             except OSError:
-                self.motion_cancel.set()
+                if authenticated:
+                    self.motion_cancel.set()
 
         def run(req):
             try:
-                answer(req, self.dispatch(req.get("cmd"), req))
+                answer(req, self.dispatch(req.get("cmd"), req, authorized=True))
             except Exception as exc:
                 answer(req, {"ok": False, "error": str(exc)})
             finally:
                 self.serving = False
+                self.active_motion.release()
 
         try:
             while not self.stop.is_set():
@@ -416,7 +412,6 @@ class Streamer:
                     break
                 if not chunk:
                     break
-                self.last_client = time.time()
                 buf += chunk
                 if len(buf) > 8*1024*1024:
                     break
@@ -424,79 +419,107 @@ class Streamer:
                     line, buf = buf.split(b"\n", 1)
                     try:
                         req = json.loads(line)
-                        if not isinstance(req, dict): raise ValueError()
+                        if not isinstance(req, dict):
+                            raise ValueError()
                     except ValueError:
                         answer({}, {"ok": False, "error": "invalid command"}); continue
                     cmd = req.get("cmd")
+                    if cmd == "authenticate":
+                        with self.owner_lock:
+                            valid = matches(self.control_token, req.get("token"))
+                            if valid and self.control_owner in (None, conn):
+                                self.control_owner = conn
+                                authenticated = True
+                                self.last_client = time.time()
+                                answer(req, {"ok": True, "control_protocol": 2})
+                            else:
+                                answer(req, {"ok": False, "error": "Controller authentication refused or another controller owns this bridge"})
+                        continue
+                    if authenticated:
+                        self.last_client = time.time()
                     if cmd == "heartbeat":
                         continue
-                    if cmd in ("frames", "plan", "engage", "walk"):
-                        if worker and worker.is_alive():
+                    if cmd == "execute_motion" and authenticated:
+                        if not self.active_motion.acquire(blocking=False):
                             answer(req, {"ok": False, "error": "motion command already active"})
                         else:
-                            if cmd == "engage": self.motion_cancel.clear()
+                            self.motion_cancel.clear()
                             self.serving = True
                             worker = threading.Thread(target=run, args=(req,), daemon=True)
                             worker.start()
                     else:
-                        # Stop/release/state are received even while frames are streaming.
-                        try: answer(req, self.dispatch(cmd, req))
-                        except Exception as exc: answer(req, {"ok": False, "error": str(exc)})
+                        try:
+                            answer(req, self.dispatch(cmd, req, authorized=authenticated))
+                        except Exception as exc:
+                            answer(req, {"ok": False, "error": str(exc)})
         finally:
-            self.motion_cancel.set()
-            self.stop_walking()
-            if self.engaged:
-                self.release("client disconnected", .5)
-            if worker:
-                worker.join(3)
+            if authenticated:
+                self.release("controller disconnected", .5)
+                if worker:
+                    worker.join(4)
+                with self.owner_lock:
+                    if self.control_owner is conn:
+                        self.control_owner = None
+            conn.close()
 
-    def dispatch(self, cmd, req):
+    def execute_motion(self, payload, approval):
+        from contract.runtime import validate_motion
+        validate_motion(payload)
+        if payload["kind"] not in ("arm", "walk"):
+            raise ValueError("Hand motions use the private hand bridge")
+        self.reviews.consume(payload, approval)
+        if self.motion_cancel.is_set():
+            raise ValueError("Motion stopped")
+        if payload["kind"] == "walk":
+            err, odom = self.walk(payload["vx"], payload["vy"], payload["vyaw"], payload["duration_s"])
+            return {**self.state(), "ok": not err, "error": err, "odom": odom}
+        plan, arm = payload["plan"], payload["arm"]
+        if self.reader.age() > .5:
+            raise ValueError("Robot telemetry is stale")
+        trajectory.require_start(plan, self.reader.joints())
+        trajectory.validate(plan, arm, obstacles=table_obstacles(self.cfg, live=True))
+        frames, dt = trajectory.frames(plan, arm)
+        if self.motion_cancel.is_set():
+            raise ValueError("Motion stopped")
+        # Confirm a first command can be sent unchanged, before engaging/publishing.
+        current = self.targets if self.engaged else self.measured()
+        expected = plan["keyframes"][0]["joint_targets_rad"]
+        if any(abs(current[JOINT_TO_SLOT[n]]-expected[n]) > .002 for n in ARM_JOINTS[arm]):
+            raise ValueError("Hold target changed; regenerate the proposal")
+        if not self.engaged:
+            err = self.engage()
+            if err:
+                return {**self.state(), "ok": False, "error": err}
+        if self.motion_cancel.is_set():
+            raise ValueError("Motion stopped")
+        trajectory.require_start(plan, self.reader.joints())
+        err = self.stream_frames(arm, frames, dt)
+        return {**self.state(), "ok": not err, "error": err}
+
+    def dispatch(self, cmd, req, *, authorized=False):
         if cmd == "hello":
             fsm, name = query_fsm()
-            return {"ok": True, "fsm": fsm, "fsm_name": name, **self.state()}
+            return {**self.state(), "fsm": fsm, "fsm_name": name}
         if cmd == "state":
             return self.state()
-        if cmd == "engage":
-            err = self.engage()
-            return {**self.state(), "ok": not err, "error": err}       # the flag last: state() carries its own ok
-        if cmd == "plan":
-            plan, arm = req["plan"], req["arm"]
-            if trajectory.digest(plan) != req.get("digest"):
-                return {"ok": False, "error": "plan digest mismatch"}
-            measured = self.reader.joints()
-            trajectory.require_start(plan, measured)
-            trajectory.validate(plan, arm)
-            frames, dt = trajectory.frames(plan, arm)
-            # The streamer verifies the exact reviewed starting targets too.
-            with self.lock:
-                targets = {n: self.targets[JOINT_TO_SLOT[n]] for n in ARM_JOINTS[arm]}
-            if any(abs(targets[n]-plan["keyframes"][0]["joint_targets_rad"][n]) > .002 for n in targets):
-                return {"ok": False, "error": "hold target changed; regenerate the proposal"}
-            err = self.stream_frames(arm, frames, dt)
-            return {**self.state(), "ok": not err, "error": err}
-        if cmd == "frames":
-            n = len(req.get("frames") or []); t0 = time.time()
-            err = self.stream_frames(req["arm"], req["frames"], float(req["dt"]))
-            self.log(f"frames: {req.get('arm')} arm, {n} frames over {n * float(req['dt']):.2f} s -> " + (f"REFUSED: {err}" if err else f"streamed in {time.time() - t0:.2f} s"))
-            return {**self.state(), "ok": not err, "error": err}
-        if cmd == "walk":
-            err, odom = self.walk(float(req.get("vx", 0.0)), float(req.get("vy", 0.0)), float(req.get("vyaw", 0.0)), float(req.get("duration", 0.0)))
-            self.log("walk -> " + (f"REFUSED: {err}" if err else f"done, odometry {odom}"))
-            return {**self.state(), "ok": not err, "error": err, "odom": odom}
+        if not authorized:
+            return {"ok": False, "error": "Read-only connection: private controller capability required"}
+        if cmd == "execute_motion":
+            return self.execute_motion(req["payload"], req["approval"])
         if cmd == "freeze":
             self.motion_cancel.set()
             self.stop_walking()
-            with self.lock:
-                self.targets = self.measured() if not self.engaged else dict(self.targets)
-            return {"ok": True, **self.state()}
+            return self.state()
         if cmd == "release":
-            self.release(); return {"ok": True, **self.state()}
-        return {"ok": False, "error": f"unknown command {cmd!r}"}
+            self.release()
+            return self.state()
+        return {"ok": False, "error": "Raw motion commands are retired; submit one reviewed motion through RobotPipeline"}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("iface"); ap.add_argument("--port", type=int); ap.add_argument("--config")
+    ap.add_argument("--control-token-file", help="private coordinator capability file (0600); omitted means read-only")
     ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="config override, e.g. locomotion.enabled=true")
     a = ap.parse_args()
     over = {}
@@ -508,16 +531,20 @@ def main():
             pass
         over[k] = v
     cfg = load(a.config, over)
+    if a.control_token_file:
+        cfg["streamer"]["control_token_file"] = a.control_token_file
     st = Streamer(cfg, a.iface)
     threading.Thread(target=st.hold_loop, daemon=True).start()
 
-    def on_sigint(*_):
-        st.stop_walking()
-        if st.engaged:
-            signal.signal(signal.SIGINT, lambda *_: print("(already releasing: the weight ramps down first)"))
-            st.release("Ctrl-C")
+    def on_stop(*_):
+        # Parent-owned bridge shutdown must use the same release path as Ctrl-C.
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, lambda *_: None)
+        st.motion_cancel.set()
         st.stop.set()
-    signal.signal(signal.SIGINT, on_sigint)
+        st.release("process stopping")
+    signal.signal(signal.SIGINT, on_stop)
+    signal.signal(signal.SIGTERM, on_stop)
     try:
         st.serve(cfg["streamer"]["host"], a.port or int(cfg["streamer"]["port"]))
     finally:

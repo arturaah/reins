@@ -47,7 +47,9 @@ class ReviewMailbox:
                 return None
             if self.answer.exists():
                 return None
-            return {k: proposal[k] for k in ("id", "text", "mode")}
+            return {**{k: proposal[k] for k in ("id", "text", "mode")},
+                    "digest": proposal["plan_sha256"], "revision": 1,
+                    "expires_at": float(proposal["created_at"])+300}
         except (OSError, ValueError, KeyError, TypeError):
             return None
 

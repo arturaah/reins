@@ -1,0 +1,17 @@
+{
+  "cmd": "execute_motion",
+  "request_id": "example-request-walk",
+  "payload": {
+    "kind": "walk",
+    "vx": 0.1,
+    "vy": 0.0,
+    "vyaw": 0.0,
+    "duration_s": 1.0
+  },
+  "approval": {
+    "proposal_id": "example-proposal-walk",
+    "revision": 1,
+    "digest": "e75d7fcc71cb6b69785f5936e71b41c0a38a74d8bb508039c712d7de67a75347",
+    "expires_at": 1800000120.0
+  }
+}

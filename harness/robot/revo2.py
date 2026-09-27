@@ -12,16 +12,19 @@ arriving. The harness talks to it over a local socket (hand_client.py), so the l
 own and the hands can be reached through a different interface than the body cable (the Jetson link).
 
   python -m harness.robot.revo2 IFACE state [--watch]            subscribe-only
-  python -m harness.robot.revo2 IFACE open|close --side right     one publish
   python -m harness.robot.revo2 IFACE serve                       the hand server on hand.revo2.host:port
   python -m harness.robot.revo2 lo0 fake --domain 1               fake hands for loopback tests (never on domain 0)
 
-Protocol, one JSON object per line: {"cmd": "hello"} {"cmd": "state"} {"cmd": "set", "side": "right", "q": [6 floats], "speed": 1.0}
+Legacy raw set commands are rejected. The controller authenticates using its private token and submits
+execute_motion with a canonical hand payload and a one-use review receipt. Telemetry stays public.
+Legacy protocol reference, one JSON object per line: {"cmd": "hello"} {"cmd": "state"} {"cmd": "set", "side": "right", "q": [6 floats], "speed": 1.0}
 Every reply carries "hands": {"left": {"q": [6], "tau": [6], "age": s} or null, "right": ...}.
 """
 import argparse
 import json
+import math
 import socket
+import signal
 import threading
 import time
 
@@ -30,6 +33,7 @@ from unitree_sdk2py.idl.default import unitree_go_msg_dds__MotorCmd_, unitree_go
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import MotorCmds_, MotorStates_
 
 from .lowstate import init_dds
+from .control_auth import ReviewLedger, matches, read_token
 
 SIDES = ("left", "right")
 MOTORS = ("thumb", "thumb_aux", "index", "middle", "ring", "pinky")
@@ -69,6 +73,10 @@ class Revo2Dds:
                 "tau": [round(float(m.states[i].tau_est), 4) for i in range(N)], "age": round(time.time() - t, 3)}
 
     def set(self, side, q, speed):
+        if side not in SIDES or len(q) != N or not all(math.isfinite(float(v)) and 0 <= float(v) <= 1 for v in q):
+            raise ValueError("Hand target must contain six finite normalized joint values")
+        if not math.isfinite(float(speed)) or not 0 <= float(speed) <= 1:
+            raise ValueError("Hand speed must be finite and normalized")
         msg = MotorCmds_([unitree_go_msg_dds__MotorCmd_() for _ in range(N)])
         for i, v in enumerate(q):
             msg.cmds[i].q = min(max(float(v), 0.0), 1.0)
@@ -83,46 +91,132 @@ class Revo2Dds:
 class HandServer:
     def __init__(self, dds, cfg, log=print):
         self.dds, self.cfg, self.log = dds, cfg["hand"]["revo2"], log
+        self.control_token = read_token(self.cfg.get("control_token_file") or cfg.get("streamer", {}).get("control_token_file"))
+        self.reviews = ReviewLedger()
+        self.owner_lock = threading.Lock()
+        self.command_lock = threading.Lock()
+        self.owner = None
+        self.active = set()
+        self.last_client = 0.
+        self.watchdog_s = float(cfg.get("streamer", {}).get("watchdog_s", .5))
 
     def snapshot(self):
-        return {"hands": {s: self.dds.state(s) for s in SIDES}}
+        return {"hands": {s: self.dds.state(s) for s in SIDES}, "control_protocol": 2,
+                "control_available": self.control_token is not None}
 
-    def dispatch(self, req):
+    def freeze(self):
+        """Hold measured finger positions, where telemetry is fresh enough to do so."""
+        errors = []
+        with self.command_lock:
+            for side in list(self.active):
+                st = self.dds.state(side)
+                if st is None or st["age"] > float(self.cfg["state_max_age_s"]):
+                    errors.append(f"Cannot hold {side} fingers: hand telemetry is stale")
+                else:
+                    q = st["q"]
+                    if len(q) != N or not all(math.isfinite(float(v)) and 0 <= float(v) <= 1 for v in q):
+                        errors.append(f"Cannot hold {side} fingers: invalid measured state")
+                    else:
+                        try:
+                            self.dds.set(side, q, 0.)
+                        except Exception as exc:
+                            errors.append(f"Cannot hold {side} fingers: {exc}")
+                self.active.discard(side)
+        return {"ok": not errors, "error": "; ".join(errors), **self.snapshot()}
+
+    def dispatch(self, req, *, authorized=False):
         cmd = req.get("cmd")
         if cmd in ("hello", "state"):
             return {"ok": True, **self.snapshot()}
-        if cmd == "set":
-            side, q = req.get("side"), req.get("q")
-            if side not in SIDES or not isinstance(q, list) or len(q) != N:
-                return {"ok": False, "error": f"set needs side in {SIDES} and q with {N} values ({', '.join(MOTORS)})", **self.snapshot()}
+        if not authorized:
+            return {"ok": False, "error": "Read-only hand connection: private controller capability required"}
+        if cmd == "freeze":
+            return self.freeze()
+        if cmd != "execute_motion":
+            return {"ok": False, "error": "Raw hand set commands are retired; submit one reviewed motion through RobotPipeline"}
+        payload, approval = req["payload"], req["approval"]
+        if payload.get("kind") != "hand":
+            raise ValueError("The hand bridge accepts only hand motions")
+        self.reviews.consume(payload, approval)
+        side = payload["arm"]
+        q = list(self.cfg["close" if payload["closed"] else "open"])
+        speed = float(self.cfg["speed"])
+        if len(q) != N or not all(math.isfinite(float(v)) and 0 <= float(v) <= 1 for v in q):
+            raise ValueError("Configured hand target must have six finite normalized values")
+        if not math.isfinite(speed) or not 0 < speed <= 1:
+            raise ValueError("Invalid configured hand speed")
+        with self.command_lock:
             st = self.dds.state(side)
             max_age = float(self.cfg["state_max_age_s"])
             if st is None or st["age"] > max_age:
                 return {"ok": False, "error": f"no {side} hand state on {self.dds.prefix}/{side}/state in the last {max_age:.1f} s: "
                                               "is brainco_hand_server running on the Jetson and the hand bound?", **self.snapshot()}
-            speed = float(req.get("speed", self.cfg["speed"]))
+            self.active.add(side)
             self.dds.set(side, q, speed)
-            self.log(f"{side} hand -> {[round(float(v), 2) for v in q]} speed {speed:.2f}")
-            return {"ok": True, **self.snapshot()}
-        return {"ok": False, "error": f"unknown cmd {cmd!r}"}
+        self.log(f"reviewed {side} hand {'close' if payload['closed'] else 'open'}")
+        return {"ok": True, **self.snapshot()}
 
     def serve(self, host, port):
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind((host, port)); srv.listen(4)
-        self.log(f"Revo2 hand server listening on {host}:{port}; publishes on {self.dds.prefix}/{{left,right}}/cmd only on a set")
-        while True:
-            conn, _ = srv.accept()
-            threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            raise ValueError("Hand control must bind to loopback")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind((host, port)); srv.listen(4)
+            self.log(f"Revo2 hand bridge on {host}:{port}; commands require the private controller and human review")
+            while True:
+                conn, _ = srv.accept()
+                threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
 
     def handle(self, conn):
-        with conn, conn.makefile("rb") as f:
-            for line in f:
+        conn.settimeout(.1)
+        buf, authenticated = b"", False
+        try:
+            while True:
                 try:
-                    resp = self.dispatch(json.loads(line))
-                except Exception as e:
-                    resp = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                conn.sendall((json.dumps(resp) + "\n").encode())
+                    chunk = conn.recv(16384)
+                except socket.timeout:
+                    if authenticated and self.active and time.time()-self.last_client > self.watchdog_s:
+                        self.freeze()
+                    continue
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
+                if len(buf) > 65536:
+                    break
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        req = json.loads(line)
+                        if not isinstance(req, dict):
+                            raise ValueError("Invalid hand command")
+                        if req.get("cmd") == "authenticate":
+                            with self.owner_lock:
+                                if matches(self.control_token, req.get("token")) and self.owner in (None, conn):
+                                    self.owner, authenticated = conn, True
+                                    self.last_client = time.time()
+                                    resp = {"ok": True, "control_protocol": 2}
+                                else:
+                                    resp = {"ok": False, "error": "Hand controller authentication refused or already owned"}
+                        else:
+                            if authenticated:
+                                self.last_client = time.time()
+                            if req.get("cmd") == "heartbeat":
+                                continue
+                            resp = self.dispatch(req, authorized=authenticated)
+                    except Exception as exc:
+                        resp = {"ok": False, "error": str(exc)}
+                    conn.sendall((json.dumps(resp, allow_nan=False)+"\n").encode())
+        except OSError:
+            pass
+        finally:
+            if authenticated:
+                self.freeze()
+                with self.owner_lock:
+                    if self.owner is conn:
+                        self.owner = None
+            conn.close()
 
 
 def run_fake(iface, domain, prefix, block_at):
@@ -165,25 +259,33 @@ def main():
     p.add_argument("--side", choices=SIDES, default="right")
     p.add_argument("--domain", type=int, default=0)
     p.add_argument("--watch", action="store_true")
+    p.add_argument("--config")
+    p.add_argument("--control-token-file", help="private coordinator capability (0600); omitted means read-only")
     p.add_argument("--block-at", type=float, default=0.5, help="fake: where the fingers stop (1.0 = nothing in the hand)")
     a = p.parse_args()
-    cfg = load()
+    cfg = load(a.config)
+    if a.control_token_file:
+        cfg["hand"]["revo2"]["control_token_file"] = a.control_token_file
+    if a.action in ("open", "close"):
+        raise SystemExit("Direct hand commands are retired. Review a hand motion in the dashboard.")
     h = cfg["hand"]["revo2"]
     if a.action == "fake":
         return run_fake(a.iface, a.domain, h["topic_prefix"], a.block_at)
     dds = Revo2Dds(a.iface, a.domain, h["topic_prefix"], publish=a.action != "state")
     if a.action == "serve":
+        server = HandServer(dds, cfg)
+        def interrupt(*_):
+            raise KeyboardInterrupt()
+        signal.signal(signal.SIGTERM, interrupt)
         try:
-            return HandServer(dds, cfg).serve(h["host"], int(h["port"]))
-        except KeyboardInterrupt:                    # the window's Stop / close: nothing is published on the way out
+            return server.serve(h["host"], int(h["port"]))
+        except KeyboardInterrupt:
             print("hand server stopped")
             return
+        finally:
+            server.freeze()
+            dds.close()
     time.sleep(1.0)
-    if a.action in ("open", "close"):
-        r = HandServer(dds, cfg).dispatch({"cmd": "set", "side": a.side, "q": list(h[a.action])})
-        if not r["ok"]:
-            raise SystemExit(r["error"])
-        time.sleep(float(h["settle_s"]))
     while True:
         for s in SIDES:
             st = dds.state(s)

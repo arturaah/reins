@@ -1,7 +1,8 @@
-"""Dashboard-owned proposal, review and execution pipeline.
+"""One draft/review/execution authority for dashboard, model tools and glasses.
 
-Model tools can submit proposals, never approve them. Both the gesture planner
-and the visual policy use the same compiler, validator, approval and executor.
+Planning never engages actuators. Only an immutable, human-approved complete motion
+is forwarded over the private control transport. Visual reasoning is part of the
+agent's planning loop, not a second physical step-by-step executor.
 """
 from __future__ import annotations
 import copy
@@ -12,19 +13,18 @@ from pathlib import Path
 import secrets
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
 
 import numpy as np
-from core.ik import ArmIK, plan_from_waypoints
-from core.generated_motion import compile_trajectory
+from contract.runtime import digest, validate_motion, validate_approval
 from core import trajectory
+from core.generated_motion import compile_trajectory, validate_trajectory
+from core.ik import ArmIK
+from core.motion_policy import base_path, check_waypoints, table_obstacles, walking_payload
 from harness.config import load
-from harness.executor import ArmExecutor, ExecResult, interpolate
-from harness.interpreter import ArmState
-from harness.kinematics import ArmKinematics
-from harness.safety import SafetyGate
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,220 +32,192 @@ ROOT = Path(__file__).resolve().parents[1]
 class PreviewBackend:
     name = "mock"
     dry_run = True
+    alive = True
 
     def __init__(self, pose):
-        self.q = dict(pose)
+        self.q, self.hands = dict(pose), {"left": False, "right": False}
 
     def joints(self): return dict(self.q)
     def velocities(self): return {n: 0. for n in self.q}
-    def hand_state(self, arm): return None
-    def hand(self, arm, closed): return "No physical gripper is configured."
+    def snapshot(self): return {"joints": self.joints(), "velocities": self.velocities(), "lowstate_age_s": 0., "engaged": False}
+    def hand_state(self, arm): return self.hands[arm]
     def freeze(self): pass
     def release(self): pass
     def close(self): pass
 
 
-class ReviewedExecutor(ArmExecutor):
-    """Harness policy adapter: core IK and full-path checks replace its local planner."""
-    def __init__(self, pipeline, arm):
-        self.pipeline = pipeline
-        kin = ArmKinematics(str(ROOT / "sim/models/r1/R1_fixed_base.xml"), arm)
-        gate = SafetyGate(pipeline.cfg, kin, pipeline.cfg["workspace"]["table_z_m"],
-                          live=pipeline.mode == "live")
-        super().__init__(pipeline.cfg, kin, gate, pipeline.backend, arm)
-        gate.estop = pipeline.cancelled
-
-    def execute(self, proposal, state):
-        if self.gate.estop.is_set():
-            return ExecResult(False, "Stopped")
-        if proposal.kind in ("still", "done", "hand", "unavailable"):
-            return ExecResult(proposal.kind in ("still", "done"), "No arm motion requested")
-        try:
-            pose = self.pipeline.planning_pose()
-            p, _ = self.pipeline.ik.fk(self.arm, pose, pose)
-            q = [pose[n] for n in trajectory.ARM_JOINTS[self.arm]]
-            target, roll, notes = self.gate.clamp_setpoint(p, q[4], proposal.p, proposal.roll, proposal.mode)
-            if proposal.kind == "rotate":
-                dest = np.array(q); dest[4] = roll
-                duration = max(.6, abs(roll-q[4])/.25*math.pi/2)
-                plan = trajectory.frame_plan(self.arm, q, interpolate(q, dest, duration, 50), .02, pose, "Wrist roll")
-            else:
-                plan, _ = plan_from_waypoints(self.pipeline.ik, self.arm, [target], pose=pose,
-                                               name=proposal.action.raw if proposal.action else "Visual step", max_vel=.25)
-            result = self.pipeline.review_and_run(plan, self.arm, "visual", pose)
-            after = self.sync()
-            return ExecResult(result, "Move completed" if result else "Operator declined or proposal expired",
-                              state.p, after.p, np.asarray(proposal.p)-state.p, after.p-state.p,
-                              state.roll, after.roll, declined=not result, asked=True, clamped=bool(notes), notes=notes,
-                              operator_note=self.pipeline.last_review_note)
-        except ValueError as exc:
-            return ExecResult(False, str(exc), ik_fail="unreachable" in str(exc).lower())
-
-    def go_to_joints(self, q_target, label="Home pose"):
-        pose = self.pipeline.planning_pose()
-        q = [pose[n] for n in trajectory.ARM_JOINTS[self.arm]]
-        duration = max(1., float(np.max(np.abs(np.asarray(q_target)-q)))/.25*math.pi/2)
-        plan = trajectory.frame_plan(self.arm, q, interpolate(q, q_target, duration, 50), .02, pose, label)
-        try:
-            ok = self.pipeline.review_and_run(plan, self.arm, "manual", pose)
-            return ExecResult(ok, "Move completed" if ok else "Move declined", declined=not ok)
-        except ValueError as exc:
-            self.pipeline.event("blocked", str(exc))
-            return ExecResult(False, str(exc))
-
-
 class RobotPipeline:
     REVIEW_SECONDS = 120
-    OPERATOR_TIMEOUT = 10.0
+    DRAFT_SECONDS = 300
+    OBSERVATION_SECONDS = 120
+    OPERATOR_TIMEOUT = 10.
 
     def __init__(self, planner, simulation, cameras, iface="en6", cfg=None, run_dir=None,
-                 backend_factory=None, visual_factory=None):
-        self.planner, self.sim, self.cameras = planner, simulation, cameras
-        self.iface = iface
+                 backend_factory=None, visual_factory=None, simulation_only=False):
+        self.planner, self.sim, self.cameras, self.iface = planner, simulation, cameras, iface
         self.cfg = copy.deepcopy(cfg or load())
-        self.cfg["limits"]["max_joint_vel_rad_s"] = .4
-        self.cfg["loop"]["chunk_max"] = 1
-        self.cfg["loop"]["max_steps"] = min(20, self.cfg["loop"]["max_steps"])
         self.ik = ArmIK(backend="mujoco")
-        self.lock = threading.RLock()
-        self.log_lock = threading.Lock()
-        self.cancelled = threading.Event()
-        self.decision_event = threading.Event()
-        self.generation = 0
-        self.worker = None
-        self.visual = None
-        self.streamer = None
-        self.streamer_log = None
-        self.pending_backend = None
+        self.simulation_only = simulation_only
+        self.lock, self.log_lock = threading.RLock(), threading.Lock()
+        self.cancelled, self.closed = threading.Event(), threading.Event()
+        self.generation, self.revision = 0, 0
+        self.session_id = uuid.uuid4().hex
+        self.worker = self.streamer = self.streamer_log = self.pending_backend = None
+        self.hand_server = self.hand_log = None
         self.backend_factory = backend_factory
-        self.visual_factory = visual_factory
-        self.mode = "sim"
+        self.mode, self.connected = "sim", False
         self.backend = PreviewBackend(self._simulation_pose())
-        self.auto_fallback = True
-        self.provider = "codex"
-        self.proposal = None
+        self.robot_state = self.backend.snapshot()
+        self.drafts, self.requests, self.results, self.observations = {}, {}, {}, {}
+        self.draft = self.proposal = self.plan = self.paths = self.decision = None
         self.primary_id = None
-        self.plan = None
-        self.decision = None
-        self.last_review_note = ""
-        self.paths = None
-        self.state = "idle"
-        self.message = "Ask for a motion, review its path, then approve it here or in the glasses."
+        self.primary_generation = None
+        self.last_result = None
+        self.on_result = None
+        self.on_stop = None
+        self.state, self.message = "idle", "Describe a motion. Plan and preview it, then submit it for one human review."
         self.events = []
-        self.revision = 0
-        self.connected = False
-        self.run_dir = Path(run_dir or ROOT / "runs/dashboard") / uuid.uuid4().hex
+        self.run_dir = Path(run_dir or ROOT / "runs/dashboard") / self.session_id
+        self.control_dir = None
         self.glasses = {"connected": 0, "error": "", "port": None}
-        self.glasses_token = secrets.token_urlsafe(24)
         self.last_operator = time.monotonic()
-        self.closed = threading.Event()
-        self.watchdog = threading.Thread(target=self._operator_watchdog, daemon=True)
-        self.watchdog.start()
+        self.walked_m = self.turned_rad = 0.
         self.planner.before_submit = self.before_submit
         self.planner.on_complete = self.planned
         self.planner.preview_pose = self.planning_pose
-        self.planner.pose_label = lambda: "measured robot joints and held command targets" if self.mode == "live" else "approved simulation pose"
-
-    def operator_seen(self):
-        self.last_operator = time.monotonic()
-
-    def _operator_watchdog(self):
-        while not self.closed.wait(.25):
-            if self.connected and (time.monotonic()-self.last_operator > self.OPERATOR_TIMEOUT
-                                   or not getattr(self.backend, "alive", True)):
-                self.stop()
-                self.event("stopped", "Operator or robot connection lost. Arm control released.")
+        self.planner.pose_label = lambda: "measured robot joints" if self.mode == "live" else "approved simulation state"
+        self.watchdog = threading.Thread(target=self._watchdog, daemon=True)
+        self.watchdog.start()
 
     def _simulation_pose(self):
         with self.sim.lock:
             return {self.sim.model.joint(i).name: float(self.sim.data.qpos[self.sim.model.jnt_qposadr[i]])
                     for i in range(self.sim.model.njnt)}
 
+    def operator_seen(self):
+        self.last_operator = time.monotonic()
+
+    def _watchdog(self):
+        while not self.closed.wait(.25):
+            if self.connected and (time.monotonic()-self.last_operator > self.OPERATOR_TIMEOUT or not self.backend.alive):
+                self.stop("Operator or robot connection lost; control released.")
+            elif self.connected:
+                try: self._update_robot_state(self.backend.snapshot())
+                except (OSError, RuntimeError): self.stop("Robot telemetry unavailable; control released.")
+            with self.lock:
+                if self.proposal and self.state == "review" and time.time() >= self.proposal["expires_at"]:
+                    self._finish("expired", "Approval expired. Observe and prepare a new proposal.")
+
     def planning_pose(self):
-        if self.mode == "live":
-            if not self.connected:
-                raise ValueError("Connect robot control before preparing a live proposal.")
-            state = self.backend.snapshot()
-            # All held command targets are modeled; require measured joints to agree before motion.
-            pose = {**state["joints"], **state.get("targets", {})}
-        else:
-            pose = self.backend.joints()
-        return {n: float(v) for n, v in pose.items() if self.ik.model.joint(n).id >= 0}
+        state = self.backend.snapshot()
+        if self.mode == "live" and state.get("lowstate_age_s", 999) > .5:
+            raise ValueError("Robot telemetry is stale")
+        self._update_robot_state(state)
+        pose = dict(state["joints"])
+        # Context and compilation use measured telemetry. Desired held targets
+        # remain separately visible in robot_state and must not masquerade as pose.
+        known = {self.ik.model.joint(i).name for i in range(self.ik.model.njnt)}
+        return {n: float(q) for n, q in pose.items() if n in known}
+
+    def _update_robot_state(self, state):
+        self.robot_state = copy.deepcopy(state)
+        # The streamer reserves the entire requested displacement, including an
+        # interrupted walk. Reconnecting must not reset that conservative budget.
+        self.walked_m = max(self.walked_m, float(state.get("walked_m", 0.)))
+        self.turned_rad = max(self.turned_rad, float(state.get("turned_rad", 0.)))
+
+    def capabilities(self):
+        hands = self.cfg["hand"]["type"] in ("revo2", "virtual")
+        return {"walking": bool(self.cfg.get("locomotion", {}).get("enabled")),
+                "hands": {"left": hands, "right": hands}, "hardware_allowed": not self.simulation_only,
+                "hand_type": self.cfg["hand"]["type"], "arm_motion": True,
+                "depth": False, "contact_planning": False, "dual_arm": False}
 
     def status(self):
         with self.lock:
-            proposal = copy.deepcopy(self.proposal)
-            if proposal:
-                proposal["expired"] = time.time() >= proposal["expires_at"]
-            return {"state": self.state, "message": self.message, "mode": self.mode,
-                    "connected": self.connected, "busy": bool(self.worker and self.worker.is_alive()),
-                    "proposal": proposal, "events": copy.deepcopy(self.events[-20:]),
-                    "auto_fallback": self.auto_fallback, "provider": self.provider,
-                    "iface": self.iface, "table_z_m": self.cfg["workspace"]["table_z_m"],
-                    "glasses": dict(self.glasses), "run_id": self.run_dir.name}
+            return copy.deepcopy({"state": self.state, "message": self.message, "mode": self.mode,
+                "connected": self.connected, "busy": bool(self.worker and self.worker.is_alive()),
+                "draft": self.draft, "proposal": self.proposal, "last_result": self.last_result,
+                "robot_state": self.robot_state, "capabilities": self.capabilities(),
+                "events": self.events[-20:], "iface": self.iface, "table_z_m": self.cfg["workspace"]["table_z_m"],
+                "glasses": self.glasses, "run_id": self.session_id, "session_id": self.session_id})
 
     def event(self, stage, message):
         with self.lock:
             self.state, self.message = stage, str(message)[:800]
-            entry = {"stage": stage, "message": self.message, "at": time.time()}
-            self.events.append(entry)
-            self.events = self.events[-100:]
+            entry = {"stage": stage, "message": self.message, "at": time.time(), "session_id": self.session_id}
+            self.events.append(entry); self.events = self.events[-100:]
+        self._log(entry)
+
+    def _log(self, entry):
         self.run_dir.mkdir(parents=True, exist_ok=True)
         with self.log_lock, (self.run_dir / "events.jsonl").open("a") as file:
             file.write(json.dumps(entry, allow_nan=False)+"\n")
 
+    def _policy_digest(self):
+        return digest({k: self.cfg[k] for k in ("workspace", "robot", "limits", "locomotion", "hand")})
+
+    def _available(self):
+        if self.proposal or (self.worker and self.worker.is_alive() and self.worker is not threading.current_thread()):
+            raise ValueError("Finish, decline or stop the current motion first")
+        if self.cancelled.is_set():
+            raise ValueError("Task stopped. Start a new planning request")
+
+    def reset_planning(self, cancelled=False):
+        """Supersede unsent agent work without disturbing a submitted human review."""
+        with self.lock:
+            if self.proposal or (self.worker and self.worker.is_alive()):
+                return
+            self.generation += 1
+            self.drafts.clear()
+            self.draft = self.paths = self.primary_id = None
+            if cancelled:
+                self.cancelled.set()
+                self.state, self.message = "cancelled", "Agent planning cancelled. Start a new request to continue."
+            else:
+                self.cancelled.clear()
+                self.state, self.message = "idle", "Agent planning started. No motion has been submitted for review."
+
+    def _planning_generation(self, generation=None):
+        self._available()
+        if generation is not None and generation != self.generation:
+            raise ValueError("Planning request was superseded")
+        return self.generation
+
     def before_submit(self):
         with self.lock:
-            if self.worker and self.worker.is_alive():
-                raise ValueError("Finish or stop the current robot task before submitting another.")
+            if self.proposal or (self.worker and self.worker.is_alive()):
+                raise ValueError("Finish, decline or stop the current task first")
             self.generation += 1
+            self.primary_generation = self.generation
             self.cancelled.clear()
-            self.proposal = self.plan = self.paths = None
-            self.primary_id = None
-            self.decision_event.clear()
-            self.state, self.message = "planning", "Generating a trajectory with the primary planner."
+            self.draft = self.paths = None
+            self.state, self.message = "planning", "Preparing a motion draft; no approval or actuation yet."
 
     def planned(self, status, plan):
         with self.lock:
-            if self.cancelled.is_set() or status["state"] == "cancelled":
+            generation = self.primary_generation
+            if (self.cancelled.is_set() or status["state"] == "cancelled"
+                    or generation != self.generation):
                 return
-            generation = self.generation
             self.primary_id = status.get("id")
-        if plan is not None:
-            def ready():
-                if generation != self.generation or self.cancelled.is_set(): return
-                arm = status["target"]["arm"]
-                pose = self.planning_pose()
-                # Recompile authored geometry if the measured starting state has changed while planning.
-                if plan.get("generated_trajectory"):
-                    compiled = compile_trajectory(self.ik, plan["generated_trajectory"], pose)
-                else:
-                    if self.mode == "live" and status.get("source") == "demo":
-                        raise ValueError("Simulation fixtures cannot authorize physical motion.")
-                    compiled = plan
-                self.review_and_run(compiled, arm, "trajectory", pose)
-            self._start(ready)
-        elif status["state"] == "blocked":
-            if status.get("arm") in ("left", "right"):
-                self.cfg["robot"]["arm"] = status["arm"]
-            self.event("context" if self.auto_fallback and status.get("source") != "demo" else "blocked", status["message"])
-            if self.auto_fallback and status.get("source") != "demo":
-                self._start(lambda: self._fallback(status["prompt"], status["message"]))
-
-    def show_primary(self, source, proposal_id):
-        # Primary previews are automatically resolved and displayed by this pipeline.
-        # Never replace a reviewed plan with the earlier, differently timed draft.
-        deadline = time.monotonic()+15
-        while time.monotonic() < deadline:
+        try:
+            if plan is None:
+                self.event("blocked", status["message"] + " Ask the agent to observe or revise this draft.")
+                return
+            pose = self.planning_pose()
+            if plan.get("generated_trajectory"):
+                draft = plan["generated_trajectory"]
+                check_waypoints(self.cfg, draft["waypoints"], self.mode == "live")
+                plan = compile_trajectory(self.ik, draft, pose)
+            elif self.mode == "live" and status.get("source") == "demo":
+                raise ValueError("Demonstration fixtures cannot authorize physical motion")
+            draft = self.prepare_arm(plan, status["target"]["arm"], pose=pose, generation=generation)
+            self.preview_plan(draft["id"])
+        except (ValueError, RuntimeError) as exc:
             with self.lock:
-                if (self.primary_id is not None and proposal_id != self.primary_id) or self.cancelled.is_set():
-                    raise ValueError("Proposal is no longer available")
-                if self.plan is not None and self.proposal is not None:
-                    return
-                if self.state in ("blocked", "needs_context", "stopped", "expired"):
-                    raise ValueError(self.message)
-            time.sleep(.02)
-        raise ValueError("Proposal validation is still running")
+                if generation == self.generation and not self.cancelled.is_set():
+                    self.event("blocked", f"Draft rejected: {exc}. Revise the path or gather fresh context.")
 
     def _start(self, work):
         with self.lock:
@@ -256,147 +228,290 @@ class RobotPipeline:
                     work()
                 except Exception as exc:
                     if not self.cancelled.is_set():
-                        self.event("blocked", str(exc))
+                        if self.proposal: self._finish("failed", str(exc))
+                        else: self.event("blocked", str(exc))
             self.worker = threading.Thread(target=run, daemon=True)
             self.worker.start()
 
-    def _obstacles(self):
-        z = self.cfg["workspace"]["table_z_m"]
-        if self.mode != "live" or z is None:
-            return []
-        # Table plane over the configured forward work area; full arm volume is checked.
-        lo, hi = self.cfg["workspace"]["box_min_m"], self.cfg["workspace"]["box_max_m"]
-        return [{"name": "measured table workspace", "min": [lo[0], lo[1], -.1],
-                 "max": [hi[0], hi[1], float(z)]}]
-
-    def offer(self, plan, arm, source, pose, generation=None):
-        self.event("validating", "Checking the exact trajectory, both arms, joint limits, speed and acceleration.")
-        resolved = trajectory.resolve(plan, arm, pose)
-        report = trajectory.validate(resolved, arm, self.ik.model, self._obstacles())
-        if self.mode == "live":
-            report["coverage"] = "Robot model and measured table workspace; no depth obstacle map"
-        from spectacles.plan_feed import hand_paths
-        paths = hand_paths(self.ik.model, resolved, 160)
+    def register_observation(self, metadata):
         with self.lock:
-            if self.cancelled.is_set() or (generation is not None and generation != self.generation):
-                raise ValueError("Proposal cancelled")
-            self.revision += 1
-            proposal_id = uuid.uuid4().hex
-            # Keep legacy executors from loading a file without this runtime's approval.
-            resolved["preview_only"] = True
-            resolved["prompt_proposal"] = {"id": proposal_id, "revision": self.revision, "source": source}
-            self.plan, self.paths = resolved, paths
-            self.proposal = {"id": proposal_id, "revision": self.revision, "digest": trajectory.digest(resolved),
-                             "name": resolved.get("name", "Arm motion"), "arm": arm, "source": source,
-                             "mode": self.mode, "duration_s": resolved["duration_s"], "validation": report,
-                             "expires_at": time.time()+self.REVIEW_SECONDS}
-            self.decision = None
-            self.decision_event.clear()
-            self.sim.show_proposal(copy.deepcopy(resolved), proposal_id)
-            self.event("review", "Review the path in simulation or glasses. Approve this motion or reject it.")
-        return copy.deepcopy(self.proposal)
+            self.observations[metadata["id"]] = copy.deepcopy(metadata)
+            while len(self.observations) > 32: self.observations.pop(next(iter(self.observations)))
 
-    def decide(self, proposal_id, digest, decision, note=""):
+    def _check_observation(self, observation_id):
+        if not observation_id:
+            return None
+        item = self.observations.get(observation_id)
+        if not item or time.time()-item["observed_at"] > self.OBSERVATION_SECONDS:
+            raise ValueError("Observation expired; observe again and regenerate the motion")
+        if self.mode == "live":
+            for name in item["cameras"]:
+                feed = self.cameras.get(name)
+                if not feed or not feed.status()["online"]:
+                    raise ValueError(f"{name} camera became stale; observe again")
+        return copy.deepcopy(item)
+
+    def compile_hand_path(self, draft, observation_id=None, *, generation=None):
+        with self.lock: generation = self._planning_generation(generation)
+        draft = validate_trajectory(draft)
+        pose = self.planning_pose()
+        check_waypoints(self.cfg, draft["waypoints"], self.mode == "live")
+        plan = compile_trajectory(self.ik, draft, pose)
+        return self.prepare_arm(plan, draft["arm"], pose, observation_id, generation=generation)
+
+    def prepare_arm(self, plan, arm, pose=None, observation_id=None, *, generation=None):
+        with self.lock: generation = self._planning_generation(generation)
+        pose = pose or self.planning_pose()
+        resolved = trajectory.resolve(plan, arm, pose)
+        report = trajectory.validate(resolved, arm, self.ik.model, table_obstacles(self.cfg, self.mode == "live"))
+        report["coverage"] = "Robot geometry and measured table; no depth obstacle map" if self.mode == "live" else "Robot geometry in simulation; physical scene is not measured"
+        resolved["preview_only"] = True
+        return self._store_draft({"kind": "arm", "arm": arm, "plan": resolved}, resolved.get("name", "Arm motion"), report, pose, observation_id, generation)
+
+    def prepare_walk(self, dx, dy, dyaw, *, generation=None):
+        with self.lock: generation = self._planning_generation(generation)
+        pose = self.planning_pose()
+        payload = walking_payload(self.cfg, dx, dy, dyaw)
+        if self.walked_m+math.hypot(dx, dy) > self.cfg["locomotion"]["max_total_m"] or self.turned_rad+abs(dyaw) > math.radians(self.cfg["locomotion"]["max_total_turn_deg"]):
+            raise ValueError("Session walking budget exhausted")
+        return self._store_draft(payload, f"Move base {dx:.2f} m forward, {dy:.2f} m left, turn {math.degrees(dyaw):.0f}°",
+            {"coverage": "Bounded velocity/time and controller FSM; no obstacle or balance model", "checks": ["distance", "speed", "duration", "session budget"]}, pose, generation=generation)
+
+    def prepare_hand(self, arm, closed, *, generation=None):
+        with self.lock: generation = self._planning_generation(generation)
+        if not self.capabilities()["hands"].get(arm):
+            raise ValueError("No hand configured for this arm")
+        if self.mode == "live" and self.cfg["hand"]["type"] != "revo2":
+            raise ValueError("Virtual hands cannot command the robot")
+        return self._store_draft({"kind": "hand", "arm": arm, "closed": closed}, ("Close" if closed else "Open")+f" {arm} hand",
+            {"coverage": "Configured Revo2 pose and fresh hand telemetry; contact/force not modeled", "checks": ["hand capability", "command shape"]}, self.planning_pose(), generation=generation)
+
+    def _store_draft(self, payload, name, report, pose, observation_id=None, generation=None):
+        validate_motion(payload)
+        observation = self._check_observation(observation_id)
+        with self.lock:
+            self._available()
+            if generation is not None and generation != self.generation:
+                raise ValueError("Planning request was superseded")
+            ident = uuid.uuid4().hex
+            duration = payload["plan"]["duration_s"] if payload["kind"] == "arm" else payload.get("duration_s", self.cfg["hand"]["pause_s"])
+            public = {"id": ident, "plan_id": ident, "state": "draft", "name": name, "kind": payload["kind"],
+                "arm": payload.get("arm"), "duration_s": duration, "digest": digest(payload), "validation": report,
+                "mode": self.mode, "expires_at": time.time()+self.DRAFT_SECONDS, "observation_id": observation_id}
+            self.drafts[ident] = {"public": public, "payload": copy.deepcopy(payload), "pose": dict(pose),
+                "policy": self._policy_digest(), "observation": observation, "submitted": None, "generation": self.generation}
+            while len(self.drafts)>32: self.drafts.pop(next(iter(self.drafts)))
+            self.draft = copy.deepcopy(public)
+            self.paths = None
+            self.event("draft", "Draft validated. Preview freely, then submit this complete motion for review.")
+            return copy.deepcopy(public)
+
+    def _get_draft(self, plan_id):
+        item = self.drafts.get(plan_id)
+        if not item or time.time() >= item["public"]["expires_at"] or item["generation"] != self.generation:
+            raise ValueError("Draft expired or is no longer available")
+        if item["public"]["mode"] != self.mode or item["policy"] != self._policy_digest():
+            raise ValueError("Robot mode or policy changed; regenerate the draft")
+        if digest(item["payload"]) != item["public"]["digest"]:
+            raise ValueError("Draft content changed; regenerate it")
+        return item
+
+    def _display(self, item, display_id):
+        payload, pose = item["payload"], item["pose"]
+        if payload["kind"] == "arm":
+            preview = copy.deepcopy(payload["plan"])
+        else:
+            duration = item["public"]["duration_s"]
+            preview = {"schema_version": 1, "name": item["public"]["name"], "duration_s": duration,
+                "held_joints_rad": pose, "keyframes": [{"time_s": t, "joint_targets_rad": {"right_elbow_joint": pose["right_elbow_joint"]}} for t in (0., duration)]}
+            if payload["kind"] == "walk":
+                preview["base_keyframes"] = [{"time_s":p["time_s"],"x_m":p["position_m"][0],"y_m":p["position_m"][1],"yaw_rad":p["yaw_rad"]} for p in base_path(payload)]
+        preview["preview_only"] = True
+        preview["prompt_proposal"] = {"id": display_id, "source": "draft", "kind": payload["kind"]}
+        preview["scene_boxes"] = table_obstacles(self.cfg, self.mode == "live") if payload["kind"] == "arm" else []
+        from spectacles.plan_feed import hand_paths
+        self.paths = hand_paths(self.ik.model, preview, 120)
+        self.sim.show_proposal(preview, display_id)
+
+    def preview_plan(self, plan_id):
+        with self.lock:
+            self._available()
+            item = self._get_draft(plan_id)
+            self.draft = copy.deepcopy(item["public"])
+            self._display(item, uuid.uuid4().hex)
+            self.event("draft", "Draft preview. No approval is active and nothing can execute.")
+        return {"state": "previewed", "plan_id": plan_id, "requires_operator_approval": True}
+
+    def show_primary(self, source, proposal_id):
+        if proposal_id != self.primary_id or not self.draft:
+            raise ValueError("Draft is no longer available")
+        return self.preview_plan(self.draft["id"])
+
+    def propose_motion(self, plan_id, request_id=None):
+        request_id = request_id or plan_id
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            raise ValueError("Use a bounded request_id")
+        with self.lock:
+            if request_id in self.requests:
+                prior = self.requests[request_id]
+                if prior["plan_id"] != plan_id: raise ValueError("request_id already identifies a different motion")
+                return self.motion_result(prior["proposal_id"])
+            self._available()
+            item = self._get_draft(plan_id)
+            if item["submitted"]:
+                return self.motion_result(item["submitted"])
+            self._check_observation(item["public"]["observation_id"])
+            pose = self.planning_pose()
+            trajectory.require_start({"keyframes": [{"joint_targets_rad": item["pose"]}]}, pose)
+            ident = uuid.uuid4().hex
+            self.revision += 1
+            p = {**copy.deepcopy(item["public"]), "id": ident, "session_id": self.session_id,
+                "revision": self.revision, "state": "review", "expires_at": min(item["public"]["expires_at"], time.time()+self.REVIEW_SECONDS),
+                "source": "agent"}
+            self.proposal, self.plan, self.decision = p, copy.deepcopy(item["payload"]), None
+            self.requests[request_id] = {"plan_id": plan_id, "proposal_id": ident}
+            item["submitted"] = ident
+            self._display(item, ident)
+            self.event("review", "Review the complete motion. Approve once or decline in the dashboard or glasses.")
+            self._log({"type": "proposal", "proposal": p, "payload": self.plan})
+            return self.motion_result(ident)
+
+    def motion_result(self, proposal_id):
+        with self.lock:
+            if proposal_id in self.results: return copy.deepcopy(self.results[proposal_id])
+            if self.proposal and self.proposal["id"] == proposal_id:
+                return {"proposal_id": proposal_id, "state": self.state, "outcome": None, "proposal": copy.deepcopy(self.proposal)}
+            raise ValueError("Unknown proposal in this session")
+
+    def decide(self, proposal_id, payload_digest, decision, note=""):
         self.operator_seen()
-        if decision not in ("approve", "decline"):
-            raise ValueError("Choose approve or decline")
         with self.lock:
             p = self.proposal
-            if self.state != "review" or not p or p["id"] != proposal_id or p["digest"] != digest:
-                raise ValueError("Proposal changed; review the current revision")
-            if self.cancelled.is_set() or time.time() >= p["expires_at"] or self.decision is not None:
-                raise ValueError("Proposal expired or already decided")
-            self.decision = (decision, str(note)[:500])
-            self.last_review_note = str(note)[:500]
-            self.decision_event.set()
-            waiting = bool(self.worker and self.worker.is_alive())
-            self.state = "approved" if decision == "approve" else "declined"
-        self.event(self.state, "Approved in "+self.mode+" mode." if decision == "approve" else "Proposal declined. "+str(note)[:500])
-        if not waiting:
-            if decision == "approve":
-                self._start(self._execute)
+            if decision not in ("approve", "decline"): raise ValueError("Choose approve or decline")
+            if not p or self.state != "review" or p["id"] != proposal_id or p["digest"] != payload_digest or self.decision:
+                raise ValueError("Proposal changed or was already decided")
+            if self.cancelled.is_set() or time.time() >= p["expires_at"]:
+                raise ValueError("Proposal expired or cancelled")
+            self.decision = {"decision": decision, "note": str(note)[:500], "at": time.time()}
+            if decision == "decline":
+                self._finish("declined", "Proposal declined. "+str(note)[:500])
             else:
-                with self.lock:
-                    self.proposal = self.plan = self.paths = None
+                self.event("approved", "Complete motion approved in "+self.mode+" mode.")
+                self._start(self._execute)
         return self.status()
-
-    def review_and_run(self, plan, arm, source, pose):
-        p = self.offer(plan, arm, source, pose)
-        try:
-            while not self.cancelled.is_set() and time.time() < p["expires_at"]:
-                if self.decision_event.wait(.1):
-                    if self.decision and self.decision[0] == "approve":
-                        self._execute()
-                        return not self.cancelled.is_set()
-                    return False
-            if not self.cancelled.is_set():
-                self.event("expired", "Approval expired. Prepare a new proposal.")
-            return False
-        finally:
-            with self.lock:
-                if self.proposal and self.proposal["id"] == p["id"]:
-                    self.proposal = self.plan = self.paths = None
 
     def _execute(self):
         with self.lock:
-            if not self.proposal or not self.decision or self.decision[0] != "approve" or self.cancelled.is_set():
-                raise ValueError("No current approval")
-            p, plan = copy.deepcopy(self.proposal), copy.deepcopy(self.plan)
-        if time.time() >= p["expires_at"] or trajectory.digest(plan) != p["digest"]:
-            raise ValueError("Approval expired or plan changed")
-        backend, mode = self.backend, self.mode
+            if not self.proposal or not self.decision or self.decision["decision"] != "approve":
+                raise ValueError("No human approval")
+            p, payload = copy.deepcopy(self.proposal), copy.deepcopy(self.plan)
+            item = self._get_draft(p["plan_id"])
+            self._check_observation(p["observation_id"])
+            approval = {"proposal_id": p["id"], "revision": p["revision"], "digest": p["digest"], "expires_at": p["expires_at"]}
+            validate_approval(approval, digest(payload)); validate_motion(payload)
+            backend, mode, generation = self.backend, self.mode, self.generation
         measured = backend.joints()
-        trajectory.require_start(plan, measured)
-        trajectory.validate(plan, p["arm"], self.ik.model, self._obstacles())
-        if self.cancelled.is_set():
-            raise ValueError("Motion stopped")
-        self.event("executing", "Executing approved "+p["name"]+"." if self.mode == "live" else "Applying approved motion in simulation.")
-        if p["source"] == "visual" and mode == "live" and not self.cameras.get("head").status()["online"]:
-            raise ValueError("Head camera became unavailable. Gather fresh context before execution.")
-        if mode == "live":
-            result = backend.stream_plan(plan, p["arm"])
-            after = result["joints"]
-            expected = plan["keyframes"][-1]["joint_targets_rad"]
-            if any(abs(after[n]-v) > .12 for n, v in expected.items()):
-                raise ValueError("Motion ended with a tracking error. Inspect the robot before continuing.")
-        else:
-            backend.q.update(plan["keyframes"][-1]["joint_targets_rad"])
-            after = backend.joints()
-        if self.cancelled.is_set():
-            return
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        (self.run_dir / (p["id"]+".json")).write_text(json.dumps(
-            {"proposal": p, "plan": plan, "measured_after": after, "decision": self.decision}, allow_nan=False)+"\n")
+        trajectory.require_start({"keyframes": [{"joint_targets_rad": item["pose"]}]}, measured)
+        if payload["kind"] == "arm":
+            trajectory.validate(payload["plan"], payload["arm"], self.ik.model, table_obstacles(self.cfg, mode == "live"))
         with self.lock:
-            self.proposal = self.plan = self.paths = None
-        self.event("completed", "Motion completed. "+("Measured robot feedback recorded." if self.mode == "live" else "Simulation only."))
+            if self.cancelled.is_set() or generation != self.generation:
+                return
+            self.event("executing", ("Executing " if mode == "live" else "Simulating ")+p["name"])
+        result = {}
+        try:
+            if payload["kind"] == "walk":
+                self.walked_m += math.hypot(payload["vx"],payload["vy"])*payload["duration_s"]
+                self.turned_rad += abs(payload["vyaw"])*payload["duration_s"]
+            if mode == "live":
+                result = backend.execute_motion(payload, approval)
+                after = result.get("joints") or backend.joints()
+            else:
+                if payload["kind"] == "arm": backend.q.update(payload["plan"]["keyframes"][-1]["joint_targets_rad"])
+                elif payload["kind"] == "hand": backend.hands[payload["arm"]] = payload["closed"]
+                else: result["odom"] = {"dx": base_path(payload)[-1]["position_m"][0], "dy": base_path(payload)[-1]["position_m"][1], "dyaw": payload["vyaw"]*payload["duration_s"], "predicted": True}
+                after = backend.joints()
+            tracking = None
+            if payload["kind"] == "arm":
+                expected = payload["plan"]["keyframes"][-1]["joint_targets_rad"]
+                tracking = max(abs(after[n]-q) for n,q in expected.items())
+                if tracking > .12: raise ValueError("Motion ended with excessive tracking error")
+            if not self.cancelled.is_set() and generation == self.generation:
+                self.robot_state = {**self.robot_state, "joints": after}
+                self._finish("executed", "Approved motion completed." if mode == "live" else "Approved motion completed in simulation.",
+                    measured_end_pose=after, tracking_error=tracking, feedback=result)
+        except Exception as exc:
+            if mode == "live":
+                try: backend.freeze(); backend.release()
+                except (OSError, RuntimeError): pass
+            if not self.cancelled.is_set(): self._finish("failed", str(exc))
 
-    def _fallback(self, task, failure):
-        self.event("context", "Primary trajectory failed. Gathering camera context for the visual harness.")
-        from core.visual_policy import DashboardPerception, make_visual
-        per = DashboardPerception(self.cameras, self.cfg["robot"]["arm"])
-        packet = per.capture()
-        if not packet.images:
-            self.event("needs_context", "No fresh head camera frame. Connect the camera, then choose Retry with cameras.")
-            return
-        self.visual = self.visual_factory(self.provider) if self.visual_factory else make_visual(self.provider, self.cfg)
-        from harness.loop import Episode
-        from harness.recorder import Recorder
-        ex = ReviewedExecutor(self, self.cfg["robot"]["arm"])
-        rec = Recorder(self.cfg, self.mode, task, root=self.run_dir)
-        from harness.feedback import FeedbackStore
-        feedback = FeedbackStore(self.cfg["feedback"]["path"], self.run_dir.name, self.cfg["feedback"]["max_in_prompt"])
-        episode = Episode(self.cfg, self.visual, ex, per, rec, feedback=feedback,
-                          log=lambda message: self.event("context", message))
-        result = episode.run(task+"\nThe full-path planner rejected the request: "+failure+
-                             "\nUse fresh visual context and small non-contact actions; do not repeat the rejected trajectory.")
-        if self.visual and hasattr(self.visual, "close"):
-            self.visual.close()
-        if not self.cancelled.is_set():
-            self.event("completed" if result.get("success") else "blocked",
-                       "Visual policy finished; "+str(result.get("reason", "")))
+    def _finish(self, outcome, message, **feedback):
+        with self.lock:
+            p = self.proposal
+            if not p: return
+            result = {"proposal_id": p["id"], "plan_id": p["plan_id"], "outcome": outcome, "state": outcome,
+                "mode": p["mode"], "name": p["name"], "digest": p["digest"], "at": time.time(),
+                "message": message, "measured_end_pose": None, "tracking_error": None,
+                "decision": copy.deepcopy(self.decision), **feedback}
+            self.results[p["id"]] = result
+            self.last_result = result
+            self.proposal = self.plan = self.paths = self.draft = None
+            self._log({"type": "outcome", **result})
+            self.event("completed" if outcome == "executed" else outcome, message)
+            callback = self.on_result
+        if callback:
+            # Do not acquire a chat/UI lock while an outer coordinator lock is held.
+            def notify():
+                try: callback(copy.deepcopy(result))
+                except Exception: pass
+            threading.Thread(target=notify, daemon=True).start()
+
+    def _private_config(self):
+        """Materialize private transport configuration; never contains model keys."""
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        if not self.control_dir: self.control_dir = tempfile.TemporaryDirectory(prefix="reins-control-")
+        token_file = self.cfg["streamer"].get("control_token_file")
+        if not token_file:
+            token_file = str(Path(self.control_dir.name)/"control.token")
+            if not Path(token_file).exists():
+                fd = os.open(token_file, os.O_CREAT|os.O_EXCL|os.O_WRONLY, 0o600)
+                with os.fdopen(fd,"w") as f: f.write(secrets.token_urlsafe(32))
+            self.cfg["streamer"]["control_token_file"] = token_file
+        self.cfg["hand"]["revo2"].setdefault("control_token_file", token_file)
+        import yaml
+        config_file = Path(self.control_dir.name)/"config.yaml"
+        config_file.write_text(yaml.safe_dump(json.loads(json.dumps(self.cfg))))
+        return config_file, token_file
+
+    def _connect_hands(self, backend):
+        from harness.robot.hand_client import Revo2Client
+        try:
+            hand = Revo2Client(self.cfg, log=lambda _: None)
+        except RuntimeError as exc:
+            # Only an absent listener permits starting our own bridge. An existing
+            # incompatible/private bridge is never replaced or treated as ready.
+            if not isinstance(exc.__cause__, ConnectionRefusedError): raise
+            config_file, _ = self._private_config()
+            hand_cfg = self.cfg["hand"]["revo2"]
+            if self.hand_log: self.hand_log.close()
+            self.hand_log = (self.run_dir/"hands.log").open("a")
+            self.hand_server = subprocess.Popen([sys.executable,"-m","harness.robot.revo2",hand_cfg.get("iface") or self.iface,
+                "serve","--config",str(config_file),"--control-token-file",hand_cfg["control_token_file"]],
+                cwd=ROOT,stdin=subprocess.DEVNULL,stdout=self.hand_log,stderr=subprocess.STDOUT,start_new_session=True)
+            hand = None
+            for _ in range(40):
+                if self.cancelled.wait(.25) or self.hand_server.poll() is not None: break
+                try: hand = Revo2Client(self.cfg, log=lambda _: None); break
+                except (OSError,RuntimeError): continue
+            if hand is None: raise ValueError("Private hand bridge unavailable. Check hand interface and session hands.log")
+        if not hand.authenticated or self.cancelled.is_set():
+            hand.close()
+            raise ValueError("Hand bridge is not authorized for this session, or connection was cancelled")
+        backend.hands = hand
 
     def connect(self, table_z=None):
+        if self.simulation_only: raise ValueError("Hardware is disabled in simulation-only mode")
         if self.backend_factory:
             backend = self.backend_factory()
         else:
@@ -404,171 +519,146 @@ class RobotPipeline:
             try:
                 backend = ArmClientBackend(self.cfg)
             except ConnectionRefusedError:
-                self.run_dir.mkdir(parents=True, exist_ok=True)
-                self.streamer_log = (self.run_dir / "streamer.log").open("a")
-                # Explicit browser connection starts only the existing arm bridge, never a shell.
-                config_file = self.run_dir / "harness-config.yaml"
-                import yaml
-                config_file.write_text(yaml.safe_dump(self.cfg))
-                self.streamer = subprocess.Popen([sys.executable, "-m", "harness.robot.arm_stream", self.iface,
-                                                  "--config", str(config_file)], cwd=ROOT,
-                                                 stdin=subprocess.DEVNULL, stdout=self.streamer_log,
-                                                 stderr=subprocess.STDOUT, start_new_session=True)
+                config_file, token_file = self._private_config()
+                if self.streamer_log: self.streamer_log.close()
+                self.streamer_log = (self.run_dir/"streamer.log").open("a")
+                self.streamer = subprocess.Popen([sys.executable,"-m","harness.robot.arm_stream",self.iface,"--config",str(config_file),"--control-token-file",str(token_file)],
+                    cwd=ROOT, stdin=subprocess.DEVNULL, stdout=self.streamer_log, stderr=subprocess.STDOUT, start_new_session=True)
                 backend = None
                 for _ in range(40):
-                    if self.cancelled.wait(.25) or self.streamer.poll() is not None:
-                        break
-                    try:
-                        backend = ArmClientBackend(self.cfg)
-                        break
-                    except (OSError, RuntimeError):
-                        continue
-                if backend is None:
-                    raise ValueError("Robot bridge could not connect. Check the interface and SDK; see the session streamer log.")
+                    if self.cancelled.wait(.25) or self.streamer.poll() is not None: break
+                    try: backend = ArmClientBackend(self.cfg); break
+                    except (OSError, RuntimeError): continue
+                if backend is None: raise ValueError("Private robot bridge unavailable. Check interface, SDK and session streamer.log")
+        self.pending_backend = backend
         try:
-            self.pending_backend = backend
-            if self.cancelled.is_set():
-                raise ValueError("Connection cancelled")
-            backend.engage()
-            if self.cancelled.is_set():
-                backend.release()
-                raise ValueError("Connection cancelled")
-            backend.joints()
-        except Exception:
-            backend.close()
-            self.pending_backend = None
-            raise
-        with self.lock:
-            if self.cancelled.is_set():
-                backend.close()
+            state = backend.snapshot()  # Deliberately no engage: telemetry only.
+            if not getattr(backend,"authenticated",False):
+                raise ValueError("This bridge belongs to another session. Configure its private capability or start it through this dashboard.")
+            if not self.backend_factory and self.cfg["hand"]["type"] == "revo2":
+                self._connect_hands(backend)
+            with self.lock:
+                if self.cancelled.is_set(): raise ValueError("Connection cancelled")
+                self.backend, self.mode, self.connected = backend, "live", True
+                self._update_robot_state(state)
                 self.pending_backend = None
-                raise ValueError("Connection cancelled")
-            self.backend, self.mode, self.connected = backend, "live", True
-            self.pending_backend = None
-        self.event("idle", "Robot connected; arms held at their current pose. New motions require approval.")
+                self.drafts.clear(); self.draft = self.paths = None
+            self.event("idle", "Robot telemetry connected. Actuators remain unchanged until a motion is approved.")
+        except Exception:
+            backend.close(); self.pending_backend = None
+            raise
 
     def command(self, command):
         self.operator_seen()
         action = command.get("action")
-        if action == "heartbeat":
-            return {"ok": True}
-        if action in ("stop", "release"):
-            self.stop()
-            return self.status()
-        if action == "decision":
-            return self.decide(command.get("id"), command.get("digest"), command.get("decision"), command.get("note", ""))
+        if action == "heartbeat": return {"ok": True}
+        if action in ("stop", "release"): self.stop(); return self.status()
+        if action == "decision": return self.decide(command.get("id"), command.get("digest"), command.get("decision"), command.get("note", ""))
+        if action == "propose":
+            self.propose_motion(command.get("plan_id"), command.get("request_id")); return self.status()
+        if action == "preview":
+            self.preview_plan(command.get("plan_id")); return self.status()
         if action == "settings":
             with self.lock:
-                if self.worker and self.worker.is_alive() or self.proposal:
-                    raise ValueError("Finish or stop the current task before changing settings")
-                if command.get("provider", self.provider) not in ("codex", "claude", "openai", "anthropic"):
-                    raise ValueError("Unknown visual provider")
-                self.provider = command.get("provider", self.provider)
-                if "auto_fallback" in command:
-                    if type(command["auto_fallback"]) is not bool: raise ValueError("Invalid fallback setting")
-                    self.auto_fallback = command["auto_fallback"]
-                if command.get("arm", self.cfg["robot"]["arm"]) not in ("left", "right"):
-                    raise ValueError("Choose left or right arm")
-                self.cfg["robot"]["arm"] = command.get("arm", self.cfg["robot"]["arm"])
+                self._available()
+                if "arm" in command:
+                    if command["arm"] not in ("left","right"): raise ValueError("Choose one arm")
+                    self.cfg["robot"]["arm"] = command["arm"]
+                    self.draft = self.paths = None
+                    self.drafts.clear()
             return self.status()
-        if action not in ("connect", "fallback", "jog", "home", "roll"):
+        if action not in ("connect","jog","roll","home","walk","hand"):
             raise ValueError("Unknown robot action")
-        if self.worker and self.worker.is_alive() or self.planner.status()["state"] == "planning":
-            raise ValueError("A task is already running; stop it first")
+        if self.planner.status()["state"] == "planning": raise ValueError("Wait for the current draft")
         self.before_submit()
         if action == "connect":
-            if self.connected:
-                raise ValueError("Robot already connected")
+            if self.connected: raise ValueError("Robot already connected")
             z = command.get("table_z_m", self.cfg["workspace"]["table_z_m"])
-            if type(z) not in (float, int) or not math.isfinite(z) or not 0 <= z <= 1.2:
-                raise ValueError("Enter the measured table height in robot-base metres (0–1.2).")
+            if type(z) not in (int,float) or not math.isfinite(z) or not 0 <= z <= 1.2:
+                raise ValueError("Enter measured table height in robot-base metres (0–1.2)")
             self.cfg["workspace"]["table_z_m"] = float(z)
-            self.event("connecting", "Connecting and taking arm control at the current pose.")
-            self._start(self.connect)
-        elif action == "fallback":
-            task = command.get("prompt") or self.planner.status().get("prompt")
-            if not isinstance(task, str) or not 1 <= len(task) <= 1000:
-                raise ValueError("Describe the task first")
-            self._start(lambda: self._fallback(task, self.planner.status().get("message", "")))
-        elif action in ("jog", "home", "roll"):
-            arm = command.get("arm", self.cfg["robot"]["arm"])
-            if arm not in trajectory.ARM_JOINTS:
-                raise ValueError("Choose left or right arm")
-            if action == "roll":
-                sign = command.get("sign")
-                if type(sign) is not int or sign not in (-1, 1):
-                    raise ValueError("Choose clockwise or counterclockwise")
-                def roll():
-                    pose = self.planning_pose()
-                    q = [pose[n] for n in trajectory.ARM_JOINTS[arm]]
-                    q[4] += sign*math.radians(5)
-                    ReviewedExecutor(self, arm).go_to_joints(q, "Roll wrist "+("+" if sign>0 else "−")+"5°")
-                self._start(roll)
-            elif action == "home":
-                self._start(lambda: ReviewedExecutor(self, arm).go_to_joints(self.cfg["robot"]["start_pose_rad"][arm]))
-            else:
-                direction = command.get("direction")
-                deltas = {"forward": [.02, 0, 0], "back": [-.02, 0, 0], "left": [0, .02, 0],
-                          "right": [0, -.02, 0], "up": [0, 0, .02], "down": [0, 0, -.02]}
-                if direction not in deltas:
-                    raise ValueError("Choose a nudge direction")
-                def jog():
-                    pose = self.planning_pose()
-                    tip, _ = self.ik.fk(arm, pose, pose)
-                    draft = {"name": "Nudge "+direction, "arm": arm, "frame": "robot_base",
-                             "waypoints": [{"position_m": (tip+deltas[direction]).tolist(), "hold_s": 0}],
-                             "return_to_start": False}
-                    self.review_and_run(compile_trajectory(self.ik, draft, pose), arm, "manual", pose)
-                self._start(jog)
+            self._start(lambda: self.connect(z))
         else:
-            raise ValueError("Unknown robot action")
+            arm = command.get("arm", self.cfg["robot"]["arm"])
+            if arm not in ("left","right"): raise ValueError("Choose one arm")
+            def prepare():
+                if action == "walk": draft = self.prepare_walk(command.get("dx",0),command.get("dy",0),command.get("dyaw",0))
+                elif action == "hand": draft = self.prepare_hand(arm,command.get("closed"))
+                elif action == "jog":
+                    deltas = {"forward":[.02,0,0],"back":[-.02,0,0],"left":[0,.02,0],"right":[0,-.02,0],"up":[0,0,.02],"down":[0,0,-.02]}
+                    direction = command.get("direction")
+                    if direction not in deltas: raise ValueError("Choose a nudge direction")
+                    pose = self.planning_pose(); tip,_ = self.ik.fk(arm,pose,pose)
+                    draft = self.compile_hand_path({"name":"Nudge "+direction,"arm":arm,"frame":"robot_base",
+                        "waypoints":[{"position_m":(tip+deltas[direction]).tolist(),"hold_s":0}],"return_to_start":False})
+                else:
+                    pose = self.planning_pose(); q = np.array([pose[n] for n in trajectory.ARM_JOINTS[arm]])
+                    target = np.array(self.cfg["robot"]["start_pose_rad"][arm]) if action == "home" else q.copy()
+                    if action == "roll":
+                        sign = command.get("sign")
+                        if type(sign) not in (int,float) or sign not in (-1,1): raise ValueError("Choose a wrist-roll direction")
+                        target[4] += math.radians(5)*sign
+                    duration = max(1.,float(np.max(abs(target-q)))/.25*math.pi/2)
+                    times = np.linspace(0,1,math.ceil(duration*50)+1)[1:]
+                    frames = [q+(target-q)*(.5-.5*math.cos(math.pi*t)) for t in times]
+                    plan = trajectory.frame_plan(arm,q,frames,.02,pose,"Home pose" if action == "home" else "Wrist roll")
+                    draft = self.prepare_arm(plan,arm,pose)
+                self.propose_motion(draft["id"])
+            self._start(prepare)
         return self.status()
 
-    def stop(self):
-        self.cancelled.set()
-        self.planner.cancel()
-        self.decision_event.set()
+    def firmware(self, command, gestures):
+        with self.lock:
+            if self.simulation_only: raise ValueError("Firmware is disabled in simulation-only mode")
+            if self.connected or self.proposal or self.state == "planning" or (self.worker and self.worker.is_alive()):
+                raise ValueError("Release trajectory control and finish planning before using firmware presets")
+            # Human-only browser route, not offered in the agent tool list.
+            return gestures.command(command)
+
+    def stop(self, message="Stopped. Control released and pending motion cancelled."):
+        self.cancelled.set(); self.planner.cancel()
+        if self.on_stop: self.on_stop()
         with self.lock:
             self.generation += 1
-            self.proposal = self.plan = self.paths = None
-        if self.pending_backend:
-            self.pending_backend.close()
-            self.pending_backend = None
-        if self.visual and hasattr(self.visual, "close"):
-            self.visual.close()
-        self.sim.control({"action": "stop"})
-        if self.mode == "live":
-            try:
-                self.backend.freeze()
-                self.backend.release()
-            except (OSError, RuntimeError):
-                pass  # a disconnected streamer releases independently
+            if self.proposal: self._finish("cancelled", message)
+            self.drafts.clear(); self.draft = self.paths = self.plan = None
+            pending, self.pending_backend = self.pending_backend, None
+            backend, mode = self.backend, self.mode
+        if pending: pending.close()
+        self.sim.control({"action":"stop"})
+        if mode == "live":
+            try: backend.freeze(); backend.release()
+            except (OSError,RuntimeError): pass
             finally:
-                self.backend.close()
-                self.connected = False
-                self.mode = "sim"
-                self.backend = PreviewBackend(self._simulation_pose())
-        self.event("stopped", "Stopped. Robot arm control released; pending approval cancelled.")
+                backend.close()
+                with self.lock:
+                    self.connected, self.mode = False, "sim"
+                    self.backend = PreviewBackend(self.robot_state.get("joints", self._simulation_pose()))
+        self.event("stopped", message)
 
     def close(self):
-        self.closed.set()
-        self.stop()
-        self.watchdog.join(2)
-        if self.streamer and self.streamer.poll() is None:
-            self.streamer.terminate()
-            try: self.streamer.wait(timeout=4)
-            except subprocess.TimeoutExpired: self.streamer.kill()
-        if self.streamer_log:
-            self.streamer_log.close()
+        self.closed.set(); self.stop(); self.watchdog.join(2)
+        if self.worker and self.worker is not threading.current_thread(): self.worker.join(3)
+        for process in (self.streamer,self.hand_server):
+            if process and process.poll() is None:
+                process.terminate()
+                try: process.wait(timeout=4)
+                except subprocess.TimeoutExpired: process.kill(); process.wait()
+        for log in (self.streamer_log,self.hand_log):
+            if log: log.close()
+        if self.control_dir: self.control_dir.cleanup()
 
     def glasses_message(self):
         with self.lock:
-            p = self.proposal
-            if not p or not self.paths or self.state not in ("review", "approved", "executing"):
-                return {"type": "trajectory", "version": 1, "id": "idle", "frame": "robot_base",
-                        "units": "m", "clear": True, "hands": {"left": [], "right": []}}
-            return {"type": "trajectory", "version": 1, "id": p["id"], "frame": "robot_base",
-                    "units": "m", "duration_s": p["duration_s"], "hands": copy.deepcopy(self.paths),
-                    "review": {"id": p["id"], "digest": p["digest"], "revision": p["revision"],
-                               "text": p["name"], "mode": p["mode"]}
-                    if self.state == "review" and time.time() < p["expires_at"] else None}
+            p = self.proposal or self.draft
+            if not p or self.paths is None:
+                return {"type":"trajectory","version":1,"id":"idle","frame":"robot_base","units":"m","clear":True,"hands":{"left":[],"right":[]},"phase":"idle","review":None}
+            item = self.drafts.get(p["plan_id"])
+            result = {"type":"trajectory","version":1,"id":p["id"],"frame":"robot_base","units":"m",
+                "duration_s":p["duration_s"],"hands":copy.deepcopy(self.paths),"phase":"review" if self.state=="review" else self.state,"review":None}
+            if item and item["payload"]["kind"] == "walk":
+                result["base_path"] = [[p["position_m"][0], p["position_m"][1], p["yaw_rad"]] for p in base_path(item["payload"])]
+                result["frame"] = "map"
+            if self.proposal and self.state=="review" and time.time()<p["expires_at"]:
+                result["review"] = {"id":p["id"],"digest":p["digest"],"revision":p["revision"],"text":p["name"],"mode":p["mode"],"expires_at":p["expires_at"]}
+            return result

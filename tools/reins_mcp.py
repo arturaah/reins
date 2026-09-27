@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core.tool_specs import TOOL_NAMES, TOOL_SPECS  # noqa: E402
 
 PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
-TIMEOUT_S = 150
+TIMEOUT_S = 120
 
 
 def call_dashboard(name, arguments):
@@ -36,7 +36,7 @@ def call_dashboard(name, arguments):
                                      headers={'Content-Type': 'application/json', 'X-Reins-Tool-Token': token})
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:
-            return False, response.read(1024 * 1024).decode()
+            return False, response.read(8 * 1024 * 1024).decode()
     except urllib.error.HTTPError as exc:
         try:
             message = json.loads(exc.read(64 * 1024)).get('error') or f'HTTP {exc.code}'
@@ -64,7 +64,12 @@ def handle(message):
         if name not in TOOL_NAMES:
             raise LookupError(f'Unknown tool {name!r}')
         is_error, text = call_dashboard(name, arguments)
-        return {'content': [{'type': 'text', 'text': text}], 'isError': is_error}
+        if is_error:
+            return {'content': [{'type': 'text', 'text': text}], 'isError': True}
+        value = json.loads(text)
+        blocks = value.pop('content_blocks', [])
+        return {'content': [{'type': 'text', 'text': json.dumps(value, allow_nan=False)}, *blocks],
+                'isError': value.get('state') == 'blocked'}
     if ident is None:
         return None            # notifications (initialized, cancelled, ...) need no reply
     raise NotImplementedError(method)

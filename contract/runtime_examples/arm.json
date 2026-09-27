@@ -1,0 +1,43 @@
+{
+  "cmd": "execute_motion",
+  "request_id": "example-request-arm",
+  "payload": {
+    "kind": "arm",
+    "arm": "right",
+    "plan": {
+      "schema_version": 1,
+      "name": "Illustrative tiny arm motion",
+      "duration_s": 0.02,
+      "keyframes": [
+        {
+          "time_s": 0.0,
+          "joint_targets_rad": {
+            "right_shoulder_pitch_joint": -0.05,
+            "right_shoulder_roll_joint": -0.23,
+            "right_shoulder_yaw_joint": 0.13,
+            "right_elbow_joint": 0.0,
+            "right_wrist_roll_joint": 0.0
+          }
+        },
+        {
+          "time_s": 0.02,
+          "joint_targets_rad": {
+            "right_shoulder_pitch_joint": -0.051,
+            "right_shoulder_roll_joint": -0.23,
+            "right_shoulder_yaw_joint": 0.13,
+            "right_elbow_joint": 0.0,
+            "right_wrist_roll_joint": 0.0
+          }
+        }
+      ],
+      "held_joints_rad": {},
+      "preview_only": true
+    }
+  },
+  "approval": {
+    "proposal_id": "example-proposal-arm",
+    "revision": 1,
+    "digest": "0a11d648e4454fbe1476bb2079be1a0b0bf988f6e35f73db77ad0fef936a2df4",
+    "expires_at": 1800000120.0
+  }
+}

@@ -2,7 +2,7 @@
 
     python -m harness sim "move your hand above the block" [--vlm scripted|anthropic] [--realtime]
     python -m harness dry-run en6 "..."      real joint state and cameras, VLM calls and IK, nothing published
-    python -m harness live en6 "..."         needs `python -m harness.robot.arm_stream en6` running; asks before every move
+    python -m tools.reins prompt "..."       submit to the dashboard; complete-motion approval happens there
         --demos recordings/a.json ...        selected recordings (text summary + contact sheet) as demonstrations in every call
         --confirm --preview runs/ui_preview.json   ask before every move in any mode and write each proposal as a plan file
                                              first (the desktop window's AI pane drives this: PROPOSAL lines, Accept/Reject)
@@ -10,9 +10,9 @@
     python -m harness replay RUN_DIR --step N [--vlm anthropic]   rebuild a recorded step's prompt and re-query
     python -m harness measure-table en6      print the hand tip height from rt/lowstate (subscribe-only)
 Options: --config FILE, --set key.path=value (repeatable), --arm left|right, --profile precision|coarse_fine.
-Keyboard while running: type x + Enter for the e-stop (arms freeze, episode ends); Ctrl-C releases the arms.
-At a PROPOSAL: Enter sends it, `y <note>` sends it and passes the note to the model, `n` rejects it, `n <note>` rejects it
-with the note, x is the e-stop. Every answer is appended to feedback.path and shown to the model in later sessions.
+These commands retain offline evaluation and read-only telemetry workflows. Legacy live execution is retired.
+At an offline PROPOSAL: Enter accepts the simulated step, `y <note>` also passes feedback,
+`n [note]` rejects it, and x cancels the episode. Every answer is appended to feedback.path and shown to the model in later sessions.
 """
 import argparse
 import json
@@ -45,7 +45,7 @@ def stdin_reader(gate=None, backend=None):
             stdin_lines.put(line.strip())
 
 
-def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"):
+def make_confirm(gate, backend, preview_file=None, review_file=None, mode="dry-run"):
     """Ask on the terminal before a move; 'x' at any time is the e-stop. With preview_file the proposal is written there
     as a plan first (the twin's ghost). PROPOSAL lines and the answers are the desktop window's protocol."""
     from .preview import write_plan, write_walk_plan
@@ -94,13 +94,6 @@ def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"
     return confirm
 
 
-def estop_watch(gate, backend):
-    """Background: an 'x' line at any moment sets the e-stop (used when --no-confirm)."""
-    while True:
-        if stdin_lines.get() == "x":
-            gate.estop.set(); backend.freeze(); print("E-STOP set: arms frozen, the episode ends after the current step")
-
-
 def parse_overrides(items):
     out = {}
     for it in items or []:
@@ -114,7 +107,9 @@ def parse_overrides(items):
 
 
 def build(cfg, mode, iface=None, log=print):
-    """-> (backend, executor, perception, table_z)"""
+    """Offline simulator or read-only telemetry backend; never a live actuator."""
+    if mode not in ("sim", "dry-run"):
+        raise ValueError("Legacy live harness is retired; submit to the dashboard with python -m tools.reins prompt")
     arm = cfg["robot"]["arm"]
     kin = ArmKinematics(cfg["robot"]["model"], arm, float(cfg["limits"]["joint_margin_rad"]))
     if mode == "sim":
@@ -133,14 +128,10 @@ def build(cfg, mode, iface=None, log=print):
             if table_z is None:
                 log("WARNING: workspace.table_z_m is not measured; the dry run uses the sim table height")
             gate = SafetyGate(cfg, kin, table_z, live=False)
-        else:
-            from .robot.arm_client import ArmClientBackend
-            backend = ArmClientBackend(cfg, log)
-            gate = SafetyGate(cfg, kin, table_z, live=True)           # refuses without a measured table
         per = Perception(cfg, arm, HttpCameras(cfg, arm), cfg["perception"].get("context_camera"))
         if cfg["hand"]["type"] == "revo2":
             from .robot.hand_client import Revo2Client
-            backend.hands = Revo2Client(cfg, log, dry_run=mode == "dry-run")
+            backend.hands = Revo2Client(cfg, log, dry_run=True)
     if cfg["perception"].get("pose_view", False):
         from .poseview import PoseView
         per.pose_view = PoseView(cfg, arm, gate.table_z, int(cfg["perception"]["width_px"]), int(cfg["perception"]["width_px"]) * 9 // 16,
@@ -158,19 +149,11 @@ def run_episode(a, cfg, mode):
     for d in demos:
         print(f"demo: {d.name} ({'with' if d.image else 'no'} contact sheet, {len(d.text)} chars)")
     threading.Thread(target=stdin_reader, args=(ex.gate, backend), daemon=True).start()
-    ask = (mode == "live" and not a.no_confirm) or getattr(a, "confirm", False)
+    ask = getattr(a, "confirm", False)
     if ask:
         ex.confirm = make_confirm(ex.gate, backend, getattr(a, "preview", None),
                                   getattr(a, "spectacles_review", None), mode)
 
-    if mode == "live":
-        if backend.fsm not in (4, 811):
-            sys.exit(f"refusing: FSM {backend.fsm} = {backend.fsm_name}")
-        print("ENGAGE: the streamer takes the arms (weight ramps to 1) and holds them until the episode ends.")
-        print("  Enter to continue, anything else to quit > ", end="", flush=True)
-        if stdin_lines.get() != "":
-            return
-        backend.engage()
     rec = Recorder(cfg, mode, a.task)
     print(f"recording to {rec.dir}")
     from .stats import InferenceLog
@@ -189,8 +172,6 @@ def run_episode(a, cfg, mode):
         if start is not None and not deferred:
             r = ex.go_to_joints(start, "start pose")
             print(f"start pose: {r.feedback}")
-            if not r.ok and mode == "live":
-                return
         elif deferred:
             print("walking task: the arm's start pose waits until the first arm stage")
         ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos, feedback=feedback, stats=stats, experience=experience)
@@ -201,8 +182,7 @@ def run_episode(a, cfg, mode):
         path, msg = rec.export_recording(ex.arm, cfg["recorder"].get("export_dir"))
         print(f"EXPORTED {path.relative_to(ROOT) if path and path.is_relative_to(ROOT) else path}: {msg}" if path else f"no recording exported: {msg}")
     finally:
-        if mode == "live":
-            backend.release()
+        if hasattr(backend, "close"):
             backend.close()
 
 
@@ -278,9 +258,7 @@ def main():
         p.add_argument("--vlm", help="anthropic | openai | scripted (default: config)")
         if name == "sim":
             p.add_argument("--realtime", action="store_true"); p.add_argument("--start-pose", action="store_true")
-        if name == "live":
-            p.add_argument("--no-confirm", action="store_true", help="do not ask before each move (e-stop: x + Enter)")
-        p.add_argument("--confirm", action="store_true", help="ask before every move (live does by default)")
+        p.add_argument("--confirm", action="store_true", help="review each offline evaluation step")
         p.add_argument("--preview", metavar="FILE", help="write each proposal as a plan file before asking (the twin previews it)")
         p.add_argument("--spectacles-review", metavar="FILE", help="publish this proposal to a Spectacles review mailbox; needs --preview")
         p.add_argument("--demos", nargs="+", metavar="RECORDING", help="recordings/*.json shown to the model as demonstrations")
@@ -289,6 +267,8 @@ def main():
     p.add_argument("--vlm"); p.add_argument("--edit", help="use this file as the prompt instead of the recorded one")
     p = sub.add_parser("measure-table"); p.add_argument("iface"); p.add_argument("--watch", action="store_true")
     a = ap.parse_args()
+    if a.cmd == "live":
+        ap.error("Legacy live execution is retired. Use python -m tools.reins prompt to submit to the dashboard; approve the complete motion there or in paired glasses.")
     over = parse_overrides(a.set)
     if a.arm: over["robot.arm"] = a.arm
     if a.profile: over["steps.profile"] = a.profile
@@ -298,11 +278,8 @@ def main():
             cfg["_realtime"] = a.realtime
             a.iface = None; a.no_confirm = not a.confirm
             run_episode(a, cfg, "sim")
-        elif a.cmd in ("dry-run", "live"):
-            if a.cmd == "dry-run":
-                a.no_confirm = not a.confirm; a.start_pose = True
-            else:
-                a.start_pose = True
+        elif a.cmd == "dry-run":
+            a.start_pose = True
             run_episode(a, cfg, a.cmd)
         elif a.cmd == "packet":
             if not a.sim and not a.iface:

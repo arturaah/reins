@@ -9,11 +9,15 @@ import textwrap
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image
+import mujoco
+import numpy as np
 import time
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
-from tools.dashboard import ROOT, CameraFeed, Simulation, bind_dashboard_server
+from tools.dashboard import ROOT, CameraFeed, Simulation, MeasuredRobotView, bind_dashboard_server
+from tools import dashboard
 
 class DashboardTests(unittest.TestCase):
     def setUp(self):
@@ -60,6 +64,38 @@ class DashboardTests(unittest.TestCase):
             self.assertTrue(all(len(p)==3 and all(math.isfinite(v) for v in p) for p in points))
         self.assertNotEqual(self.sim.paths['right'][0],self.sim.paths['right'][-1])
 
+    def test_walk_preview_moves_robot_geometry_and_leaves_scene_fixed(self):
+        plan=json.loads(json.dumps(self.plan))
+        plan.update(motion_kind='walk',description='Planned base displacement; no gait simulation.',
+                    base_keyframes=[{'time_s':0,'x_m':0,'y_m':0,'yaw_rad':0},
+                                    {'time_s':plan['duration_s'],'x_m':.1,'y_m':.05,'yaw_rad':.1}])
+        self.sim.show_proposal(plan,'new-motion')
+        self.sim.advance(plan['duration_s'])
+        scene=mujoco.MjvScene(self.sim.model,maxgeom=3000)
+        mujoco.mj_forward(self.sim.model,self.sim.data)
+        mujoco.mjv_updateScene(self.sim.model,self.sim.data,mujoco.MjvOption(),None,
+                              self.sim.camera,mujoco.mjtCatBit.mjCAT_ALL,scene)
+        before=[geom.pos.copy() for geom in scene.geoms[:scene.ngeom]]
+        self.sim.pose_scene_base(scene)
+        pelvis=self.sim.model.body('pelvis').id
+        moved=0
+        for previous,geom in zip(before,scene.geoms[:scene.ngeom]):
+            if geom.objtype!=mujoco.mjtObj.mjOBJ_GEOM or geom.objid<0:continue
+            body=int(self.sim.model.geom_bodyid[geom.objid])
+            if body==pelvis:
+                self.assertFalse(np.allclose(previous,geom.pos));moved+=1
+            elif body==0:
+                np.testing.assert_array_equal(previous,geom.pos)
+        self.assertGreater(moved,0)
+        np.testing.assert_allclose(self.sim.status()['base_path'][-1],[.1,.05,.1])
+        self.assertEqual(self.sim.status()['motion_kind'],'walk')
+
+    def test_walk_preview_rejects_nonfinite_base_path(self):
+        self.plan['base_keyframes']=[{'time_s':0,'x_m':0,'y_m':0,'yaw_rad':0},
+            {'time_s':self.plan['duration_s'],'x_m':float('nan'),'y_m':0,'yaw_rad':0}]
+        with self.assertRaisesRegex(ValueError,'finite'):
+            self.sim.show_proposal(self.plan,'new-motion')
+
     def test_mjpeg_reader_accepts_fragmented_jpeg(self):
         output = io.BytesIO()
         Image.new('RGB', (32, 24), (40, 90, 50)).save(output, 'JPEG')
@@ -98,7 +134,41 @@ class DashboardTests(unittest.TestCase):
         self.assertFalse(feed.status()['online'])
 
 
+class MeasuredViewTests(unittest.TestCase):
+    def test_local_twin_renders_only_fresh_coordinator_telemetry(self):
+        snapshot = {'connected': True, 'state': {'lowstate_age_s': 0., 'joints': {'right_elbow_joint': .2}}}
+        view = MeasuredRobotView(pose_source=lambda: snapshot)
+        thread = threading.Thread(target=view.run, daemon=True)
+        try:
+            # The view must never create a second robot connection.
+            with patch('socket.create_connection', side_effect=AssertionError('Unexpected robot connection')):
+                thread.start()
+                deadline = time.monotonic()+6
+                while not view.status()['online'] and not view.error and time.monotonic()<deadline: time.sleep(.02)
+                self.assertTrue(view.status()['online'],view.error)
+                with view.lock:
+                    self.assertAlmostEqual(view.data.qpos[view.model.joint('right_elbow_joint').qposadr[0]],.2)
+                snapshot['state']['lowstate_age_s'] = 1.
+                deadline = time.monotonic()+2
+                while view.status()['online'] and time.monotonic()<deadline: time.sleep(.02)
+                self.assertFalse(view.status()['online'])
+                self.assertEqual(view.jpg,b'')
+        finally:
+            view.close(); thread.join(3)
+        self.assertFalse(thread.is_alive())
+
+
 class DashboardPortTests(unittest.TestCase):
+    def test_voice_service_rejects_external_or_credentialed_urls_before_startup(self):
+        for url in ('https://localhost:8770/', 'http://example.com:8770/',
+                    'http://user:password@localhost:8770/', 'http://localhost:8770/other'):
+            with self.subTest(url=url), patch('sys.argv',['dashboard','--sim','--voice-url',url]), \
+                 patch.object(dashboard,'bind_dashboard_server') as bind, redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exc:
+                    dashboard.main()
+                self.assertEqual(exc.exception.code,2)
+                bind.assert_not_called()
+
     def test_default_skips_occupied_port(self):
         with patch('tools.dashboard.ThreadingHTTPServer') as factory:
             factory.side_effect = [OSError(errno.EADDRINUSE, 'busy'), factory.return_value]

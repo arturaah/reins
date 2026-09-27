@@ -66,6 +66,7 @@ function renderViewers() {
   $('simulationStatus').hidden=!simulationVisible;
   const sim=state?.simulation;
   $('simulationMessage').textContent=sim?.playing ? 'Showing '+sim.name+'…' : sim?.plan ? (sim.time < sim.duration ? 'Preview stopped · ' : 'Preview finished · ')+sim.name : 'Ask in chat to create a new motion preview.';
+  if(sim?.description)$('simulationMessage').textContent+=' · '+sim.description;
   $('stopPreview').hidden=!sim?.playing;
   $('stopGlassesShare').hidden=!sharing;
 }
@@ -127,19 +128,19 @@ function renderGestures() {
   const g=state?.gestures;
   const busy=gestureRequestBusy || !!g?.busy;
   badge('gestureBadge', !g ? 'OFFLINE' : busy ? 'WORKING' : g.connected ? 'READY' : 'OFFLINE', !!g?.connected && !busy);
-  $('refreshGestures').disabled=busy || !state;
+  $('refreshGestures').disabled=busy || !state || state.mode==='sim';
   $('refreshGestures').textContent=g?.connected ? 'Refresh gestures' : 'Connect gestures';
-  $('gestureMessage').textContent=g?.message || 'Dashboard disconnected.';
+  $('gestureMessage').textContent=state?.mode==='sim'?'Firmware gestures are disabled in simulation mode.':g?.message || 'Dashboard disconnected.';
   $('gestureMessage').classList.toggle('error',!!g?.error);
   $('gestureConnection').textContent=g ? 'Robot connection: '+g.iface : '';
   const list=$('gestureButtons');
-  const version=JSON.stringify([g?.actions,busy,g?.connected,state?.pipeline?.connected,state?.pipeline?.busy]);
+  const version=JSON.stringify([g?.actions,busy,g?.connected,state?.pipeline?.connected,state?.pipeline?.busy,state?.pipeline?.proposal?.id,state?.mode]);
   if(list.dataset.version===version)return;
   list.dataset.version=version;list.replaceChildren();
   for(const action of g?.actions || []) {
     const button=document.createElement('button');
     button.type='button';button.className='button gesture-button'+(action.id===99?' release-gesture':'');
-    button.textContent=action.label;button.disabled=state?.mode==='sim' || busy || !g.connected || !!state?.pipeline?.connected || !!state?.pipeline?.busy;
+    button.textContent=action.label;button.disabled=state?.mode==='sim' || busy || !g.connected || !!state?.pipeline?.connected || !!state?.pipeline?.busy || !!state?.pipeline?.proposal;
     button.onclick=()=>gestureCommand({action:'gesture',id:action.id});
     list.append(button);
   }
@@ -168,8 +169,8 @@ function renderOverview() {
   $('statGestures').textContent=gestures.busy?'Working':gestures.connected?'Ready':'Offline';$('statusGestures').classList.toggle('online',gestures.connected);
   const cams=['head','left','right'].filter(k=>feeds[k].online).length;
   $('statCams').textContent=`${cams}/3`;$('camCount').textContent=`${cams}/3`;$('statusCameras').classList.toggle('online',cams>0);
-  const glasses=!!sharing||feeds.glasses.online;
-  $('statGlasses').textContent=sharing?'Shared':glasses?'Live':'Offline';$('statusGlasses').classList.toggle('online',glasses);
+  const paired=Number(state.pipeline?.glasses?.connected||0)>0,glasses=paired||!!sharing||feeds.glasses.online;
+  $('statGlasses').textContent=paired?'Paired':sharing?'Shared':glasses?'Video':'Offline';$('statusGlasses').classList.toggle('online',glasses);
   $('connectionCount').textContent=`${Number(cams>0)+Number(glasses)}/2`;
   $('railStatus').textContent=gestures.busy?'R1 request active':gestures.connected?'R1 gestures connected':live?robotText:'Robot state unknown';
 }
@@ -188,50 +189,39 @@ init();
 let promptVersion = '', promptRequestBusy = false, lastPromptId = null;
 // Prompt → Generate preview → Show in simulation, from the live chat and planner state.
 function renderFlow() {
-  const p = state?.prompt, chat = state?.chat;
-  const set = (id, cls, note) => { const li = $(id); li.className = cls || ''; if (note) li.querySelector('small').textContent = note; };
-  const suggested = chat?.messages?.some(m => m.role === 'assistant' && (m.robot_request || m.trajectory));
-  const started = !!p?.id;
-  set('flowPrompt', started || suggested ? 'done' : 'active',
-      started ? 'Motion requested' : suggested ? 'Click Generate preview on the reply' : 'Ask the assistant for a motion');
-  const state2 = !p || !started ? '' : p.state === 'planning' ? 'active' : ['proposed','previewed'].includes(p.state) ? 'done'
-               : p.state === 'blocked' ? 'failed' : '';
-  set('flowPreview', state2, state2 === 'active' ? 'Planning: IK and path checks…' : state2 === 'done' ? 'Checks passed'
-      : state2 === 'failed' ? 'Blocked: see the reason below' : 'IK and path checks, locally');
-  const runtime=state?.pipeline;
-  set('flowShow', runtime?.state==='completed'?'done':runtime?.state==='review'?'ready':runtime?.state==='executing'?'active':'',
-      runtime?.state==='completed'?'Motion completed':runtime?.state==='review'?'Approve here or in paired glasses':runtime?.state==='executing'?'Approved motion in progress':'Review and approve each motion');
-  if(runtime?.proposal)set('flowPreview','done',runtime.proposal.source==='visual'?'Camera-guided step checked':'Trajectory checks passed');
-
+  const p=state?.pipeline, planning=state?.prompt?.state==='planning'||state?.chat?.busy;
+  const set=(id,cls,note)=>{const li=$(id);li.className=cls;li.querySelector('small').textContent=note;};
+  set('flowPrompt',state?.chat?.messages?.length||p?.draft||p?.proposal?'done':'active','Ask the assistant for a motion');
+  set('flowPreview',p?.draft||p?.proposal?'done':planning?'active':p?.state==='blocked'?'failed':'',
+    p?.draft?'Draft checked; revisions need no approval':p?.proposal?'Complete motion checked':planning?'Observing, planning and checking…':'Inspect the planned motion');
+  set('flowShow',p?.state==='completed'?'done':p?.state==='review'?'ready':p?.state==='executing'?'active':'',
+    p?.state==='completed'?'Motion completed':p?.state==='review'?'One approval for this complete motion':p?.state==='executing'?'Approved motion in progress':'Approve here or in paired glasses');
 }
 function renderPrompt() {
-  const p = state?.prompt;
+  const p=state?.prompt;
   renderFlow();
-  if (!p) return;
-  badge('promptBadge', p.stage === 'revise' && p.state === 'planning' ? 'RECALCULATING' : p.state.toUpperCase(), ['proposed','previewed'].includes(p.state));
-  $('previewPrompt').disabled = promptRequestBusy;
-  $('previewPrompt').hidden = p.state !== 'proposed';
-  $('promptConfig').textContent = p.configured.observation && (p.configured.vision || p.configured.detector) ? `Objects: ${p.configured.detector ? 'local detector' : p.model}${p.configured.detector && p.configured.vision ? ' + '+p.model : ''}` : 'Gestures need no vision · object tasks need calibrated context';
-  const version = JSON.stringify([p.id,p.state,p.message,p.events?.length,state?.pipeline?.state,state?.pipeline?.proposal?.id]);
-  if (version === promptVersion) return;
-  promptVersion = version;
-  if (p.id && p.id !== lastPromptId) { lastPromptId = p.id; $('promptSource').value = p.source; }
-  $('promptSummary').textContent = p.prompt ? `${p.source === 'demo' ? 'Simulation demo · ' : ''}“${p.prompt}”` : 'No motion prepared yet.';
-  $('promptMessage').textContent = state?.pipeline?.proposal ? 'The validated proposal is shown above and in paired glasses.' : p.message;
-  $('planningDetails').hidden=!(p.events?.length);
+  if(!p)return;
+  $('promptBadge').hidden=p.state!=='planning';
+  badge('promptBadge',p.stage==='revise'&&p.state==='planning'?'RECALCULATING':p.state.toUpperCase(),['proposed','previewed'].includes(p.state));
+  const version=JSON.stringify([p.id,p.state,p.message,p.events?.length,state?.pipeline?.state,state?.pipeline?.draft?.id,state?.pipeline?.proposal?.id]);
+  if(version===promptVersion)return;
+  promptVersion=version;
+  $('promptSummary').textContent=p.prompt?'“'+p.prompt+'”':'No motion prepared yet.';
+  $('promptMessage').textContent=state?.pipeline?.proposal?'One complete motion is ready for review.':state?.pipeline?.draft?'Draft checked. It can be revised before submission.':state?.pipeline?.last_result?'The outcome is shown above. Ask for a new motion to continue.':p.message;
+  $('promptDraft').hidden=true;
+  $('promptSummary').textContent=p.prompt?'Last chat draft: “'+p.prompt+'”':'No motion prepared yet.';
+  $('planningDetails').hidden=!p.events?.length;
   $('promptEvents').replaceChildren();
-  for (const event of p.events || []) { const li = document.createElement('li'); const tag = document.createElement('span'); tag.textContent = event.stage; const text = document.createElement('span'); text.textContent = event.message; li.append(tag,text); $('promptEvents').append(li); }
-  $('cancelPrompt').hidden = !['planning','proposed','previewed'].includes(p.state);
-  $('cancelPrompt').textContent=p.state==='planning'?'Cancel':'Dismiss';
-  const ready = ['proposed','previewed'].includes(p.state);
-  $('promptReview').hidden = !ready;
+  for(const event of p.events||[]){const li=document.createElement('li'),tag=document.createElement('span'),text=document.createElement('span');tag.textContent=event.stage;text.textContent=event.message;li.append(tag,text);$('promptEvents').append(li);}
+  $('cancelPrompt').hidden=!!state?.pipeline?.proposal || (p.state!=='planning'&&!state?.pipeline?.draft);
+  $('cancelPrompt').textContent=p.state==='planning'?'Cancel':'Dismiss draft';
   $('promptMetrics').replaceChildren();
-  if (ready) {
-    const metrics = [['Skill',p.context?.skill || 'approach'],['Vision',p.context?.vision || 'demo'],['Target',p.target.label],['Arm',p.target.arm],['Surface · robot frame',p.target.surface_m ? p.target.surface_m.map(x=>x.toFixed(3)).join(', ')+' m' : 'Not required'],['Stand-off',p.target.standoff_m == null ? 'Not applicable' : (p.target.standoff_m*100).toFixed(0)+' cm'],['Validation',p.validation.samples+' sampled poses'],['Execution','Requires human approval · no contact']];
-    for (const [label,value] of metrics) { const row = document.createElement('div'), dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent=label; dd.textContent=value; row.append(dt,dd); $('promptMetrics').append(row); }
-    $('groundingImage').hidden = !p.has_image;
-    if (p.has_image) $('groundingImage').src = '/frame/grounding?id='+encodeURIComponent(p.id);
+  for(const [label,value] of [['Arm',p.target?.arm],['Validation',p.validation?.samples!=null?p.validation.samples+' sampled poses':null]]) {
+    if(value==null)continue;
+    const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;row.append(dt,dd);$('promptMetrics').append(row);
   }
+  $('groundingImage').hidden=!p.has_image;
+  if(p.has_image)$('groundingImage').src='/frame/grounding?id='+encodeURIComponent(p.id);
 }
 async function promptCommand(command) {
   if (promptRequestBusy) return false;
@@ -245,14 +235,6 @@ async function promptCommand(command) {
   finally { promptRequestBusy=false; if (state) { renderPrompt(); renderChat(); } }
 }
 $('cancelPrompt').onclick = () => promptCommand({action:'cancel'});
-$('previewPrompt').onclick = async () => {
-  if (!state?.prompt?.id) return;
-  if (await promptCommand({action:'preview',id:state.prompt.id})) {
-    await poll(); setViewer('main','simulation');
-    $('viewerWorkspace').scrollIntoView({behavior:'smooth',block:'center'});
-  }
-};
-
 // The endpoint only serves this exact result ID; late source changes invalidate requests.
 let detectionBusy = false, detectionFrame = '', detectionUrl = null, detectionRequest = '';
 async function loadDetectionImage(id) {
@@ -326,6 +308,12 @@ $('detectionToggle').onclick=()=>detectionCommand(!state?.detection?.enabled,$('
 $('detectionSource').onchange=()=>detectionCommand(!!state?.detection?.enabled,$('detectionSource').value);
 
 // Conversation suggestions start preview planning only when the user clicks.
+function displayMessage(message) {
+  const result=message?.runtime_result;
+  if(!result)return message?.text||'';
+  return (result.name?result.name+': ':'')+(result.message||result.outcome||'Result recorded.')+
+    (typeof result.tracking_error==='number'?' Tracking error '+result.tracking_error.toFixed(3)+' rad.':'');
+}
 let chatBusy = false, chatVersion = '';
 function renderChat() {
   const chat = state?.chat;
@@ -348,7 +336,7 @@ function renderChat() {
   $('chatError').hidden = !chat?.error;
   $('chatErrorText').textContent = chat?.error || '';
   if (!chat) return;
-  const version = JSON.stringify([chat.session_id,chat.version,state.prompt?.state,promptRequestBusy,state.pipeline?.busy]);
+  const version = JSON.stringify([chat.session_id,chat.version,state.prompt?.state,promptRequestBusy,state.pipeline?.busy,state.pipeline?.proposal?.id]);
   if (version === chatVersion) return;
   chatVersion = version;
   const log = $('chatTranscript'), nearBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 80;
@@ -360,19 +348,19 @@ function renderChat() {
   const lastAssistant = chat.messages.at(-1)?.role === 'assistant' ? chat.messages.at(-1) : null;
   for (const message of chat.messages) {
     const row=document.createElement('article'), name=document.createElement('span'), text=document.createElement('div');
-    row.className='chat-message '+message.role;name.className='chat-speaker';name.textContent=message.role==='user'?'you':(message.provider||'assistant').replace(/ (CLI|API)$/,'').toLowerCase();
-    text.className='chat-text';text.textContent=message.text;row.append(name,text);
+    row.className='chat-message '+message.role;name.className='chat-speaker';name.textContent=message.runtime_result?'robot':message.role==='user'?'you':(message.provider||'assistant').replace(/ (CLI|API)$/,'').toLowerCase();
+    text.className='chat-text';text.textContent=displayMessage(message);row.append(name,text);
     if (message.robot_request) {
       const suggestion=document.createElement('div'), label=document.createElement('span'), button=document.createElement('button');
       suggestion.className='chat-suggestion';label.textContent=message.robot_request+(message.trajectory ? ' · '+message.trajectory.waypoints.length+' authored waypoints' : '');
       button.className='button pill';button.textContent='Generate preview ↗';button.type='button';
-      button.disabled=chat.busy || message.id!==lastAssistant?.id || promptRequestBusy || state.prompt?.state==='planning' || state.pipeline?.busy;
+      button.disabled=chat.busy || message.id!==lastAssistant?.id || promptRequestBusy || state.prompt?.state==='planning' || state.pipeline?.busy || !!state.pipeline?.proposal;
       button.onclick=async ()=>{
         $('promptDraft').hidden=false;
         $('promptDraft').textContent=message.trajectory ? message.trajectory.name+' · '+message.trajectory.arm+' arm · '+message.trajectory.waypoints.length+' waypoints. Ask in chat to revise the motion.' : message.robot_request;
         $('motionDetails').open=true;
         $('motionDetails').scrollIntoView({behavior:'smooth',block:'center'});
-        await promptCommand({action:'submit',chat_message_id:message.id,source:$('promptSource').value});
+        await promptCommand({action:'submit',chat_message_id:message.id,source:'auto'});
       };
       suggestion.append(label,button);row.append(suggestion);
     }
@@ -438,36 +426,45 @@ $('chatInput').addEventListener('input',()=>{const input=$('chatInput');input.st
 /* One reviewed motion pipeline, shared with the paired glasses. */
 let robotRequestBusy=false;
 function renderPipeline() {
-  const p=state?.pipeline, proposal=p?.proposal, reviewing=p?.state==='review' && !!proposal && !proposal.expired;
-  $('robotModeLabel').textContent=p?.mode==='live'?'PHYSICAL ROBOT · '+(p.connected?'CONNECTED':'DISCONNECTED'):'SIMULATION';
-  badge('pipelineBadge',p?.state?.toUpperCase()||'OFFLINE',reviewing || p?.state==='completed');
-  $('pipelineSummary').textContent=proposal?proposal.name:'No motion awaiting review.';
+  renderFlow();
+  const p=state?.pipeline,proposal=p?.proposal,draft=p?.draft,reviewing=p?.state==='review'&&!!proposal&&!proposal.expired;
+  const item=proposal||draft,kind=item?.kind||item?.motion_kind||'arm';
+  $('robotModeLabel').textContent=state?.mode==='sim'?'SIMULATION · HARDWARE DISABLED':p?.mode==='live'?'PHYSICAL ROBOT · '+(p.connected?'STATE CONNECTED':'DISCONNECTED'):'SIMULATION';
+  badge('pipelineBadge',p?.state?.toUpperCase()||'OFFLINE',reviewing||p?.state==='completed');
+  $('pipelineSummary').textContent=item?.name||'No motion awaiting review.';
   $('pipelineMessage').textContent=p?.message||'Dashboard disconnected.';
-  $('pipelineDetails').textContent=proposal?
-    (proposal.mode==='live'?'Physical robot':'Simulation')+' · '+proposal.arm+' arm · '+proposal.duration_s.toFixed(1)+' s · revision '+proposal.revision+' · '+(proposal.source==='visual'?'Camera-guided step':'Trajectory planner')+
-    (proposal.expired?' · Expired':' · '+Math.max(0,Math.ceil(proposal.expires_at-Date.now()/1000))+' s to approve'):'';
+  const target=kind==='walk'?'base path':kind==='hand'?(item?.arm||'selected')+' hand action':(item?.arm||'selected')+' arm';
+  $('pipelineDetails').textContent=item?(item.mode==='live'?'Physical robot':'Simulation')+' · '+target+' · '+Number(item.duration_s||0).toFixed(1)+' s'+(proposal?' · revision '+proposal.revision+(proposal.expired?' · Expired':' · '+Math.max(0,Math.ceil(proposal.expires_at-Date.now()/1000))+' s to approve'):' · Draft, not approved')+(item.description?' · '+item.description:''):'';
+  $('draftActions').hidden=!draft||!!proposal;
+  $('previewDraft').disabled=robotRequestBusy||!!p?.busy;
+  $('proposeMotion').disabled=robotRequestBusy||!!p?.busy||!!state?.chat?.busy||state?.prompt?.state==='planning';
   $('pipelineActions').hidden=!reviewing;
-  $('approveMotion').textContent=proposal?.mode==='live'?'Approve & execute on robot':'Approve in simulation';
-  $('approveMotion').disabled=robotRequestBusy || !reviewing;
-  $('rejectMotion').disabled=robotRequestBusy || !reviewing;
+  $('approveMotion').textContent=proposal?.mode==='live'?'Approve & run on robot':'Approve in simulation';
+  $('approveMotion').disabled=robotRequestBusy||!reviewing;
+  $('rejectMotion').disabled=robotRequestBusy||!reviewing;
   const busy=robotRequestBusy||!!p?.busy||!!proposal||state?.prompt?.state==='planning';
-  $('robotConnect').disabled=!p||busy||p.connected||state?.mode==='sim';
-  $('robotConnect').textContent=p?.connected?'Robot connected':'Connect & hold arms';
+  $('robotConnect').disabled=!p||busy||p.connected||state?.mode==='sim'||p?.capabilities?.hardware_allowed===false;
+  $('robotConnect').textContent=p?.connected?'Robot state connected':'Connect robot';
   $('robotHome').disabled=!p||busy;
   $('robotArm').disabled=busy;
-  $('visualProvider').disabled=busy;
-  $('autoFallback').disabled=busy;
   $('tableHeight').disabled=busy||!!p?.connected;
-  $('retryVisual').disabled=!p||busy||!state?.prompt?.prompt;
   document.querySelectorAll('[data-jog],[data-roll]').forEach(b=>b.disabled=!p||busy);
-  // Stop is deliberately independent of a long-running command request.
+  const walking=p?.capabilities?.walking===true,hands=p?.capabilities?.hands||{},hand=hands[$('robotArm').value]===true;
+  document.querySelectorAll('[data-walk]').forEach(b=>b.disabled=!p||busy||!walking);
+  document.querySelectorAll('[data-hand]').forEach(b=>b.disabled=!p||busy||!hand);
+  $('extraControlStatus').textContent=(walking?'Walking enabled':'Walking disabled')+' · '+(hand?'Selected hand available':'Selected hand unavailable');
   $('robotStop').disabled=!p;
-  if(p && !robotRequestBusy) {
-    $('visualProvider').value=p.provider;
-    $('autoFallback').checked=p.auto_fallback;
-    if(p.table_z_m!=null && document.activeElement!==$('tableHeight'))$('tableHeight').value=p.table_z_m;
+  if(p?.table_z_m!=null&&document.activeElement!==$('tableHeight'))$('tableHeight').value=p.table_z_m;
+  const robot=p?.robot_state;
+  $('robotStateStatus').textContent=robot?(p.mode==='live'?'Measured state':'Simulated state')+(robot.lowstate_age_s!=null?' · '+Number(robot.lowstate_age_s).toFixed(2)+' s old':''):'Connect to read the current pose.';
+  $('robotStatePose').textContent=robot?JSON.stringify(robot,null,2):'';
+  const result=p?.last_result;
+  $('motionOutcome').hidden=!result;
+  if(result) {
+    $('outcomeSummary').textContent='Last motion: '+(result.outcome||'finished');
+    $('outcomeDetails').textContent=result.message||(result.tracking_error!=null?'Tracking error: '+(typeof result.tracking_error==='number'?result.tracking_error.toFixed(3)+' rad':JSON.stringify(result.tracking_error)):'Result recorded.');
+    $('outcomePose').textContent=JSON.stringify(result.measured_end_pose||{},null,2);
   }
-  if(state?.prompt?.state==='proposed' || state?.prompt?.state==='previewed')$('promptReview').hidden=true;
 }
 async function robotCommand(command) {
   const stopping=command.action==='stop';
@@ -479,7 +476,7 @@ async function robotCommand(command) {
       body:JSON.stringify(command),signal:AbortSignal.timeout(stopping?20000:15000)});
     const body=await response.json();if(!response.ok)throw new Error(body.error||'Robot request failed');
     if(state)state.pipeline=body;
-    if(['jog','home','roll'].includes(command.action)) {
+    if(['jog','home','roll','walk','hand','preview','propose'].includes(command.action)) {
       setViewer('main','simulation');$('motionDetails').scrollIntoView({behavior:'smooth',block:'center'});
     }
   } catch(error){toast(error.message);}
@@ -489,8 +486,12 @@ $('robotConnect').onclick=()=>robotCommand({action:'connect',table_z_m:$('tableH
 $('robotStop').onclick=()=>robotCommand({action:'stop'});
 $('robotHome').onclick=()=>robotCommand({action:'home',arm:$('robotArm').value});
 document.querySelectorAll('[data-jog]').forEach(b=>b.onclick=()=>robotCommand({action:'jog',arm:$('robotArm').value,direction:b.dataset.jog}));
-for(const id of ['autoFallback','visualProvider','robotArm'])$(id).onchange=()=>robotCommand({action:'settings',auto_fallback:$('autoFallback').checked,provider:$('visualProvider').value,arm:$('robotArm').value});
-$('retryVisual').onclick=()=>robotCommand({action:'fallback'});
+$('robotArm').onchange=()=>{renderPipeline();robotCommand({action:'settings',arm:$('robotArm').value});};
+$('previewDraft').onclick=()=>{const draft=state?.pipeline?.draft;if(draft)robotCommand({action:'preview',plan_id:draft.id});};
+$('proposeMotion').onclick=()=>{const draft=state?.pipeline?.draft;if(draft)robotCommand({action:'propose',plan_id:draft.id});};
+const walkCommands={forward:[.1,0,0],back:[-.1,0,0],left:[0,.1,0],right:[0,-.1,0],turn_left:[0,0,.1],turn_right:[0,0,-.1]};
+document.querySelectorAll('[data-walk]').forEach(button=>button.onclick=()=>{const [dx,dy,dyaw]=walkCommands[button.dataset.walk];robotCommand({action:'walk',dx,dy,dyaw});});
+document.querySelectorAll('[data-hand]').forEach(button=>button.onclick=()=>robotCommand({action:'hand',arm:$('robotArm').value,closed:button.dataset.hand==='close'}));
 for(const [id,decision] of [['approveMotion','approve'],['rejectMotion','decline']])$(id).onclick=()=>{
   const p=state?.pipeline?.proposal;if(!p)return;
   robotCommand({action:'decision',id:p.id,digest:p.digest,decision,note:$('reviewNote').value});
@@ -499,13 +500,32 @@ for(const [id,decision] of [['approveMotion','approve'],['rejectMotion','decline
 document.addEventListener('keydown',event=>{if(event.key==='Escape' && state?.pipeline?.connected){event.preventDefault();robotCommand({action:'stop'});}});
 async function loadGlassesPairing() {
   try {
-    const response=await fetch('/api/glasses');if(!response.ok)return;
+    const response=await fetch('/api/glasses');if(!response.ok)throw new Error('Pairing information unavailable');
     const g=await response.json();
-    $('glassesPairing').textContent=g.error?'AR server: '+g.error:'Lens WebSocket: ws://THIS_COMPUTER_IP:'+g.port+'\nReview token: '+g.token;
-    $('glassesPairingStatus').textContent=g.connected?'Glasses paired and connected':'Paste this session token into the Lens reviewToken setting.';
-  } catch {}
+    $('glassesPairingStatus').textContent=g.error?'AR server: '+g.error:'Lens WebSocket: ws://THIS_COMPUTER_IP:'+g.port+' · '+g.connected+' connected';
+    $('glassesDevices').replaceChildren();
+    for(const device of g.paired_devices||[]) {
+      const li=document.createElement('li'),label=document.createElement('span');
+      label.textContent=device.label+' · '+device.device_id+(device.revoked_at?' · Revoked':'');li.append(label);
+      if(!device.revoked_at){const button=document.createElement('button');button.className='text-button';button.textContent='Revoke';button.onclick=()=>pairingCommand({action:'revoke_device',device_id:device.device_id});li.append(button);}
+      $('glassesDevices').append(li);
+    }
+  } catch(error){$('glassesPairingStatus').textContent=error.message;}
 }
+async function pairingCommand(command) {
+  $('pairGlasses').disabled=true;
+  try {
+    const response=await fetch('/api/glasses',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},body:JSON.stringify(command)});
+    const body=await response.json();if(!response.ok)throw new Error(body.error||'Pairing failed');
+    if(body.device){const device=body.device;$('glassesPairing').hidden=false;$('glassesPairing').textContent='Save in the Lens now; this token is shown only once.\ndeviceId: '+device.device_id+'\nreviewToken: '+device.token;}
+    if(command.action==='revoke_device'){$('glassesPairing').textContent='';$('glassesPairing').hidden=true;}
+    await loadGlassesPairing();
+  } catch(error){toast(error.message);}
+  finally{$('pairGlasses').disabled=false;}
+}
+$('pairGlassesForm').onsubmit=event=>{event.preventDefault();pairingCommand({action:'create_device',label:$('glassesDeviceName').value});};
 $('connections').addEventListener('toggle',()=>{if($('connections').open)loadGlassesPairing();});
+$('connections').addEventListener('close',()=>{$('glassesPairing').textContent='';$('glassesPairing').hidden=true;});
 
 setInterval(()=>{
   if(token && (state?.pipeline?.connected || state?.pipeline?.state==='connecting')) {
@@ -550,5 +570,5 @@ window.addEventListener('message',event=>{
 });
 $('speakPrompt').onclick=()=>{
   const reply=[...(state?.chat?.messages||[])].reverse().find(message=>message.role==='assistant');
-  if(!window.ReinsVoice.speak(reply?.text||$('pipelineMessage').textContent))toast('Connect voice and wait for playback to finish. Replies must be under 1,000 characters.');
+  if(!window.ReinsVoice.speak(displayMessage(reply)||$('pipelineMessage').textContent))toast('Connect voice and wait for playback to finish. Replies must be under 1,000 characters.');
 };

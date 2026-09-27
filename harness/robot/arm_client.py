@@ -5,10 +5,10 @@ import threading
 import time
 import uuid
 
-from ..executor import Backend
+from .control_auth import read_token
 
 
-class ArmClientBackend(Backend):
+class ArmClientBackend:
     name = "arm_sdk"
     dry_run = False
     hands = None                   # hand_client.Revo2Client when hand.type is revo2 (set by harness.__main__.build)
@@ -16,6 +16,11 @@ class ArmClientBackend(Backend):
     def __init__(self, cfg, log=print):
         s = cfg["streamer"]
         self.log = log
+        self.cfg = cfg
+        self.hands = None
+        self.control_token = read_token(s.get("control_token_file"))
+        self.authenticated = False
+        self.motion_cancel = threading.Event()
         self.sock = socket.create_connection((s["host"], int(s["port"])), timeout=3)
         self.sock.settimeout(None)
         self.lock = threading.Lock()
@@ -29,6 +34,11 @@ class ArmClientBackend(Backend):
         try:
             hello = self.call({"cmd": "hello"}, timeout=5)
             self.fsm, self.fsm_name = hello.get("fsm"), hello.get("fsm_name")
+            if hello.get("control_protocol") != 2:
+                raise RuntimeError("Outdated robot bridge; stop it and launch the reviewed dashboard bridge")
+            if self.control_token:
+                self.call({"cmd": "authenticate", "token": self.control_token})
+                self.authenticated = True
         except Exception:
             self.close()
             raise
@@ -37,6 +47,8 @@ class ArmClientBackend(Backend):
         with self.lock:
             if not self.alive:
                 raise RuntimeError("Robot connection closed")
+            if req.get("cmd") == "execute_motion" and self.motion_cancel.is_set():
+                raise RuntimeError("Motion stopped before submission")
             self.sock.sendall((json.dumps(req, allow_nan=False)+"\n").encode())
 
     def _read(self):
@@ -98,42 +110,65 @@ class ArmClientBackend(Backend):
         return dict(self.snapshot()["velocities"])
 
     def engage(self):
-        state = self.call({"cmd": "engage"}, timeout=15)
-        if not state.get("engaged"):
-            raise RuntimeError("Robot released while engaging")
+        raise RuntimeError("Engage is owned by RobotPipeline after a complete motion is approved")
 
     def release(self):
-        return self.call({"cmd": "release"}, timeout=15)
+        self.motion_cancel.set()
+        result = self.call({"cmd": "release"}, timeout=15) if self.authenticated else self.snapshot()
+        if self.hands:
+            self.hands.freeze()
+        return result
 
     def freeze(self):
-        return self.call({"cmd": "freeze"}, timeout=3)
+        self.motion_cancel.set()
+        result = self.call({"cmd": "freeze"}, timeout=3) if self.authenticated else self.snapshot()
+        if self.hands:
+            self.hands.freeze()
+        return result
 
     def close(self):
+        self.motion_cancel.set()
         self.alive = False
+        if self.hands:
+            self.hands.close()
         try: self.sock.shutdown(socket.SHUT_RDWR)
         except OSError: pass
         self.sock.close()
 
     def stream(self, arm, frames, dt):
-        return self.call({"cmd": "frames", "arm": arm, "frames": [[float(v) for v in f] for f in frames], "dt": dt},
-                         timeout=len(frames)*dt+15)
+        raise RuntimeError("Raw frames are retired; propose a complete motion through RobotPipeline")
 
-    def stream_plan(self, plan, arm):
-        from core.trajectory import digest
-        return self.call({"cmd": "plan", "arm": arm, "plan": plan, "digest": digest(plan)},
-                         timeout=plan["duration_s"]+15)
+    def execute_motion(self, payload, approval):
+        self.motion_cancel.clear()
+        from contract.runtime import digest, validate_approval, validate_motion
+        validate_motion(payload)
+        validate_approval(approval, digest(payload))
+        if not self.authenticated:
+            raise RuntimeError("Read-only robot connection; private controller capability required")
+        if payload["kind"] == "hand":
+            if self.cfg.get("hand", {}).get("type") != "revo2":
+                raise RuntimeError("Revo2 hands are not configured")
+            if self.hands is None:
+                from .hand_client import Revo2Client
+                self.hands = Revo2Client(self.cfg, log=self.log)
+            if not self.alive or self.motion_cancel.is_set():
+                self.hands.close()
+                raise RuntimeError("Hand motion stopped before submission")
+            result = self.hands.execute_motion(payload, approval, cancelled=self.motion_cancel)
+            return {**self.snapshot(), **result}
+        duration = payload["plan"]["duration_s"] if payload["kind"] == "arm" else payload["duration_s"]
+        return self.call({"cmd": "execute_motion", "payload": payload, "approval": approval}, timeout=duration+20)
 
-    def walk(self, vx, vy, vyaw, duration):
-        r = self.call({"cmd": "walk", "vx": float(vx), "vy": float(vy), "vyaw": float(vyaw), "duration": float(duration)},
-                      timeout=float(duration) + 15.0)
-        if not r.get("ok"):
-            raise RuntimeError(f"streamer refused the walk: {r.get('error')}")
-        return r.get("odom")
+    def stream_plan(self, plan, arm, approval=None):
+        return self.execute_motion({"kind": "arm", "arm": arm, "plan": plan}, approval)
+
+    def walk(self, vx, vy, vyaw, duration, approval=None):
+        result = self.execute_motion({"kind": "walk", "vx": float(vx), "vy": float(vy),
+                                      "vyaw": float(vyaw), "duration_s": float(duration)}, approval)
+        return result.get("odom")
 
     def hand(self, arm, closed):
-        if self.hands:
-            return self.hands.hand(arm, closed)
-        return "this robot has no hand: nothing to grasp with, the arm paused"
+        raise RuntimeError("Unreviewed hand commands are retired; propose through RobotPipeline")
 
     def hand_state(self, arm):
         return self.hands.hand_state(arm) if self.hands else None

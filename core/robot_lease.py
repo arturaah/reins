@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class RobotLease:
     def __init__(self, owner, path=None):
         self.owner = owner
-        self.path = Path(path or os.environ.get("REINS_ROBOT_LOCK", str(ROOT / "runs/robot-control.lock")))
+        state = Path(os.environ.get("REINS_STATE_DIR", "~/.local/state/reins")).expanduser()
+        self.path = Path(path or os.environ.get("REINS_ROBOT_LOCK", str(state / "robot-control.lock")))
         self.file = None
 
     def acquire(self):

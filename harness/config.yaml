@@ -7,8 +7,7 @@ robot:
   arm: right                                   # single-arm mode: left | right
   dual_arm: false
   hold_head: true                              # keep head pitch/yaw at their measured values while engaged
-  head_pitch_rad: 0.35                         # ...except pitch: look down this much on engage (positive = down, URDF y axis,
-                                               # range +-0.63) so the head camera sees the hand; null = hold the measured pitch
+  head_pitch_rad: null                         # reviewed control holds measured head pose; no hidden motion
   fsm_ok_arms: [4, 811]                        # FSM ids in which the streamer engages the arms (the SDK documents 4 and 811). 816 is
                                                # what the robot reports once the arms ARE engaged (see locomotion.fsm_ok), never before.
   arm_kp_scale: 1.5                            # Unitree's example arm gains x this. At 1.0 the hand sagged 2.5 cm per 4 cm forward
@@ -63,6 +62,7 @@ hand:
   pause_s: 1.0
   grasp_reach_m: 0.03        # sim: an object within this distance of the hand tip is grasped
   revo2:                     # harness/robot/revo2.py (the hand server) and hand_client.py; motors thumb, thumb_aux, index, middle, ring, pinky
+    iface: null               # optional Revo2/Jetson interface; defaults to dashboard --iface
     host: 127.0.0.1
     port: 8791
     topic_prefix: rt/brainco # brainco_hand_server on the Jetson: <prefix>/{left,right}/{cmd,state}

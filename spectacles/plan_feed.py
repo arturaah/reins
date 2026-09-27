@@ -15,8 +15,9 @@ The plan file is re-read when it changes. With --state-url, measured joints
 from tools/relay.py advance the remaining path while rt/arm_sdk is active.
 With --robot-iface, subscribe directly on the robot-side Mac instead of
 running a separate relay. Both modes are read-only.
-The Lens falls back to its mock after 1.5 s of silence, so the path is
-resent every --period seconds. No command is sent to the robot.
+The path is resent every --period seconds. Demo mock motion is opt-in in
+the Lens. Review and voice require a private token file; prefer the dashboard
+bridge for revocable device pairing. No command is sent to the robot.
 
 Frame: the fixed-base model pins the pelvis at 0.74 m above the world origin
 with x forward, y left, z up, which is the Lens's robot_base (origin on the
@@ -46,6 +47,8 @@ except ImportError:  # also runnable as `python spectacles/plan_feed.py`
     from pairing import authenticate, load_token, validate_bind
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from core.glasses_bridge import require_tracking
 MJCF = ROOT / "sim/models/r1/R1_fixed_base.xml"
 MAX_POINTS = 512   # the Lens rejects longer paths
 
@@ -339,6 +342,7 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
         raise ValueError("Review and voice feeds require a pairing token; prefer the dashboard glasses bridge.")
 
     async def handler(websocket):
+        session = secrets.token_urlsafe(24)
         if pairing_token:
             if not await authenticate(websocket, pairing_token):
                 return
@@ -349,10 +353,12 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                     not isinstance(auth.get("token"), str) or not secrets.compare_digest(auth["token"], review_token)):
                     await websocket.close(code=1008, reason="Pairing token required")
                     return
-                await websocket.send(json.dumps({"type":"auth_ack", "accepted":True}))
+                await websocket.send(json.dumps({"type":"auth_ack", "accepted":True, "session":session}))
             except (ValueError, asyncio.TimeoutError):
                 await websocket.close(code=1008, reason="Authentication required")
                 return
+        if not review_token:
+            await websocket.send(json.dumps({"type":"auth_ack", "accepted":True, "session":session}))
         print(f"Lens connected: {websocket.remote_address}", file=sys.stderr, flush=True)
         last_review_id = None
         live = LiveVoiceRelay(websocket, live_voice_url) if live_voice_url else None
@@ -361,13 +367,16 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
             while True:
                 payload = feed.current(state, base_pose_source.read() if base_pose_source else None)
                 if payload:
+                    message = json.loads(payload)
+                    message.update(session=session, phase="draft", review=None)
                     if review and (pending := review.pending(feed.path)):
                         # A proposal has not been approved yet. Always show its
                         # complete path; earlier rt/arm_sdk traffic may otherwise
                         # make joint matching collapse it to a hand point.
                         message = json.loads(feed.text)
-                        message["review"] = pending
-                        payload = json.dumps(message)
+                        message.update(session=session, phase="review")
+                        message["review"] = {**pending, "session":session,
+                                             "expires_in_s":max(0, pending["expires_at"]-time.time())}
                         if pending["id"] != last_review_id:
                             print(f"Spectacles review pending: {pending['id']} ({pending['mode']})",
                                   file=sys.stderr, flush=True)
@@ -375,7 +384,7 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                     elif last_review_id:
                         print(f"Spectacles review cleared: {last_review_id}", file=sys.stderr, flush=True)
                         last_review_id = None
-                    await websocket.send(payload)
+                    await websocket.send(json.dumps(message))
                 await asyncio.sleep(period)
 
         async def receive_decisions():
@@ -387,6 +396,11 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                     if not isinstance(raw, str) or len(raw) > 1024:
                         continue
                     msg = json.loads(raw)
+                    if (review_token or review is not None or voice is not None) and msg.get("session") != session:
+                        kind = "voice_ack" if msg.get("type") == "voice_command" else "review_ack"
+                        await websocket.send(json.dumps({"type":kind, "id":msg.get("id"), "accepted":False,
+                                                         "session":session, "error":"Connection session changed"}))
+                        continue
                     if msg.get('type') in ('voice_start', 'voice_stop') and msg.get('version') == 1:
                         identity = msg.get('id')
                         if not isinstance(identity, str) or not 1 <= len(identity) <= 80:
@@ -401,20 +415,28 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                                 'event': {'type': 'error', 'text': 'Start the plan feed with --live-voice-url.'}}))
                         continue
                     if msg.get("type") == "voice_command" and msg.get("version") == 1:
-                        accepted = bool(not live and voice and voice.enqueue(msg.get("id"), msg.get("text")))
+                        accepted = bool(not live and voice and not (review and review.pending(feed.path)) and
+                                        voice.enqueue(msg.get("id"), msg.get("text")))
                         print(f"Spectacles voice command: {'queued' if accepted else 'ignored'}: "
                               f"{str(msg.get('text', ''))[:100]}", file=sys.stderr, flush=True)
                         await websocket.send(json.dumps({"type": "voice_ack", "version": 1,
-                                                         "id": msg.get("id"), "accepted": accepted}))
+                                                         "id": msg.get("id"), "accepted": accepted, "session":session}))
                         continue
                     if msg.get("type") != "review_decision" or msg.get("version") != 1:
                         continue
-                    accepted = bool(review and review.decide(feed.path, msg.get("id"), msg.get("decision")))
+                    pending = review.pending(feed.path) if review else None
+                    matching = pending and all(msg.get(k) == pending.get(k) for k in ("id", "digest", "revision"))
+                    if matching and msg.get("decision") == "approve":
+                        try:
+                            require_tracking(msg.get("tracking"))
+                        except ValueError:
+                            matching = False
+                    accepted = bool(matching and review.decide(feed.path, msg.get("id"), msg.get("decision")))
                     print(f"Spectacles review decision: {msg.get('decision')} for {msg.get('id')}: "
                           f"{'accepted' if accepted else 'ignored (stale or unmatched)'}",
                           file=sys.stderr, flush=True)
                     await websocket.send(json.dumps({"type": "review_ack", "version": 1,
-                                                     "id": msg.get("id"), "accepted": accepted}))
+                                                     "id": msg.get("id"), "accepted": accepted, "session":session}))
                 except (ValueError, TypeError, AttributeError, OSError) as exc:
                     print(f"bad Spectacles review decision: {exc}", file=sys.stderr, flush=True)
         try:

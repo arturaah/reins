@@ -44,7 +44,7 @@ class VoiceWebSocketTest(unittest.IsolatedAsyncioTestCase):
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
             feed = Feed(mujoco.MjModel.from_xml_path(str(MJCF)), plan, 20)
-            server = asyncio.create_task(serve_feed(feed, "127.0.0.1", port, 0.05, voice=inbox))
+            server = asyncio.create_task(serve_feed(feed, "127.0.0.1", port, 0.05, voice=inbox, review_token="test-voice-token"))
             try:
                 for _ in range(50):
                     try:
@@ -55,9 +55,12 @@ class VoiceWebSocketTest(unittest.IsolatedAsyncioTestCase):
                 else:
                     self.fail("feed did not start")
                 async with client as websocket:
+                    await websocket.send(json.dumps({"type":"authenticate", "token":"test-voice-token"}))
+                    auth = json.loads(await websocket.recv())
+                    self.assertEqual(auth["type"], "auth_ack")
                     for command_id, expected in (("one", True), ("two", False)):
                         await websocket.send(json.dumps({"type": "voice_command", "version": 1,
-                                                         "id": command_id, "text": "move right"}))
+                                                         "id": command_id, "text": "move right", "session":auth["session"]}))
                         while True:
                             reply = json.loads(await asyncio.wait_for(websocket.recv(), 2))
                             if reply.get("type") == "voice_ack":

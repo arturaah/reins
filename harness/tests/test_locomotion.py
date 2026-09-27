@@ -3,6 +3,7 @@ import json
 import math
 import threading
 import time
+import types
 
 import numpy as np
 import pytest
@@ -219,41 +220,46 @@ class FakeLoco:
     def StopMove(self): FakeLoco.calls.append(("stop",))
 
 
-def test_streamer_walk_command(cfg, monkeypatch):
+def test_streamer_walk_command(cfg, monkeypatch, tmp_path):
+    monkeypatch.setenv("REINS_ROBOT_LOCK", str(tmp_path/"walk.lock"))
+    def checked_walk(st, req):
+        error, odom = st.walk(req["vx"], req["vy"], req["vyaw"], req["duration"])
+        return {"ok": not error, "error": error, "odom": odom}
     monkeypatch.setattr(am, "LowStateReader", FakeReader); monkeypatch.setattr(am, "ChannelPublisher", FakePub)
+    monkeypatch.setattr(am, "CRC", lambda: types.SimpleNamespace(Crc=lambda cmd: 0))
     monkeypatch.setattr(am, "_odom_sub", lambda cb: None); monkeypatch.setattr(am, "_loco", lambda: FakeLoco())
     monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start (balance control)"))
     cfg["locomotion"]["settle_s"] = 0.0; cfg["locomotion"]["fsm_wait_s"] = 0.2
     st = am.Streamer(cfg, "lo0", log=lambda *a: None)
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "disabled" in r["error"] and FakeLoco.calls == []
     cfg["locomotion"]["enabled"] = True
     st = am.Streamer(cfg, "lo0", log=lambda *a: None)
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] and r["odom"] is None and FakeLoco.calls == [("vel", 0.25, 0.0, 0.0, 0.2), ("stop",)]     # no odometry topic: still stops
     FakeLoco.calls.clear()
-    r = st.dispatch("walk", {"vx": 0.6, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    r = checked_walk(st, {"vx": 0.6, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "over the cap" in r["error"] and FakeLoco.calls == []
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 8.0})       # the cap is 1.5 m at 0.25 m/s
+    r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 8.0})       # the cap is 1.5 m at 0.25 m/s
     assert r["ok"] is False and "duration" in r["error"]
     monkeypatch.setattr(am, "query_fsm", lambda: (816, "ArmSdkLoco"))
-    t0 = time.time(); r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    t0 = time.time(); r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "locomotion.fsm_ok" in r["error"] and "816" in r["error"]     # only the operator's list may walk
     assert time.time() - t0 >= 0.2 and "released" not in r["error"]                            # waited fsm_wait_s; nothing was held
     st.loco["fsm_ok"] = [811, 816]; FakeLoco.calls.clear()
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] and FakeLoco.calls[0][0] == "vel"
     st.loco["fsm_ok"] = [811]
     class Refusing(FakeLoco):
         def SetVelocity(self, *a): FakeLoco.calls.append(("vel", *a)); return 3103                  # the controller says no
     monkeypatch.setattr(am, "_loco", lambda: Refusing()); monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start"))
     FakeLoco.calls.clear()
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "code 3103" in r["error"] and FakeLoco.calls[-1] == ("stop",)    # refused, still stopped
     class Blocked(FakeLoco):
         def SetVelocity(self, *a): FakeLoco.calls.append(("vel", *a)); return 127                   # the undocumented answer of #319
     monkeypatch.setattr(am, "_loco", lambda: Blocked())
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "code 127" in r["error"] and "xr_teleoperate#319" in r["error"]
     monkeypatch.setattr(am, "_loco", lambda: FakeLoco())
     # odometry: a walk of 0.2 m along the heading at yaw 90 deg -> dx 0.2 in the body frame
@@ -261,23 +267,24 @@ def test_streamer_walk_command(cfg, monkeypatch):
     st.odom = {"pos": [1.0, 1.0, 0.0], "yaw": math.pi / 2, "t": time.time()}
     def moved(): st.odom = {"pos": [1.0, 1.2, 0.0], "yaw": math.pi / 2 + 0.05, "t": time.time()}
     threading.Timer(0.1, moved).start()
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.3})
+    r = checked_walk(st, {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.3})
     assert r["ok"] and abs(r["odom"]["dx"] - 0.2) < 1e-6 and abs(r["odom"]["dy"]) < 1e-6 and abs(r["odom"]["dyaw"] - 0.05) < 1e-9
-    FakeLoco.calls.clear(); st.walking = True; st.dispatch("freeze", {}); assert FakeLoco.calls == [("stop",)]  # e-stop stops a walk
+    FakeLoco.calls.clear(); st.walking = True; st.dispatch("freeze", {}, authorized=True); assert FakeLoco.calls == [("stop",)]
 
 
-def test_streamer_hands_the_arms_back_for_a_step(cfg, monkeypatch):
-    """rt/arm_sdk with a weight > 0 puts the R1 into FSM 816, in which it does not walk: the streamer releases the arms before
-    the velocity command (polling the FSM until it is allowed) and engages them again afterwards."""
+def test_streamer_releases_arm_weight_for_walk_without_unreviewed_retake(cfg, monkeypatch, tmp_path):
+    """Walking needs weight zero/allowed FSM; another arm motion needs another approval."""
+    monkeypatch.setenv("REINS_ROBOT_LOCK", str(tmp_path/"handoff.lock"))
     monkeypatch.setattr(am, "LowStateReader", FakeReader); monkeypatch.setattr(am, "ChannelPublisher", FakePub)
+    monkeypatch.setattr(am, "CRC", lambda: types.SimpleNamespace(Crc=lambda cmd: 0))
     monkeypatch.setattr(am, "_odom_sub", lambda cb: None)
-    cfg["locomotion"]["enabled"] = True; cfg["locomotion"]["settle_s"] = 0.0; cfg["locomotion"]["fsm_wait_s"] = 1.0
-    cfg["robot"]["weight_ramp_s"] = 0.1; cfg["robot"]["fsm_ok_arms"] = [4, 811]
+    cfg["locomotion"]["enabled"] = True; cfg["locomotion"]["settle_s"] = 0.0; cfg["locomotion"]["fsm_wait_s"] = .3
+    cfg["robot"]["weight_ramp_s"] = .02; cfg["robot"]["fsm_ok_arms"] = [4, 811]
     st = am.Streamer(cfg, "lo0", log=lambda *a: None)
     fsm = {"now": 811}
     monkeypatch.setattr(am, "query_fsm", lambda: (fsm["now"], "x"))
     real_send = st.send
-    def send():                                                     # the fake robot: 816 while the weight is > 0, 811 at 0
+    def send():
         real_send(); fsm["now"] = 816 if st.weight > 0 else 811
     st.send = send
     seen = []
@@ -286,17 +293,30 @@ def test_streamer_hands_the_arms_back_for_a_step(cfg, monkeypatch):
     monkeypatch.setattr(am, "_loco", lambda: Loco())
     assert st.engage() == "" and st.engaged and fsm["now"] == 816
     FakeLoco.calls.clear()
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.1})
-    assert r["ok"], r["error"]
-    assert seen == [(0.0, 811)] and FakeLoco.calls == [("vel", 0.25, 0.0, 0.0, 0.1), ("stop",)]   # sent with the arms released, in 811
-    assert st.engaged and st.weight == 1.0 and r["engaged"] and fsm["now"] == 816                # and the arms are held again
-    st.release(); assert not st.engaged and fsm["now"] == 811
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.1})
-    assert r["ok"] and not st.engaged                                                            # not held before: not held after
-    # the FSM never becomes allowed: refused after the wait, with the arms' state reported
+    error, _ = st.walk(.25, 0., 0., .1)
+    assert not error, error
+    assert seen == [(0.0, 811)] and FakeLoco.calls == [("vel", .25, 0., 0., .1), ("stop",)]
+    assert not st.engaged and st.weight == 0.0 and fsm["now"] == 811
+    # A completed step leaves cancellation untouched and permits a later approved step.
+    error, _ = st.walk(.25, 0., 0., .1)
+    assert not error and not st.engaged
     assert st.engage() == ""
-    monkeypatch.setattr(am, "query_fsm", lambda: (816, "ArmSdkLoco")); cfg["locomotion"]["fsm_wait_s"] = 0.3
+    monkeypatch.setattr(am, "query_fsm", lambda: (816, "ArmSdkLoco"))
     FakeLoco.calls.clear(); t0 = time.time()
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.1})
-    assert r["ok"] is False and "816" in r["error"] and "even with the arm topic released" in r["error"] and time.time() - t0 >= 0.3
-    assert FakeLoco.calls == [] and "could not be taken back" in r["error"] and not st.engaged      # engage is refused in 816 too
+    error, _ = st.walk(.25, 0., 0., .1)
+    assert "816" in error and "even with the arm topic released" in error and time.time()-t0 >= .3
+    assert FakeLoco.calls == [] and not st.engaged
+
+
+def test_stop_preempts_wait_for_locomotion_fsm(cfg, monkeypatch, tmp_path):
+    monkeypatch.setenv("REINS_ROBOT_LOCK", str(tmp_path/"fsm.lock"))
+    monkeypatch.setattr(am, "LowStateReader", FakeReader); monkeypatch.setattr(am, "ChannelPublisher", FakePub)
+    monkeypatch.setattr(am, "CRC", lambda: types.SimpleNamespace(Crc=lambda cmd: 0))
+    monkeypatch.setattr(am, "_odom_sub", lambda cb: None)
+    monkeypatch.setattr(am, "query_fsm", lambda: (816, "ArmSdkLoco"))
+    cfg["locomotion"].update(enabled=True, fsm_wait_s=10.)
+    st = am.Streamer(cfg, "lo0", log=lambda *a: None)
+    result = []
+    worker = threading.Thread(target=lambda: result.append(st.walk(.1, 0., 0., .1)))
+    worker.start(); time.sleep(.05); st.motion_cancel.set(); worker.join(1.)
+    assert not worker.is_alive() and result == [("walk cancelled", None)]

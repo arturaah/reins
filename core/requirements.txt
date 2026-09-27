@@ -1,9 +1,4 @@
-numpy>=1.24
+numpy>=1.24,<3
 mujoco>=3.2
 Pillow>=10
 opencv-python-headless>=4.10,<5
-# Open-vocabulary object detection (OmDet-Turbo). Optional: without these the detector
-# falls back to NanoDet. On Apple Silicon, torch uses the GPU through MPS.
-torch>=2.2
-transformers>=4.45
-huggingface_hub>=0.24

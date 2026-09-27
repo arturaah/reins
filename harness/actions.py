@@ -230,3 +230,18 @@ OUTPUT_SCHEMA = {
         "decision": {"type": "string", "description": "Exactly one action from the vocabulary."},
         "plan": {"type": "array", "items": {"type": "string"},
                  "description": "The next moves as one trajectory, starting with the decision (arm moves and rotations only)."},
+    },
+    "required": ["reasoning", "decision", "plan"],
+    "additionalProperties": False,
+}
+OUTPUT_SCHEMA_DUAL = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},
+        "decision": {"type": "object",
+                     "properties": {"left": {"type": "string"}, "right": {"type": "string"}},
+                     "required": ["left", "right"], "additionalProperties": False},
+    },
+    "required": ["reasoning", "decision"],
+    "additionalProperties": False,
+}

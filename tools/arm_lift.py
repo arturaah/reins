@@ -1,43 +1,21 @@
-"""Move R1 arm joints through rt/arm_sdk: one joint, or a keyframe plan.
+"""Legacy read-only R1 plan inspection from measured joint state.
 
-Dry run (default): subscribes to rt/lowstate, asks the controller its FSM id,
-builds the trajectory from the measured pose, checks joint limits and speed,
-prints the hand path per keyframe from forward kinematics, and writes the
-resolved plan for sim/preview.py. Publishes nothing.
+This utility subscribes to telemetry, queries the controller state, prints a
+kinematic inspection and writes sim/plans/arm_lift_dryrun.json. It cannot publish
+arm commands. Its historical lead-in/return calculations are diagnostics, not the
+shared dashboard validator or an authorization to execute the resulting file.
 
---execute: streams the trajectory at 50 Hz with the blend weight ramped 0 -> 1
-before and 1 -> 0 after, watching every moving joint the whole time.
+    .venv/bin/python tools/arm_lift.py IFACE --plan PATH
 
-    .venv/bin/python tools/arm_lift.py en6                          # one-joint dry run
-    .venv/bin/python tools/arm_lift.py en6 --execute                # moves the robot
-    .venv/bin/python tools/arm_lift.py en6 --plan tools/plans/cup_grab_right.json [--execute]
-    one-joint options: --joint left_shoulder_pitch --delta -0.25 --move-s 2 --hold-s 1
-Every --execute run is logged to runs/replays/<timestamp>_<name>.json with the
-commanded and measured trajectory; replay one with --plan runs/replays/<file>.json.
---record PATH overrides the file name (put it under recordings/ to keep it as a
-skill). Replays used to land in recordings/, which filled the window's lists with
-"recording of recording of ..." copies of the same take at every Execute.
-
-Plan files use the sim contract (schema_version 1, keyframes with MuJoCo joint
-names in radians, first keyframe at t=0). The t=0 values are replaced by the
-measured pose so every plan starts where the arm actually is, and a return to
-the measured pose is appended over --return-s seconds. Joints a plan does not
-name are held at their measured angle.
-
-Protocol facts (vendored C++ SDK, robots/r1/r1_pub.h and defines.h): hg LowCmd
-on rt/arm_sdk, weight = mode_pr in 0..100, controller's 35-slot joint layout.
+For motion, start tools/dashboard.py and submit a task there, or use
+`python -m tools.reins prompt "wave with the right arm"`. Review and approve the
+complete proposal in the dashboard or paired glasses. --execute is retired.
 """
-import argparse, json, signal, sys, time
+import argparse, json, sys, time
 from pathlib import Path
 import numpy as np
 import mujoco
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber
-from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
-from unitree_sdk2py.utils.crc import CRC
-from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient
-from unitree_sdk2py.r1.loco.r1_loco_api import ROBOT_API_ID_LOCO_GET_FSM_ID
 ROBOT_API_ID_LOCO_GET_FSM_MODE = 7002   # in the C++ r1_loco_api.hpp, missing from the Python file
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,7 +54,7 @@ def ease(x):  # cosine ease 0..1 -> 0..1
 class State:
     def __init__(self):
         self.msg, self.count, self.t_last = None, 0, 0.0
-    def on_msg(self, m: LowState_):
+    def on_msg(self, m):
         self.msg, self.count, self.t_last = m, self.count + 1, time.time()
 
 
@@ -146,20 +124,21 @@ def main():
     ap.add_argument("--plan", help="keyframe plan JSON (sim contract, MuJoCo joint names)")
     ap.add_argument("--return-s", type=float, default=2.5, help="seconds for the appended return to the measured pose")
     ap.add_argument("--speed", type=float, default=1.0, help="time scale for --plan: 0.5 plays it at half speed")
-    ap.add_argument("--kp-scale", type=float, default=1.0, help="multiply Unitree's arm kp (stiffer replay = less gravity droop)")
     ap.add_argument("--joint", default="left_shoulder_pitch", choices=sorted(BY_NAME))
     ap.add_argument("--delta", type=float, default=-0.25, help="radians to add to the measured angle (one-joint mode)")
     ap.add_argument("--to", type=float, help="absolute target in radians (one-joint mode); overrides --delta")
     ap.add_argument("--move-s", type=float, default=2.0)
     ap.add_argument("--hold-s", type=float, default=1.0)
-    ap.add_argument("--execute", action="store_true", help="actually publish to rt/arm_sdk")
-    ap.add_argument("--record", help="override the replay log path (default runs/replays/<timestamp>_<name>.json)")
+    ap.add_argument("--execute", action="store_true", help="retired: use the dashboard complete-motion review")
     ap.add_argument("--brief", action="store_true", help="print only what a person acts on (the desktop window uses this)")
     a = ap.parse_args()
+    if a.execute:
+        ap.error("--execute is retired. Submit a complete motion through tools/dashboard.py or python -m tools.reins prompt; approve in dashboard/glasses.")
+    from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
+    from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+    from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient
+    from unitree_sdk2py.r1.loco.r1_loco_api import ROBOT_API_ID_LOCO_GET_FSM_ID
     detail = (lambda *x: None) if a.brief else print     # per-joint tables and protocol facts: CLI only
-
-    if a.plan and json.loads(Path(a.plan).read_text()).get('preview_only'):
-        sys.exit('ABORT: this generated prompt plan is preview-only; physical execution is not enabled.')
 
     ChannelFactoryInitialize(0, a.iface)
     st = State()
@@ -184,13 +163,6 @@ def main():
     except Exception as e:
         print(f"fsm query failed: {e}")
 
-    if a.execute:
-        sys.path.insert(0, str(ROOT))
-        from core.robot_lease import RobotLease
-        import atexit
-        lease = RobotLease("legacy arm tool")
-        lease.acquire()
-        atexit.register(lease.release)
     plan, label = build_plan(a, q_meas)
     moving = plan.slots
     names = {s: n for s, n, *_ in JOINTS}
@@ -253,7 +225,7 @@ def main():
               (f"; WARNING: the model shows the arm touching something from t={contact_t:.1f} s" if contact_t is not None else "; no self-contact in the model"))
 
     resolved = ROOT / "sim/plans/arm_lift_dryrun.json"
-    resolved.write_text(json.dumps({"schema_version": 1, "name": label, "duration_s": plan.duration,
+    resolved.write_text(json.dumps({"schema_version": 1, "preview_only": True, "name": label, "duration_s": plan.duration,
         "keyframes": [{"time_s": t, "joint_targets_rad": {BY_NAME[names[s]][2]: round(f[s], 6) for s in moving}}
                       for t, f in zip(plan.times, plan.frames)],
         # measured pose of the joints that stay put, so spectacles/plan_feed.py draws both hands where they are
@@ -261,99 +233,8 @@ def main():
         indent=1) + "\n")
     detail(f"resolved plan written to {resolved.relative_to(ROOT)} (view: mjpython sim/preview.py --plan {resolved.relative_to(ROOT)} --preview-only)")
 
-    if fsm not in FSM_ARM_OK:
-        print(f"\nNOTE: controller is in FSM {fsm} = {FSM_NAMES.get(fsm, 'unknown')}. The arm topic only takes effect in "
-              f"{sorted(FSM_ARM_OK)}; --execute is refused in this state.")
-        if a.execute: sys.exit(3)
-    if not a.execute:
-        if a.brief: print("checks passed. Dry run: nothing was sent to the robot.")
-        else: print("\nDRY RUN, nothing published. Messages would carry mode_pr=100 (weight 1.0) and, per joint, q from the plan, dq=0, tau=0, kp/kd from Unitree's example.")
-        sub.Close(); return
-
-    # ---- execute ----
-    pub = ChannelPublisher("rt/arm_sdk", LowCmd_); pub.Init()
-    crc = CRC(); cmd = unitree_hg_msg_dds__LowCmd_()
-    for s, n, _, k, d in JOINTS:
-        mc = cmd.motor_cmd[s]; mc.q, mc.dq, mc.tau, mc.kp, mc.kd = q_meas[s], 0.0, 0.0, k * a.kp_scale, d
-
-    def send(weight, targets):
-        cmd.mode_pr = int(round(np.clip(weight, 0.0, 1.0) * 100))
-        for s, q in targets.items(): cmd.motor_cmd[s].q = float(q)
-        cmd.crc = crc.Crc(cmd); pub.Write(cmd)
-
-    def release(targets, seconds=RAMP_S):
-        """Ramp the weight to 0. A Ctrl-C while this runs is ignored: the ramp must finish."""
-        signal.signal(signal.SIGINT, lambda *_: print("(already releasing: the weight ramps down first)"))
-        t_r = time.time()
-        try:
-            while (el := time.time() - t_r) < seconds:
-                send(1.0 - el / seconds, targets); time.sleep(1.0 / RATE_HZ)
-        finally:
-            send(0.0, targets)
-
-    rec, rec_last = [], -1.0
-    def save_recording():
-        if not rec: return
-        slug = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")[:40]
-        path = Path(a.record) if a.record else ROOT / "runs" / "replays" / f"{time.strftime('%Y%m%d_%H%M%S')}_{slug}.json"
-        mj = {s: BY_NAME[names[s]][2] for s in moving}
-        out = {"schema_version": 1, "name": f"recording of {label}", "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-               "duration_s": round(rec[-1][0], 3),
-               "keyframes": [{"time_s": round(t, 3),
-                              "joint_targets_rad": {mj[s]: round(c[s], 4) for s in moving},
-                              "measured_rad": {mj[s]: round(m[s], 4) for s in moving}} for t, c, m in rec]}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(out, indent=1) + "\n")
-        print(f"recorded {len(rec)} keyframes over {out['duration_s']} s to {path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
-
-    print("\nEXECUTE: ramping weight up")
-    dt = 1.0 / RATE_HZ; t_start = time.time(); err_since = None; targets = plan.at(0.0); ticks = 0; lag_max = (0.0, None)
-    try:
-        while True:
-            now = time.time(); t = now - t_start
-            if t < RAMP_S:
-                w, targets = t / RAMP_S, plan.at(0.0)
-            elif t < RAMP_S + plan.duration:
-                w, targets = 1.0, plan.at(t - RAMP_S)
-            else:
-                break
-            send(w, targets); ticks += 1
-            if t >= RAMP_S and (t - RAMP_S) - rec_last >= 0.05:
-                rec_last = 0.0 if not rec else t - RAMP_S          # first sample is stamped exactly 0
-                rec.append((rec_last, dict(targets), {s: st.msg.motor_state[s].q for s in moving}))
-            errs = {s: st.msg.motor_state[s].q - targets[s] for s in moving}
-            worst = max(errs, key=lambda s: abs(errs[s]))
-            if abs(errs[worst]) > lag_max[0]: lag_max = (abs(errs[worst]), worst)
-            if now - st.t_last > 0.5:
-                print("ABORT: lowstate stale"); release(targets, 0.5); sys.exit(2)
-            if abs(errs[worst]) > MAX_ERR:
-                err_since = err_since or now
-                if now - err_since > 0.3:
-                    print(f"ABORT: {names[worst]} lags by {errs[worst]:+.2f} rad"); release(targets, 0.5); sys.exit(2)
-            else:
-                err_since = None
-            if a.brief:
-                if t >= RAMP_S and int((t - RAMP_S) / 2.0) != int((t - RAMP_S - dt) / 2.0):
-                    print(f"  {t - RAMP_S:4.1f} / {plan.duration:.1f} s   lag {abs(errs[worst]):.2f} rad ({names[worst]})")
-            elif int(t / 0.5) != int((t - dt) / 0.5):
-                print(f"  t={t:4.1f}s w={w:.2f}  worst lag {names[worst]} {errs[worst]:+.3f}  " +
-                      " ".join(f"{names[s][:8]}={targets[s]:+.2f}" for s in moving[:5]))
-            time.sleep(max(0.0, dt - (time.time() - now)))
-        detail(f"loop: {ticks} ticks in {t:.1f} s = {ticks / t:.0f} Hz (target {RATE_HZ:.0f})")
-        print("ramping weight down"); release(targets); save_recording()
-        back = max(abs(st.msg.motor_state[s].q - q_meas[s]) for s in moving)
-        if a.brief:
-            print(f"done. Worst lag during the motion {lag_max[0]:.2f} rad ({names[lag_max[1]] if lag_max[1] is not None else '-'}); "
-                  f"arm back within {back:.2f} rad of where it started")
-        else:
-            print("done. final vs start: " + ", ".join(f"{names[s]} {st.msg.motor_state[s].q:+.3f}/{q_meas[s]:+.3f}" for s in moving))
-    except KeyboardInterrupt:
-        print("\ninterrupted: releasing")
-        try: release(targets, 0.5)
-        finally: save_recording()
-        sys.exit(130)
-    finally:
-        sub.Close()
+    print("Dry-run inspection complete; no arm commands were sent. Submit motion through the dashboard for full validation and approval.")
+    sub.Close()
 
 
 if __name__ == "__main__":

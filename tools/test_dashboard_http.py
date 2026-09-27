@@ -20,7 +20,7 @@ from tools import dashboard
 
 
 class DashboardHTTPTests(unittest.TestCase):
-    def test_gestures_and_one_time_preview_with_no_legacy_endpoints(self):
+    def test_sim_lockout_draft_review_and_persistent_pairing(self):
         firmware=[]
         actions=parse_presets([[{'id':27,'name':'shake_hand'},{'id':99,'name':'release_arm'}],[]])
         def request(iface,action_id):
@@ -60,15 +60,20 @@ class DashboardHTTPTests(unittest.TestCase):
                 try:
                     token=call('/api/session')[1]['token']
                     until('/api/gestures',lambda x:not x['busy'])
-                    self.assertEqual(firmware,[None]) # startup only discovers; no movement
+                    self.assertEqual(firmware,[]) # --sim never even initializes firmware discovery
+                    status=call('/api/status')[1]
+                    self.assertEqual(status['mode'],'sim')
+                    self.assertEqual(status['voice_url'],'http://127.0.0.1:8770/')
+                    self.assertEqual(call('/api/robot',{'action':'connect','table_z_m':.6})[0],400)
+                    self.assertEqual(call('/api/gestures',{'action':'refresh'})[0],400)
                     for path in ['/api/plans','/api/run','/api/abort-beacon']:
                         self.assertEqual(call(path)[0],404)
                     self.assertEqual(call('/api/run',{'action':'execute','confirm':True})[0],404)
                     self.assertEqual(call('/api/gestures',{'action':'gesture','id':27},False)[0],403)
                     self.assertEqual(call('/api/gestures',{'action':'gesture','id':100})[0],400)
-                    self.assertEqual(call('/api/gestures',{'action':'gesture','id':27})[0],200)
+                    self.assertEqual(call('/api/gestures',{'action':'gesture','id':27})[0],400)
                     until('/api/gestures',lambda x:not x['busy'])
-                    self.assertEqual(firmware,[None,27])
+                    self.assertEqual(firmware,[])
 
                     self.assertEqual(call('/api/chat',{'message':'Blow a kiss'})[0],200)
                     reply=until('/api/chat',lambda x:not x['busy'])['messages'][-1]
@@ -78,17 +83,57 @@ class DashboardHTTPTests(unittest.TestCase):
                     self.assertEqual(result['attempt'],2)
                     self.assertEqual(len(revision_calls),1)
                     self.assertRegex(revision_calls[0]['trajectory_revision']['failures'][0]['error'],'unreachable|joints jump')
-                    self.assertEqual(call('/api/prompt',{'action':'preview','id':result['id']})[0],200)
-                    status=call('/api/status')[1]
-                    self.assertTrue(status['simulation']['playing'])
+                    runtime=until('/api/robot',lambda x:x['draft'] is not None or x['state']=='blocked')
+                    draft=runtime['draft']
+                    self.assertIsNotNone(draft,runtime['message'])
+                    self.assertIsNone(runtime['proposal'])
+                    status=until('/api/status',lambda x:x['simulation']['playing'] or x['pipeline']['state']=='blocked')
+                    self.assertTrue(status['simulation']['playing'],status['pipeline']['message'])
                     self.assertNotIn('run',status)
-                    self.assertEqual(call('/api/prompt',{'action':'preview','id':result['id']})[0],400)
+                    self.assertEqual(call('/api/robot',{'action':'propose','plan_id':draft['id']},False)[0],403)
+                    self.assertEqual(call('/api/robot',{'action':'propose','plan_id':draft['id']})[0],200)
+                    reviewed=until('/api/robot',lambda x:x['state']=='review')
+                    proposal=reviewed['proposal']
+                    self.assertEqual(proposal['mode'],'sim')
+                    self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':'changed',
+                                                        'decision':'approve'})[0],400)
+                    self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':proposal['digest'],
+                                                        'decision':'decline','note':'Keep the hand lower'})[0],200)
+                    until('/api/robot',lambda x:x['proposal'] is None)
+                    self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':proposal['digest'],
+                                                        'decision':'approve'})[0],400)
+                    self.assertEqual(call('/api/glasses',{'action':'create_device','label':'Lab glasses'},False)[0],403)
+                    code,paired=call('/api/glasses',{'action':'create_device','label':'Lab glasses'})
+                    self.assertEqual(code,200)
+                    device=paired['device']
+                    self.assertTrue(device['token'])
+                    metadata=call('/api/glasses')[1]
+                    self.assertNotIn(device['token'],json.dumps(metadata))
+                    self.assertEqual(metadata['paired_devices'][0]['device_id'],device['device_id'])
+                    from websockets.sync.client import connect
+                    with connect('ws://127.0.0.1:'+str(metadata['port'])) as socket:
+                        socket.send(json.dumps({'type':'authenticate','device_id':device['device_id'],'token':device['token']}))
+                        authenticated=json.loads(socket.recv(timeout=3))
+                        self.assertTrue(authenticated['accepted'])
+                        voice={'type':'voice_command','version':1,'id':'voice-once','text':'Wave at me',
+                               'session':authenticated['session']}
+                        for _ in range(2):
+                            socket.send(json.dumps(voice))
+                            while True:
+                                answer=json.loads(socket.recv(timeout=3))
+                                if answer['type']=='voice_ack':break
+                            self.assertTrue(answer['accepted'],answer)
+                    conversation_state=until('/api/chat',lambda x:not x['busy'])
+                    self.assertEqual([m['text'] for m in conversation_state['messages'] if m['role']=='user'],
+                                     ['Blow a kiss','Wave at me'])
+                    self.assertIsNone(call('/api/robot')[1]['proposal']) # voice is a prompt, never approval
+                    self.assertEqual(call('/api/glasses',{'action':'revoke_device','device_id':device['device_id']})[0],200)
                     self.assertEqual(call('/api/control',{'action':'seek','time':0})[0],400)
                     self.assertEqual(call('/api/control',{'action':'play'})[0],400)
                     self.assertEqual(call('/api/control',{'action':'stop'})[0],200)
                     self.assertFalse(call('/api/status')[1]['simulation']['playing'])
                     self.assertFalse(list(Path(tmp).iterdir()))
-                    self.assertEqual(firmware,[None,27]) # simulation never reaches firmware
+                    self.assertEqual(firmware,[]) # simulation never reaches firmware
                 finally:
                     server.shutdown();thread.join(2)
             with patch.object(dashboard.ThreadingHTTPServer,'serve_forever',exercise), \
@@ -98,7 +143,8 @@ class DashboardHTTPTests(unittest.TestCase):
                  patch.object(dashboard,'RobotPipeline',partial(dashboard.RobotPipeline,run_dir=logs)), \
                  patch.object(dashboard.Simulation,'run'), \
                  patch.object(dashboard,'make_detector',return_value=SimpleNamespace(name='test',available=False,confidence=.4)), \
-                 patch('sys.argv',['dashboard','--port','0','--glasses-host','127.0.0.1','--glasses-port','0','--head','','--left-wrist','','--right-wrist','','--twin','']):
+                 patch.dict('os.environ',{'REINS_STATE_DIR':logs}), \
+                 patch('sys.argv',['dashboard','--sim','--voice-url','http://127.0.0.1:8770/','--port','0','--glasses-host','127.0.0.1','--glasses-port','0','--head','','--left-wrist','','--right-wrist','','--twin','']):
                 dashboard.main()
 
 

@@ -1,0 +1,5 @@
+-r requirements.txt
+# Optional open-vocabulary OmDet-Turbo detector; model weights download separately.
+torch>=2.2
+transformers>=4.45
+huggingface_hub>=0.24
