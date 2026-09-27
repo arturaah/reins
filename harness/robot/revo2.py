@@ -173,7 +173,11 @@ def main():
         return run_fake(a.iface, a.domain, h["topic_prefix"], a.block_at)
     dds = Revo2Dds(a.iface, a.domain, h["topic_prefix"], publish=a.action != "state")
     if a.action == "serve":
-        return HandServer(dds, cfg).serve(h["host"], int(h["port"]))
+        try:
+            return HandServer(dds, cfg).serve(h["host"], int(h["port"]))
+        except KeyboardInterrupt:                    # the window's Stop / close: nothing is published on the way out
+            print("hand server stopped")
+            return
     time.sleep(1.0)
     if a.action in ("open", "close"):
         r = HandServer(dds, cfg).dispatch({"cmd": "set", "side": a.side, "q": list(h[a.action])})

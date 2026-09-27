@@ -15,12 +15,16 @@ time: the twin pane plays it as ghost arms and the pane shows Accept / Reject
 (with an optional note the model reads). In live mode the window starts the
 arm_sdk streamer if needed and asks once before the arms are engaged; Stop
 releases them. Dry run uses the real joints and cameras and sends nothing.
+With hand = revo2 the window also starts the Revo2 hand server on the Jetson
+adapter (harness.robot.revo2 serve, port 8791, log /tmp/harness_hands.log): a
+dry run reads the fingers, live GRASP / RELEASE close and open them, each
+behind Accept like a move (the twin holds the arm meanwhile).
 The window only views the streams the servers already serve and runs the tools
 as subprocesses, so the same gates apply: dry run first, execute on a go,
 Abort sends the tool its interrupt, which ramps the arm weight down.
 
     tools/start_all.sh            # starts the stream servers, then this window
-    .venv/bin/python tools/reins_ui.py [--iface en8]   # default: auto-detected
+    .venv/bin/python tools/reins_ui.py [--iface en8] [--jetson-iface en6]   # default: found by bound pings
 """
 import argparse, io, json, os, queue, re, signal, socket, subprocess, sys, threading, time, urllib.request
 import tkinter as tk
@@ -41,19 +45,34 @@ def fit_to(im, box):
     return im.resize((max(1, int(im.width * k)), max(1, int(im.height * k)))) if abs(k - 1) > 0.02 else im
 
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-def robot_iface():
-    """The interface holding a 192.168.123.x address (the adapter re-enumerates after a re-plug: en6 one day, en8 the next)."""
-    cur = None
+def robot_ifaces():
+    """Every interface holding a 192.168.123.x address (the adapters re-enumerate after a re-plug: en6 one day, en8 the next)."""
+    cur, out = None, []
     for line in subprocess.run(["ifconfig"], capture_output=True, text=True).stdout.splitlines():
         if line and not line[0].isspace():
             cur = line.split(":")[0]
-        elif "inet 192.168.123." in line:
-            return cur
-    return None
-ap.add_argument("--iface", default=None, help="robot interface; default: the one with a 192.168.123.x address")
+        elif "inet 192.168.123." in line and cur not in out:
+            out.append(cur)
+    return out
+def answers(iface, ip):
+    """Does ip answer one ping bound to this adapter (1 s)? Both adapters sit in the same /24, so an address alone says nothing."""
+    return subprocess.run(["ping", "-c", "1", "-t", "1", "-b", iface, ip], capture_output=True).returncode == 0
+def robot_iface(cands):
+    """The body cable: the adapter on which the motion controller answers; else the first candidate."""
+    return next((i for i in cands if answers(i, "192.168.123.161")), cands[0] if cands else None)
+def jetson_iface(cands, body):
+    """The Jetson link (wrist cameras, the Revo2 hands' DDS): with the dual-link setup the other 192.168.123.x adapter, else
+    the one on which the Jetson answers (it does not always answer a bound ping)."""
+    others = [i for i in cands if i != body]
+    if len(others) == 1: return others[0]
+    return next((i for i in others or cands if answers(i, "192.168.123.164")), None)
+ap.add_argument("--iface", default=None, help="body-cable interface (DDS to the controller); default: the adapter on which 192.168.123.161 answers a bound ping")
+ap.add_argument("--jetson-iface", default=None, help="the adapter carrying the Jetson module (Revo2 hand DDS); default: the other 192.168.123.x adapter")
 ap.add_argument("--selftest", metavar="NAME", help="run a 3 s passive log called NAME through the button code path, print the log, exit (subscribe-only)")
 a = ap.parse_args()
-a.iface = a.iface or robot_iface() or "en6"
+_cands = robot_ifaces()
+a.iface = a.iface or robot_iface(_cands) or "en6"
+a.jetson_iface = a.jetson_iface or jetson_iface(_cands, a.iface)
 latest = {k: None for k in STREAMS}
 events = queue.Queue()          # ("log", text) ("status", text) ("rec_start", "") ("done", code); threads never touch Tk
 
@@ -115,7 +134,7 @@ _, wr_lbl = tile(row, "wrist_r", "Right wrist"); _.pack(side="left")
 PREVIEW = "runs/ui_preview.json"                      # each proposal, as a plan file the twin previews (hold=1)
 SPECTACLES_REVIEW = "runs/spectacles_review.json"
 AI_LOG = "/tmp/harness_ui.log"                        # every line of every AI session (the pane's log is not kept otherwise)
-ai = {"p": None, "pending": False, "streamer": None}
+ai = {"p": None, "pending": False, "streamer": None, "hands": None}
 aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
 def vlm_model():
     try:
@@ -140,6 +159,15 @@ ai_arm = tk.StringVar(value="left"); ttk.Combobox(arow, textvariable=ai_arm, val
 ai_stepp = tk.StringVar(value="coarse_fine"); ttk.Combobox(arow, textvariable=ai_stepp, values=("coarse_fine", "precision"), state="readonly", width=10).pack(side="left")
 ttk.Label(arow, text="floor z").pack(side="left", padx=(6, 2)); ai_floor = tk.StringVar(value="0.50"); ttk.Entry(arow, textvariable=ai_floor, width=5).pack(side="left")
 abtns = ttk.Frame(arow); abtns.pack(side="right")
+hrow = ttk.Frame(aif); hrow.pack(fill="x", pady=(2, 0))
+ttk.Label(hrow, text="hand").pack(side="left", padx=(0, 3))
+ai_hand = tk.StringVar(value="none"); ttk.Combobox(hrow, textvariable=ai_hand, values=("none", "revo2"), state="readonly", width=6).pack(side="left")
+hand_lbl = ttk.Label(hrow, text="", foreground="#8b949e", wraplength=SIZES["head"][0] - 90); hand_lbl.pack(side="left", padx=6)
+def hand_changed(*_):                                              # revo2 = --set hand.type=revo2 and the hand server on the Jetson adapter
+    hand_lbl.configure(text=(f"Revo2: GRASP / RELEASE close and open the fingers, each behind Accept; hand server via {a.jetson_iface}"
+                             if a.jetson_iface else "Revo2 needs the Jetson adapter (its DDS): plug the second link in or pass --jetson-iface")
+                            if ai_hand.get() == "revo2" else "no hand: GRASP / RELEASE only pause the arm")
+ai_hand.trace_add("write", hand_changed); hand_changed()
 ttk.Label(aif, text="Context: recordings the model sees as demonstrations (✓ = with a camera contact sheet). Click toggles.",
           wraplength=SIZES["head"][0]).pack(anchor="w", pady=(6, 0))
 demo_files = []
@@ -398,6 +426,10 @@ def ai_run():
     walk_ok = bool(re.search(r"\bwalk(s|ed|ing)?\b", task, re.IGNORECASE))     # the word walk in the task is the consent to move the body
     cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}"]
     if walk_ok: cmd += ["--set", "locomotion.enabled=true"]
+    revo2 = ai_hand.get() == "revo2"
+    if revo2: cmd += ["--set", "hand.type=revo2"]
+    hand_note = ("\nHAND: the Revo2 hand is on. GRASP closes all fingers and RELEASE opens them, each a proposal behind Accept; "
+                 "the arm holds still meanwhile.\n") if revo2 else ""
     cmd += ["live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW,
             "--spectacles-review", SPECTACLES_REVIEW]
     if demos: cmd += ["--demos", *demos]
@@ -408,7 +440,7 @@ def ai_run():
                 "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session; the head tilts down "
                 "to look at the workspace.\n"
                 f"First proposal: the {ai_arm.get()} arm's start pose (forearm forward). Every move is shown in the twin first and "
-                "sent only when you press Accept; Reject asks the model for something else; Stop releases the arms.\n" + walk_note +
+                "sent only when you press Accept; Reject asks the model for something else; Stop releases the arms.\n" + walk_note + hand_note +
                 "\nRobot standing in FSM 4 or 811, arms clear, remote in hand."):
             return
         if not port_open(8790):
@@ -420,14 +452,37 @@ def ai_run():
             except Exception as ex:
                 ai_log(f"streamer failed to start: {ex}\n"); return
             wait_streamer(cmd, task, time.time() + 15.0); return
-    ai_launch(cmd, task)
+    ai_start(cmd, task)
 
 def wait_streamer(cmd, task, deadline):
-    if port_open(8790): ai_launch(cmd, task); return
+    if port_open(8790): ai_start(cmd, task); return
     st = ai["streamer"]
     if st and st.poll() is not None: ai_log(f"streamer exited with code {st.returncode}: see /tmp/harness_stream.log\n"); return
     if time.time() > deadline: ai_log("streamer did not open port 8790 within 15 s: see /tmp/harness_stream.log\n"); return
     root.after(300, lambda: wait_streamer(cmd, task, deadline))
+
+def ai_start(cmd, task):
+    """With hand.type=revo2 the session connects to the Revo2 hand server (a dry run reads the fingers, live also commands
+    them): start it on the Jetson adapter if port 8791 is closed, then the session. Like the streamer, it publishes nothing
+    until an accepted GRASP / RELEASE."""
+    if "hand.type=revo2" in cmd and not port_open(8791):
+        if not a.jetson_iface:
+            ai_log("no Jetson adapter for the Revo2 hand server (the hands' DDS comes from the Jetson): plug the second link in or pass --jetson-iface\n"); return
+        ai_log(f"starting the Revo2 hand server (harness.robot.revo2 {a.jetson_iface} serve, log /tmp/harness_hands.log); it publishes only on an accepted GRASP / RELEASE\n")
+        try:
+            ai["hands"] = subprocess.Popen([PY, "-m", "harness.robot.revo2", a.jetson_iface, "serve"], cwd=ROOT, stdout=open("/tmp/harness_hands.log", "ab"),
+                                           stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+        except Exception as ex:
+            ai_log(f"hand server failed to start: {ex}\n"); return
+        wait_hands(cmd, task, time.time() + 15.0); return
+    ai_launch(cmd, task)
+
+def wait_hands(cmd, task, deadline):
+    if port_open(8791): ai_launch(cmd, task); return
+    hs = ai["hands"]
+    if hs and hs.poll() is not None: ai_log(f"hand server exited with code {hs.returncode}: see /tmp/harness_hands.log\n"); return
+    if time.time() > deadline: ai_log("hand server did not open port 8791 within 15 s: see /tmp/harness_hands.log\n"); return
+    root.after(300, lambda: wait_hands(cmd, task, deadline))
 
 def ai_launch(cmd, task):
     if ai_out.get("1.0", "end").strip(): ai_log("\n")
@@ -479,6 +534,9 @@ def ai_finished(code):
     st = ai.get("streamer")
     if st and st.poll() is None:                                    # released by now; a fresh one at the next Run picks up current code
         st.send_signal(signal.SIGINT); ai_log("streamer stopped; the next live Run starts a fresh one\n")
+    hs = ai.get("hands")
+    if hs and hs.poll() is None:
+        hs.send_signal(signal.SIGINT); ai_log("hand server stopped; the next Run with the Revo2 hand starts a fresh one\n")
     ai_log("■ " + {0: "session ended", 130: "stopped on request", -2: "stopped on request"}.get(code, f"session ended with code {code}") + f"   (full log: {AI_LOG})\n")
 
 run_btn = ttk.Button(abtns, text="Run", style="Go.TButton", width=9, command=ai_run); run_btn.pack(side="left")
@@ -492,7 +550,7 @@ def save_ui_state():
     try:
         os.makedirs(os.path.dirname(UI_STATE), exist_ok=True)
         with open(UI_STATE, "w") as f:
-            json.dump({"task": ai_task.get(), "mode": ai_mode.get(), "arm": ai_arm.get(), "profile": ai_stepp.get(), "floor_z": ai_floor.get(),
+            json.dump({"task": ai_task.get(), "mode": ai_mode.get(), "arm": ai_arm.get(), "profile": ai_stepp.get(), "floor_z": ai_floor.get(), "hand": ai_hand.get(),
                        "context": [demo_files[i] for i in demo_lb.curselection()]}, f)
     except OSError:
         pass
@@ -502,7 +560,7 @@ def load_ui_state():
     except (OSError, ValueError):
         st = {}
     ai_task.set(st.get("task", "")); ai_mode.set(st.get("mode", "dry run")); ai_arm.set(st.get("arm", "left"))
-    ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50"))
+    ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50")); ai_hand.set(st.get("hand", "none"))
     for i, f in enumerate(demo_files):
         if f in st.get("context", []): demo_lb.selection_set(i)
     ctx_changed(); mode_changed(); walk_changed()
@@ -567,11 +625,10 @@ def drain():
             elif kind == "ai_log": ai_log(val)
             elif kind == "ai_proposal":
                 ai["pending"] = True
-                walk = val.upper().startswith(("WALK", "TURN"))
-                ai_prop.configure(text=("DRY RUN, nothing is sent · " if ai.get("mode") == "dry run" else "LIVE · ") + ("WHOLE-BODY STEP  " if walk else "PROPOSAL  ") + val)
+                walk = val.upper().startswith(("WALK", "TURN")); hand_cmd = val.startswith(("close the", "open the"))    # the arm holds for a hand command
+                ai_prop.configure(text=("DRY RUN, nothing is sent · " if ai.get("mode") == "dry run" else "LIVE · ") + ("WHOLE-BODY STEP  " if walk else "HAND  " if hand_cmd else "PROPOSAL  ") + val)
                 accept_btn.state(["!disabled"]); reject_btn.state(["!disabled"])
-                if walk: cockpit("/preview/stop")                          # nothing for the ghost arms to show
-                else: cockpit(f"/preview?file={PREVIEW}&hold=1")
+                cockpit(f"/preview?file={PREVIEW}&hold=1")                   # arm ghost, or the whole robot walking its floor path
             elif kind == "ai_review_answer":
                 ai["pending"] = False
                 accept_btn.state(["disabled"]); reject_btn.state(["disabled"])
@@ -602,13 +659,14 @@ def place_sashes():
 def on_close(deadline=None):
     """Interrupt whatever runs (trajectory tool, AI session, streamer) and keep reading until it has released and saved
     (up to 6 s), then quit."""
-    running = [p for p in (proc["p"], ai["p"], ai["streamer"]) if p and p.poll() is None]
+    running = [p for p in (proc["p"], ai["p"], ai["streamer"], ai["hands"]) if p and p.poll() is None]
     if deadline is None: save_ui_state()
     if running:
         if deadline is None:
             interrupt()
             if ai_running(): ai_stop()
             if ai["streamer"] and ai["streamer"].poll() is None: ai["streamer"].send_signal(signal.SIGINT)
+            if ai["hands"] and ai["hands"].poll() is None: ai["hands"].send_signal(signal.SIGINT)
             deadline = time.time() + 6.0
         if time.time() < deadline:
             root.after(200, lambda: on_close(deadline)); return
@@ -646,7 +704,7 @@ def note(msg):                                                     # why did the
     except Exception: pass
 def on_signal(n, _f):                                              # the launcher's pkill: take the children down too (SIGINT = release / save)
     note(f"signal {signal.Signals(n).name} received, window closing")
-    for p in (proc["p"], ai["p"], ai["streamer"]):
+    for p in (proc["p"], ai["p"], ai["streamer"], ai["hands"]):
         if p and p.poll() is None:
             try: p.send_signal(signal.SIGINT)
             except OSError: pass
