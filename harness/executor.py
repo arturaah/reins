@@ -50,6 +50,9 @@ class ExecResult:
     operator_note: str = ""            # the note they typed with their Accept or Reject, when they gave one
     asked: bool = False                # an operator was asked about this move (confirm was set)
     walk: Optional[tuple] = None       # a whole-body step that was executed: (dx, dy, dyaw) achieved (odometry) or commanded
+    moves: list = field(default_factory=list)      # a trajectory: the per-move ExecResults, in order, up to the first stop
+    waypoints: list = field(default_factory=list)  # a trajectory: the planned hand-tip targets the operator saw
+    planned: int = 0                   # a trajectory: how many moves were proposed (0 = a single move)
 
 
 class Backend:
@@ -129,6 +132,90 @@ class ArmExecutor:
         return ExecResult(True, fb, state.p, after.p, requested, achieved, state.roll, after.roll, v.q_target,
                           self.kin.q_from_dict(after.q), False, timeout, bool(v.clamped), None, False, time.time() - t0, v.clamped,
                           asked=asked, operator_note=note)
+
+    def plan_sequence(self, actions, state, propose):
+        """Chain the actions from the current state: each proposal is made from, and vetted against, the predicted end of
+        the previous move. propose(state, action) -> Proposal (the loop's interpreter with the current step sizes).
+        -> (legs, note): legs = [{proposal, v, frames, p_from, roll_from, q_from}] up to the first action the gate refuses
+        or that is not an arm move / rotation; note says which and why ('' when every action went in)."""
+        from .interpreter import ArmState
+        j = self.backend.joints()
+        q, others = self.kin.q_from_dict(j), self.others(j)
+        p, roll = np.asarray(state.p, float), float(state.roll)
+        legs, note, dt = [], "", 1.0 / self.rate
+        for a in actions:
+            pr = propose(ArmState(p, roll, state.hand_closed, {}), a)
+            if pr.kind not in ("move", "rotate"):
+                note = f"{a.raw.upper()} cannot be part of a trajectory" + (f": {pr.note}" if pr.note else ""); break
+            v = self.gate.vet(p, roll, pr.p, pr.roll, q, others, pr.mode)
+            if not v.ok:
+                note = f"{a.raw.upper()}: {v.feedback}"; break
+            frames = interpolate(q, v.q_target, v.duration_s, self.rate)
+            bad = self.gate.check_trajectory(frames, dt)
+            if bad:
+                note = f"{a.raw.upper()}: REJECTED by the trajectory check: {bad}"; break
+            legs.append({"proposal": pr, "v": v, "frames": frames, "p_from": p, "roll_from": roll, "q_from": q})
+            p, roll, q = np.asarray(v.p, float), float(v.roll), np.asarray(v.q_target, float)
+        return legs, note
+
+    def execute_sequence(self, actions, state, propose):
+        """Several arm moves as ONE proposal: planned from the current state (plan_sequence), shown and confirmed as a
+        whole (the preview carries every frame, so the twin and the glasses draw the entire path), then executed move by
+        move, each re-vetted from the measured pose toward its planned target, so the arm follows the waypoints the
+        operator saw. Stops at the first move that fails or stalls. -> one ExecResult for the trajectory (ok when at
+        least one move ran) with .moves, .waypoints and .planned set."""
+        legs, note = self.plan_sequence(actions, state, propose)
+        zero = np.zeros(3)
+        if not legs:                                                   # the first move is refused: the single-move path says why
+            first = propose(state, actions[0])
+            if first.kind in ("move", "rotate"):
+                return self.execute(first, state)
+            return ExecResult(False, note, state.p, state.p, zero, zero, state.roll, state.roll)
+        tokens = [l["proposal"].action.raw.upper() for l in legs]
+        dropped = f"; the plan's move {len(legs) + 1} ({actions[len(legs)].raw.upper()}) was dropped: {note}" if note else ""
+        frames = [f for l in legs for f in l["frames"]]
+        dt = 1.0 / self.rate
+        total_s = sum(l["v"].duration_s for l in legs)
+        clamped = [c for l in legs for c in l["v"].clamped]
+        dq = max(float(np.abs(np.asarray(l["v"].q_target) - l["q_from"]).max()) for l in legs)
+        p_end = np.asarray(legs[-1]["v"].p, float)
+        waypoints = [np.asarray(l["v"].p, float) for l in legs]
+        op_note, asked = "", False
+        if self.confirm is not None:
+            text = (f"TRAJECTORY of {len(legs)} moves ({', '.join(tokens)}): hand {state.p.round(3).tolist()} -> {p_end.round(3).tolist()} m "
+                    f"over {total_s:.1f} s, largest joint change {math.degrees(dq):.0f} deg" + (f"; {'; '.join(clamped)}" if clamped else "") + dropped)
+            ok, op_note = self._ask(text, {"arm": self.arm, "q_now": legs[0]["q_from"], "frames": frames, "dt": dt, "joints": self.backend.joints()})
+            asked = True
+            if not ok:
+                r = self._declined(op_note, state, p_end - state.p)
+                r.waypoints, r.planned = waypoints, len(legs)
+                return r
+        saved, self.confirm = self.confirm, None                      # accepted as a whole: no question per move
+        moves, stop = [], ""
+        try:
+            for k, l in enumerate(legs):
+                st = self.sync()
+                r = self.execute(l["proposal"], st)
+                moves.append(r)
+                if not r.ok:
+                    stop = f"stopped before move {k + 1} ({tokens[k]}): {r.feedback}"; break
+                want = np.asarray(r.requested_dp, float)
+                if np.linalg.norm(want) > 1e-6 and float(np.asarray(r.achieved_dp) @ want) < 0.3 * float(np.linalg.norm(want)) ** 2:
+                    stop = f"stopped after move {k + 1} ({tokens[k]}): blocked or in contact, the rest was not sent"; break
+        finally:
+            self.confirm = saved
+        done = [r for r in moves if r.ok]
+        after = self.sync()
+        parts = [f"{tokens[k]}: {r.feedback or 'ok'}" for k, r in enumerate(moves)]
+        fb = (f"trajectory: {len(done)} of {len(legs)} moves executed" + (f" ({'; '.join(parts)})" if parts else "")
+              + (f"; {stop}" if stop else "") + dropped)
+        planned_dp = (waypoints[len(done) - 1] - state.p) if done else zero
+        res = ExecResult(bool(done), fb, state.p, after.p, planned_dp, after.p - state.p, state.roll, after.roll,
+                         q_target=done[-1].q_target if done else None, q_after=self.kin.q_from_dict(after.q),
+                         timeout=any(r.timeout for r in moves), clamped=bool(clamped), duration_s=sum(r.duration_s for r in moves),
+                         notes=clamped, asked=asked, operator_note=op_note)
+        res.moves, res.waypoints, res.planned = moves, waypoints, len(legs)
+        return res
 
     def _walk(self, proposal, state):
         """A whole-body step: gate (caps, budget), confirmation, the backend's loco call, odometry feedback."""

@@ -171,6 +171,12 @@ def run_episode(a, cfg, mode):
     session = rec.dir.name
     stats = InferenceLog(cfg["stats"]["path"], cfg["stats"]["plot"], session, mode, a.task)
     feedback = FeedbackStore(cfg["feedback"]["path"], session, cfg["feedback"]["max_in_prompt"])
+    ecfg = cfg.get("experience") or {}
+    experience = None
+    if ecfg.get("enabled", True):
+        from .experience import ExperienceStore
+        experience = ExperienceStore(ecfg.get("dir", "runs/experience"), session, ecfg.get("max_in_prompt", 6), ecfg.get("card_width_px", 800), mode)
+        print(f"experience: {len(experience.entries())} card(s) of earlier proposals in {ecfg.get('dir', 'runs/experience')} go with every call")
     try:
         start = cfg["robot"]["start_pose_rad"][ex.arm] if (mode != "sim" or a.start_pose) else None
         deferred = start is not None and bool((cfg.get("locomotion") or {}).get("enabled")) and Episode.task_allows_walking(a.task)
@@ -181,7 +187,7 @@ def run_episode(a, cfg, mode):
                 return
         elif deferred:
             print("walking task: the arm's start pose waits until the first arm stage")
-        ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos, feedback=feedback, stats=stats)
+        ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos, feedback=feedback, stats=stats, experience=experience)
         summary = ep.run(a.task, start_pose=start if deferred else None)
         print(json.dumps(summary, indent=1, default=str))
         if stats.count:

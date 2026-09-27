@@ -16,11 +16,11 @@ class ScriptedVLM(VLM):
         self.calls = []
 
     def plan(self, prompt, images, schema=None):
-        self.calls.append(("plan", prompt))
+        self.calls.append(("plan", prompt)); self.last_images = list(images)
         return VLMResponse(json.dumps(self.plan_obj), "scripted", 0.0)
 
     def act(self, prompt, images, schema=None, retry_note=None):
-        self.calls.append(("act", prompt, retry_note))
+        self.calls.append(("act", prompt, retry_note)); self.last_images = list(images)
         if self.decisions:
             d = self.decisions.pop(0)
         elif self.on_act:

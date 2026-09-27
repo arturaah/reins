@@ -126,9 +126,11 @@ HAND_BLOCK_REVO2 = """HAND (five fingers, GRASP closes all of them, RELEASE open
 HAND_BLOCK_NONE = """HAND: this robot has no hand. GRASP and RELEASE only pause the arm; do not use them."""
 
 WRIST_MARKER = "WRIST CHECK: begin your reasoning with `WRIST: YES` if the TARGET is visible in the wrist view, else `WRIST: NO`."
-ACTION_CHUNK = ("ACTION PLAN -- only when WRIST: NO (TARGET far): plan your next {n} moves as \"plan\": [M1, M2, ...] "
-                "(MV_ tokens only) and set decision to M1. Choose each move from the height and step size so the plan does "
-                "not overshoot (e.g. never plan more MV_DOWN than the height above the table allows). When WRIST: YES, decide a single move.")
+ACTION_CHUNK = ("TRAJECTORY: give your next moves as \"plan\": [M1, M2, ...] (up to {n} arm moves: MV_*, sized MOVE, ROTATE_*) and set "
+                "decision to M1. The operator sees the WHOLE trajectory drawn in the twin and accepts or rejects it as one, so make it a "
+                "purposeful stretch of motion toward the stage goal (several moves, a sized MOVE where the way is free), not one small "
+                "step; plan it from the height and the step sizes so it does not overshoot (never more MV_DOWN than the height above the "
+                "table allows). When WRIST: YES and the target is within a few cm, one or two moves are enough.")
 
 OUTPUT_CONTRACT = """Choose exactly one action:
 {vocab}

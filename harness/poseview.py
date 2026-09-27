@@ -23,6 +23,8 @@ TIP_RGBA = (0.0, 1.0, 1.0, 1.0)
 AIM_RGBA = (1.0, 0.85, 0.1, 0.9)
 BOX_RGBA = (1.0, 1.0, 1.0, 0.7)
 TABLE_RGBA = (0.6, 0.6, 0.7, 0.25)
+PATH_RGBA = (0.0, 0.9, 1.0, 1.0)         # a proposed hand path (experience cards)
+PATH_END_RGBA = (1.0, 0.2, 1.0, 1.0)
 
 
 def _free_camera(pos, lookat):
@@ -100,8 +102,9 @@ class PoseView:
                 self.data.qpos[a] = float(joints[n])
         mujoco.mj_forward(self.model, self.data)
 
-    def render(self, joints, last_target=None):
-        """-> PIL image, or None when no GL context is available. joints: name -> rad; last_target: robot-frame point."""
+    def render(self, joints, last_target=None, path=None):
+        """-> PIL image, or None when no GL context is available. joints: name -> rad; last_target: robot-frame point;
+        path: robot-frame points of a proposed hand path (the tip first), drawn as a cyan line with a magenta end."""
         try:
             if self.renderer is None:
                 os.environ.setdefault("MUJOCO_GL", "cgl")
@@ -121,6 +124,13 @@ class PoseView:
             if last_target is not None:
                 _sphere(scn, last_target, AIM_RGBA, 0.02)
                 _line(scn, last_target, tip, AIM_RGBA, 2.0)
+            pts = [np.asarray(q, float) for q in (path or [])]
+            for a, b in zip(pts, pts[1:]):
+                _line(scn, a, b, PATH_RGBA, 4.0)
+            for q in pts[1:-1]:
+                _sphere(scn, q, PATH_RGBA, 0.012)
+            if len(pts) > 1:
+                _sphere(scn, pts[-1], PATH_END_RGBA, 0.02)
             _sphere(scn, tip, TIP_RGBA)
             im = Image.fromarray(self.renderer.render().copy())
             d = ImageDraw.Draw(im)
@@ -130,7 +140,8 @@ class PoseView:
                 cap += f", {t[2] - self.table_z * 100:.0f} cm above the table"
             d.rectangle([0, 0, im.width, 20], fill=(0, 0, 0)); d.text((4, 3), cap, fill=(255, 255, 255), font=self.font)
             d.rectangle([0, im.height - 20, im.width, im.height], fill=(0, 0, 0))
-            d.text((4, im.height - 17), "cyan: hand tip   yellow: where the last move aimed   white box: workspace   plane: table height",
+            d.text((4, im.height - 17), ("cyan line: the proposed hand path, magenta: its end   " if len(pts) > 1 else "")
+                   + "cyan: hand tip   yellow: where the last move aimed   white box: workspace   plane: table height",
                    fill=(220, 220, 220), font=self.font)
             return im
         except Exception as e:                                       # no GL: the loop runs without the pose view

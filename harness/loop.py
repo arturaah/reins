@@ -18,9 +18,11 @@ from .prompts import PLAN_SCHEMA, RECOVERY_NOTES, controller_prompt, parse_plan,
 
 
 class Episode:
-    def __init__(self, cfg, vlm, executor, perception, recorder=None, log=print, demos=None, feedback=None, stats=None):
+    def __init__(self, cfg, vlm, executor, perception, recorder=None, log=print, demos=None, feedback=None, stats=None, experience=None):
         self.cfg, self.vlm, self.ex, self.per, self.rec, self.log = cfg, vlm, executor, perception, recorder, log
         self.arm = executor.arm
+        self.exp = experience                              # harness.experience.ExperienceStore: cards of answered proposals (optional)
+        self.task = ""
         self.demos = list(demos or [])                    # harness.demos.Demo: shown before the images in every call
         self.demo_text = demos_block(self.demos)
         self.demo_images = demo_images(self.demos, int((cfg.get("demos") or {}).get("max_width_px", 1568)))
@@ -41,7 +43,7 @@ class Episode:
     # -- planning -------------------------------------------------------------------------------
     def make_plan(self, task, packet):
         prompt = self.with_context(planner_prompt(task, self.cfg, self.arm, locomotion=self.loco, pose_view=any("POSE" in l for l, _ in packet.images)))
-        images = self.demo_images + packet.images
+        images = self.demo_images + self.exp_images() + packet.images
         resp = self.vlm.plan(prompt, images, PLAN_SCHEMA); self.stat("plan", resp, prompt, images)
         stages, err = None, resp.error
         if not err:
@@ -76,6 +78,7 @@ class Episode:
         """start_pose: joint targets for the arm's start pose, executed (gated, confirmed) right before the first stage that
         is not a walking stage; None = the caller did it already (or does not want it)."""
         cfg, lp = self.cfg, self.cfg["loop"]
+        self.task = task
         self.loco = self.loco_cfg and self.task_allows_walking(task)
         if self.loco_cfg and not self.loco:
             self.log("walking stays off: the task text does not say 'walk'")
@@ -88,7 +91,7 @@ class Episode:
         if not stages:
             return self.finish({"success": False, "reason": f"no plan: {presp.error or 'unparseable'}", "steps": 0})
         self.log(f"plan ({presp.model}, {presp.latency_s:.1f} s): " + " -> ".join(f"{s['id']}" for s in stages))
-        stage_i, history, recovery, queue, op_notes = 0, [], None, [], []      # op_notes: operator notes since the last prompt
+        stage_i, history, recovery, op_notes = 0, [], None, []                # op_notes: operator notes since the last prompt
         ik_fails, last_result, failed_steps, stage_steps = 0, None, 0, 0
         q_home = np.asarray(cfg["robot"]["start_pose_rad"][self.arm], float)
         for step in range(int(lp["max_steps"])):
@@ -109,28 +112,24 @@ class Episode:
             fatal = [m for m in packet.missing if "WRIST" not in m or not self.per.wrist_optional]
             if fatal and not self.ex.backend.dry_run and self.ex.backend.name != "mock":
                 return self.finish({"success": False, "reason": f"camera missing: {fatal}", "steps": step})
-            decision, resp, prompt, action = None, None, None, None
-            if queue:                                                   # open-loop chunk, no VLM call
-                action = queue.pop(0); wrist = False
-                self.log(f"step {step}: chunk -> {action.raw}")
-            else:
-                prompt = self.build_prompt(task, stage, state, history, " ".join(n for n in [recovery, *op_notes] if n) or None,
-                                           last_result, wrist_missing, pose_view=any("POSE" in l for l, _ in packet.images))
-                op_notes = []
-                decision, resp = self.ask(prompt, packet.images)
-                if decision is None:
-                    failed_steps += 1
-                    history.insert(0, "INVALID"); history = history[:int(lp["history_len"])]
-                    self.record(step, packet, prompt, resp, stage, state, None, None, {"failed": True, "error": resp.error})
-                    self.log(f"step {step}: invalid answer ({resp.error}); counted as a failed step")
-                    if failed_steps >= 3:
-                        return self.finish({"success": False, "reason": "three invalid answers", "steps": step + 1})
-                    continue
-                action = decision.action(self.arm); wrist = decision.wrist_visible
-                self.log(f"step {step} [{stage['id']}] {resp.model} {resp.latency_s:.1f}s: {action.raw}  ({decision.reasoning[:90]})")
+            prompt = self.build_prompt(task, stage, state, history, " ".join(n for n in [recovery, *op_notes] if n) or None,
+                                       last_result, wrist_missing, pose_view=any("POSE" in l for l, _ in packet.images))
+            op_notes = []
+            decision, resp = self.ask(prompt, packet.images)
+            if decision is None:
+                failed_steps += 1
+                history.insert(0, "INVALID"); history = history[:int(lp["history_len"])]
+                self.record(step, packet, prompt, resp, stage, state, None, None, {"failed": True, "error": resp.error})
+                self.log(f"step {step}: invalid answer ({resp.error}); counted as a failed step")
+                if failed_steps >= 3:
+                    return self.finish({"success": False, "reason": "three invalid answers", "steps": step + 1})
+                continue
+            action = decision.action(self.arm); wrist = decision.wrist_visible
+            self.log(f"step {step} [{stage['id']}] {resp.model} {resp.latency_s:.1f}s: {action.raw}"
+                     + (f" + {len(decision.plan) - 1} more" if len(decision.plan) > 1 else "") + f"  ({decision.reasoning[:90]})")
             sigma, theta = step_size(cfg["steps"], bool(wrist))
             if action.name == "DONE":
-                stage_i += 1; queue = []; recovery = None; history = []; stage_steps = 0
+                stage_i += 1; recovery = None; history = []; stage_steps = 0
                 self.record(step, packet, prompt, resp, stage, state, action, None, {"stage_done": True})
                 if stage_i >= len(stages):
                     return self.finish({"success": True, "reason": "all stages done", "steps": step + 1})
@@ -138,17 +137,24 @@ class Episode:
                 continue
             if history and action.opposite_of is not None and self.same_token(history[0], action.opposite_of):
                 recovery = RECOVERY_NOTES["oscillation"]
-            proposal = self.interp.propose(state, action, sigma, theta, self.walk_m, self.turn_rad)
+            def propose(st, a, sigma=sigma, theta=theta):
+                return self.interp.propose(st, a, sigma, theta, self.walk_m, self.turn_rad)
+            proposal = propose(state, action)
+            chain = [a for a in decision.plan[:int(lp["chunk_max"])] if a.name != "STILL"] if decision.plan else []
             if proposal.kind == "walk" and not self.loco:
                 why = ("walking is not enabled for this session: the robot cannot move its body; use the arm" if not self.loco_cfg else
                        "walking is only allowed when the task text itself says 'walk'; this task does not, so the body stays put: use the arm")
                 result = ExecResult(False, why, state.p, state.p, np.zeros(3), np.zeros(3), state.roll, state.roll)
+            elif len(chain) > 1 and proposal.kind in ("move", "rotate"):
+                result = self.ex.execute_sequence(chain, state, propose)     # the plan is ONE proposal: the whole trajectory
             else:
                 result = self.ex.execute(proposal, state)
+            planned = chain[:result.planned] if result.planned else [action]
+            label = ", ".join(a.raw.upper() for a in planned)              # what was proposed: for the notes, the stores, the cards
             last_result = result
             extra = {}
             if result.ik_fail:
-                ik_fails += 1; recovery = RECOVERY_NOTES["ik_fail"]; queue = []
+                ik_fails += 1; recovery = RECOVERY_NOTES["ik_fail"]
                 if ik_fails >= int(lp["ik_fail_home_after"]):
                     hr = self.ex.home_step(self.ex.sync(), q_home)
                     recovery = RECOVERY_NOTES["home_step"] + " " + hr.feedback
@@ -156,31 +162,35 @@ class Episode:
             elif result.ok:
                 ik_fails = 0
             if result.asked and self.feedback is not None and not self.ex.gate.estop.is_set():   # every Accept / Reject is kept (an e-stop is not an answer)
-                self.feedback.add(task, stage["id"], action.raw.upper(), not result.declined, result.operator_note,
+                self.feedback.add(task, stage["id"], label, not result.declined, result.operator_note,
                                   hand_tip=state.p, height_cm=height_above_table_cm(state.p, self.table_z), mode=self.ex.backend.name)
             if result.ok and result.walk is not None and result.feedback:                          # after a step: what the odometry says
                 op_notes.append(result.feedback)
             if not result.ok and not result.declined and not result.ik_fail and result.feedback:   # refused for another reason: say why
-                op_notes.append(f"Your last action ({action.raw.upper()}) was NOT executed: {result.feedback}")
-            if result.declined:                                     # the operator said no: tell the model, drop the chunk
-                queue = []
-                op_notes.append(RECOVERY_NOTES["rejected"].format(token=action.raw.upper(), why=f' with the note "{result.operator_note}"' if result.operator_note else ""))
+                op_notes.append(f"Your last action ({label}) was NOT executed: {result.feedback}")
+            elif result.moves and ("stopped" in result.feedback or "dropped" in result.feedback):  # a trajectory cut short: say where and why
+                op_notes.append(f"Your last trajectory ({label}): {result.feedback}")
+            if result.declined:                                     # the operator said no: tell the model
+                op_notes.append(RECOVERY_NOTES["rejected"].format(token=label, why=f' with the note "{result.operator_note}"' if result.operator_note else ""))
             elif result.operator_note:                              # accepted with a note: the model reads it at its next call
-                op_notes.append(RECOVERY_NOTES["accepted_note"].format(token=action.raw.upper(), note=result.operator_note))
+                op_notes.append(RECOVERY_NOTES["accepted_note"].format(token=label, note=result.operator_note))
             if proposal.kind == "hand" and result.ok and not result.declined:
                 self.holding = bool(proposal.hand_closed) and not result.empty_grasp
             if result.empty_grasp:                                  # open again (Show-Harness recovery), note, roll back
-                recovery = RECOVERY_NOTES["empty_grasp"]; queue = []
+                recovery = RECOVERY_NOTES["empty_grasp"]
                 stage_i = self.grasp_stage(stages, stage_i)
                 self.ex.backend.hand(self.arm, False); extra["auto_release"] = True
-            token = action.raw.upper() + ("(empty)" if result.empty_grasp else "") + ("(unreachable)" if result.ik_fail else "") + ("(rejected)" if result.declined else "")
-            history.insert(0, token); history = history[:int(lp["history_len"])]
+            if result.moves:                                        # a trajectory: one history token per move that was sent
+                for a, r in zip(planned, result.moves):
+                    history.insert(0, a.raw.upper() + ("(unreachable)" if r.ik_fail else "" if r.ok else "(failed)"))
+            else:
+                history.insert(0, label + ("(empty)" if result.empty_grasp else "") + ("(unreachable)" if result.ik_fail else "")
+                               + ("(rejected)" if result.declined else ""))
+            history = history[:int(lp["history_len"])]
             self.log(f"   -> {result.feedback or 'ok'}")
-            self.record(step, packet, prompt, resp, stage, state, action, result, extra)
-            stalled = (result.ok and result.requested_dp is not None and np.linalg.norm(result.requested_dp) > 1e-6
-                       and float(result.achieved_dp @ result.requested_dp) < 0.3 * float(np.linalg.norm(result.requested_dp)) ** 2)
-            if decision is not None and decision.plan and wrist is False and not result.ik_fail and not result.clamped and not result.declined and not stalled:
-                queue = decision.plan[1:int(lp["chunk_max"])]
+            self.record(step, packet, prompt, resp, stage, state, action, result, extra, planned)
+            if result.asked and self.exp is not None and not self.ex.gate.estop.is_set():
+                self.remember(task, stage, label, proposal, result, state, packet)
             stage_steps += 1
         return self.finish({"success": False, "reason": "max steps", "steps": int(lp["max_steps"])})
 
@@ -205,8 +215,26 @@ class Episode:
                                                    locomotion=self.loco, pose_view=pose_view))
 
     def with_context(self, prompt):
-        """Demonstrations, then earlier sessions' operator feedback, then the prompt itself."""
-        return "\n\n".join([p for p in (self.demo_text, self.fb_text) if p] + [prompt])
+        """Demonstrations, earlier sessions' operator feedback, the experience cards' text, then the prompt itself."""
+        return "\n\n".join([p for p in (self.demo_text, self.fb_text, self.exp_text()) if p] + [prompt])
+
+    def exp_text(self):
+        return self.exp.block(self.task) if self.exp is not None else ""
+
+    def exp_images(self):
+        return self.exp.images(self.task) if self.exp is not None else []
+
+    def remember(self, task, stage, label, proposal, result, state, packet):
+        """An answered proposal -> an experience card: the pose view with the proposed path, the context view, the verdict."""
+        pts = list(result.waypoints) or ([np.asarray(proposal.p, float)] if proposal.kind in ("move", "rotate") else [])
+        pose_im = None
+        if getattr(self.per, "pose_view", None) is not None and state.q:
+            pose_im = self.per.pose_view.render(state.q, path=[np.asarray(state.p, float)] + pts if pts else None)
+        try:
+            self.exp.add(task, stage["id"], label, not result.declined, result.operator_note, "" if result.declined else result.feedback,
+                         pose_im, packet.pil.get("CONTEXT VIEW"), self.ex.backend.name)
+        except Exception as e:                                        # a card is context, never a reason to stop the episode
+            self.log(f"experience card not saved: {e}")
 
     with_demos = with_context
 
@@ -215,7 +243,7 @@ class Episode:
             self.stats.record(kind, resp, prompt, images)
 
     def ask(self, prompt, images):
-        images = self.demo_images + list(images)
+        images = self.demo_images + self.exp_images() + list(images)
         resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA); self.stat("act", resp, prompt, images)
         for attempt in range(2):
             if resp.error:
@@ -240,7 +268,7 @@ class Episode:
                 return k
         return i
 
-    def record(self, step, packet, prompt, resp, stage, state, action, result, extra):
+    def record(self, step, packet, prompt, resp, stage, state, action, result, extra, planned=None):
         if not self.rec:
             return
         rec = {"stage": stage["id"], "action": action.raw if action else None,
@@ -251,6 +279,14 @@ class Episode:
                         "requested_dp": result.requested_dp, "achieved_dp": result.achieved_dp,
                         "q_target": result.q_target, "q_after": result.q_after, "ik_fail": result.ik_fail,
                         "timeout": result.timeout, "clamped": result.clamped, "notes": result.notes, "duration_s": result.duration_s})
+            if result.moves:                                         # a trajectory: every move with its own targets, for the export
+                subs, jb = [], dict(state.q)
+                for a, r in zip(planned or [], result.moves):
+                    subs.append({"action": a.raw, "ok": r.ok, "feedback": r.feedback, "joints_before": jb, "q_target": r.q_target,
+                                 "q_after": r.q_after, "hand_tip_after": r.p_after})
+                    if r.ok and r.q_target is not None:
+                        jb = {**jb, **{n: float(v) for n, v in zip(self.ex.kin.joint_names, r.q_target)}}
+                rec["moves"], rec["planned"] = subs, result.planned
         self.rec.step(step, rec, packet, prompt, resp)
 
     def finish(self, summary):

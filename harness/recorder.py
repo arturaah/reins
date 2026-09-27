@@ -73,21 +73,25 @@ class Recorder:
         (20 Hz, cosine-eased like the streamed frames) so tools/arm_lift.py treats the file as a recording: it keeps the
         first sample and approaches it from the measured pose with a lead-in. -> (path, message)."""
         steps = [json.loads(l) for l in self.steps_file.read_text().splitlines() if l.strip()] if self.steps_file.exists() else []
-        moves = [s for s in steps if s.get("ok") and s.get("q_target") and s.get("joints_before")]
+        moves = []                                                   # (step record, move record, first move of that step)
+        for s in steps:
+            for k, m in enumerate(s.get("moves") or [s]):            # a trajectory step carries one record per move
+                if m.get("ok") and m.get("q_target") and m.get("joints_before"):
+                    moves.append((s, m, k == 0))
         if not moves:
             return None, "no executed moves to export"
         lim = self.meta["config"]["limits"]
         names = ARM_JOINTS[arm]
         keep = ARM_JOINTS["left"] + ARM_JOINTS["right"] + ["waist_yaw_joint"]      # what the arm topic carries (no waist roll)
         hz, kfs, frames, t = 20.0, [], {}, 0.0
-        for s in moves:
-            before = {k: round(float(v), 5) for k, v in s["joints_before"].items() if k in keep}
-            after = dict(before); after.update({n: round(float(v), 5) for n, v in zip(names, s["q_target"])})
+        for s, m, first in moves:
+            before = {k: round(float(v), 5) for k, v in m["joints_before"].items() if k in keep}
+            after = dict(before); after.update({n: round(float(v), 5) for n, v in zip(names, m["q_target"])})
             dq = max(abs(after[n] - before.get(n, after[n])) for n in names)
             dur = max(float(lim["min_move_s"]), dq / float(lim["max_joint_vel_rad_s"]) * math.pi / 2)
             d = self.dir / f"step_{int(s['step']):03d}"
             for fname, cam in (("context.jpg", "context"), ("left.jpg", "left wrist"), ("right.jpg", "right wrist")):
-                if (d / fname).exists():
+                if first and (d / fname).exists():
                     frames.setdefault(cam, []).append((t, (d / fname).read_bytes()))
             n = max(1, int(round(dur * hz)))
             for i in range(n + 1):                                   # the move, cosine-eased, one sample per 1/hz

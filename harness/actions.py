@@ -226,7 +226,7 @@ OUTPUT_SCHEMA = {
         "reasoning": {"type": "string", "description": "Start with 'WRIST: YES' or 'WRIST: NO', then one visual sentence."},
         "decision": {"type": "string", "description": "Exactly one action from the vocabulary."},
         "plan": {"type": "array", "items": {"type": "string"},
-                 "description": "Optional short open-loop chunk starting with the decision. Only when WRIST: NO."},
+                 "description": "The next moves as one trajectory, starting with the decision (arm moves and rotations only)."},
     },
     "required": ["reasoning", "decision"],
     "additionalProperties": False,

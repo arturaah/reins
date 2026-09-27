@@ -26,7 +26,7 @@ Abort sends the tool its interrupt, which ramps the arm weight down.
     tools/start_all.sh            # starts the stream servers, then this window
     .venv/bin/python tools/reins_ui.py [--iface en8] [--jetson-iface en6]   # default: found by bound pings
 """
-import argparse, io, json, os, queue, re, signal, socket, subprocess, sys, threading, time, urllib.request
+import argparse, io, json, os, queue, re, shutil, signal, socket, subprocess, sys, threading, time, urllib.request
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
@@ -151,9 +151,9 @@ def loco_cfg():
         import yaml
         with open(os.path.join(ROOT, "harness/config.yaml")) as f: lo = yaml.safe_load(f)["locomotion"]
         return {"step_cm": float(lo["step_m"]) * 100, "turn_deg": float(lo["turn_deg"]), "max_cm": float(lo["param_max_walk_m"]) * 100,
-                "total_m": float(lo["max_total_m"])}
+                "total_m": float(lo["max_total_m"]), "note": str(lo.get("note") or "")}
     except Exception:
-        return {"step_cm": 100.0, "turn_deg": 30.0, "max_cm": 150.0, "total_m": 5.0}
+        return {"step_cm": 100.0, "turn_deg": 30.0, "max_cm": 150.0, "total_m": 5.0, "note": ""}
 LOCO = loco_cfg()
 ttk.Label(aif, text=f"AI control  (VLM: claude -p on this Mac's Claude login, model {vlm_model()}; every Accept / Reject and its feedback is kept for later sessions)",
           wraplength=SIZES["head"][0]).pack(anchor="w")
@@ -163,7 +163,7 @@ def walk_changed(*_):                                              # the word wa
     on = bool(re.search(r"\bwalk(s|ed|ing)?\b", ai_task.get(), re.IGNORECASE))
     walk_lbl.configure(text=(f"walking: ON  (the task says \"walk\": the model may step the whole robot, {LOCO['step_cm']:.0f} cm or "
                              f"{LOCO['turn_deg']:.0f} deg per step, sized steps up to {LOCO['max_cm']:.0f} cm, each behind Accept; the arms are "
-                             "handed back to the robot for each step)"
+                             "handed back to the robot for each step)" + (f"\nNOTE {LOCO['note']}" if LOCO["note"] else "")
                              if on else "walking: off  (arm only; put the word \"walk\" in the task to allow whole-body steps)"),
                        fg="#ff6b6b" if on else "#8b949e")
 ai_task.trace_add("write", walk_changed)
@@ -190,6 +190,25 @@ demo_lb = tk.Listbox(aif, height=5, selectmode="multiple", bg="#161c23", fg="#c9
 demo_lb.pack(fill="x", pady=2)
 crow = ttk.Frame(aif); crow.pack(fill="x")
 ai_ctx = ttk.Label(crow, text="0 selected"); ai_ctx.pack(side="left")
+EXP_DIR = os.path.join(ROOT, "runs/experience")           # harness/experience.py: every answered proposal as a picture card
+def exp_count():
+    try:
+        with open(os.path.join(EXP_DIR, "index.jsonl")) as f: return sum(1 for l in f if l.strip())
+    except OSError:
+        return 0
+def exp_refresh():
+    n = exp_count()
+    exp_lbl.configure(text=(f"Experience: {n} earlier proposal(s) as picture cards (pose view with the proposed path + context view, the verdict, "
+                            "your note) go with every call, this task's and the newest first (runs/experience)." if n else
+                            "Experience: no cards yet. From now on every Accept / Reject becomes a picture card the model sees in every later call."))
+def exp_forget():
+    if messagebox.askokcancel("Forget experience", f"Delete all {exp_count()} experience card(s) in runs/experience? The model will not see them again."):
+        shutil.rmtree(EXP_DIR, ignore_errors=True); exp_refresh()
+erow = ttk.Frame(aif); erow.pack(fill="x", pady=(4, 0))
+exp_lbl = tk.Label(erow, text="", bg="#0f1419", fg="#8b949e", wraplength=SIZES["head"][0] - 90, justify="left", anchor="w")
+exp_lbl.pack(side="left", fill="x", expand=True)
+ttk.Button(erow, text="Forget…", width=8, command=exp_forget).pack(side="right")
+exp_refresh()
 ai_prop = tk.Label(aif, text="", bg="#0f1419", fg="#ffd166", wraplength=SIZES["head"][0], justify="left", anchor="w"); ai_prop.pack(fill="x", pady=(4, 0))
 prow = ttk.Frame(aif); prow.pack(fill="x", pady=2)
 ai_note = tk.StringVar()
@@ -546,7 +565,7 @@ def ai_stop():
 
 def ai_finished(code):
     ai["pending"] = False; accept_btn.state(["disabled"]); reject_btn.state(["disabled"]); ai_prop.configure(text="")
-    cockpit("/preview/stop"); reload_files()                       # the session's accepted moves are now a recording (✓) in both lists
+    cockpit("/preview/stop"); reload_files(); exp_refresh()        # the session's accepted moves are now a recording (✓) in both lists
     st = ai.get("streamer")
     if st and st.poll() is None:                                    # released by now; a fresh one at the next Run picks up current code
         st.send_signal(signal.SIGINT); ai_log("streamer stopped; the next live Run starts a fresh one\n")

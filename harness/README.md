@@ -135,6 +135,35 @@ pinch accepts and a double left-hand pinch rejects on the glasses; the harness s
 consumes the decision through this confirmation callback and runs all existing checks.
 See `spectacles/README.md` for the setup and network limits.
 
+## A plan is one trajectory proposal
+
+When the controller answers with a `plan` (the prompt asks for one every step: up to `loop.chunk_max`
+arm moves, a purposeful stretch of motion rather than one small step), `ArmExecutor.execute_sequence`
+plans the whole trajectory from the current pose: each move is proposed from, and vetted against, the
+predicted end of the previous one (IK, workspace, self-collision, speed), and the chain stops at the
+first move the gate refuses (the proposal text says which and why). The preview file then carries
+every frame, so the twin and the glasses draw the entire hand path, and there is ONE question:
+`PROPOSAL: TRAJECTORY of 3 moves (MV_UP, MV_UP, MOVE FORWARD 10): hand a -> b over 2.4 s ...`. Accept
+executes the moves in order, each re-vetted from the measured pose toward its planned waypoint, and
+stops where a move is blocked (achieved under 30 % of what was asked) or refused; the model is told
+("Your last trajectory (...): 2 of 3 moves executed; stopped after move 2 (MV_UP): blocked or in
+contact"). Reject drops the whole trajectory with the note. The history shows one token per move that
+was sent, the feedback store and the experience card carry the whole proposal, and the exported
+recording keeps every waypoint.
+
+## Experience: pictures of past proposals (`experience.dir`)
+
+Every answered proposal, in every mode, becomes a card in `runs/experience/`: the ROBOT POSE VIEW at
+that moment with the proposed hand path drawn (cyan line, magenta end), the CONTEXT VIEW the model saw,
+and a caption with the verdict (✓ accepted and executed / ✗ rejected, not executed), the task, the
+stage, the actions, the operator's note and, for an executed proposal, what happened. `index.jsonl`
+lists them. Every VLM call (planner and controller) gets the most relevant cards stacked into one
+image titled EXPERIENCE, plus the matching text block: this task's cards first, newest first, the
+running session's included, up to `experience.max_in_prompt` (6; each card is `card_width_px` wide,
+about 300 tokens). So a rejected trajectory is in front of the model at its very next call, and in
+every session after that, until the cards are removed (the window's "Forget…" button, or delete the
+folder). `harness/experience.py`.
+
 ## Every session becomes a recording
 
 When an episode ends (any mode), its accepted, executed moves are exported to
@@ -187,7 +216,13 @@ owner reports that nothing walks in 816, not even the remote (unitreerobotics/un
 one velocity command that went out in 811 before the release existed (0.25 m/s for 1.2 s) moved nothing and
 its answer code was not logged then; a report of code 127 for every velocity command in every state on
 ai_sport 1.0.2.154 (unitreerobotics/xr_teleoperate#319) says SDK locomotion may be switched off in that
-firmware, so the next live step's logged code decides whether walking is possible from software at all.
+firmware. Decided at 14:27 the same day: with the arms released and the robot in 811, the controller
+answered **127** to the harness's velocity command, so SDK walking is switched off in this unit's
+firmware (Unitree's xr_teleoperate also carries a commit "Prevent motion mode for R1_A5 and R1_A7 arm
+configurations"). Everything on our side works (release, FSM wait, command, stop, re-engage, the
+refusal reaches the model as feedback) and waits for a firmware in which the loco service accepts
+velocity commands; until then the remote's joystick is the only way to walk the robot, and
+`locomotion.note` (shown by the window next to "walking: ON") says so.
 Every step is a PROPOSAL behind Accept, written to the
 preview file as a plan whose arms hold and whose `base_keyframes` (the Spectacles feed's planar base path)
 go from the current pose to the step's end: the twin walks a translucent whole-body ghost along the green

@@ -108,7 +108,8 @@ def test_pick_and_place_episode(rig):
     assert any(s.get("feedback", "").startswith("EMPTY") for s in steps)          # recovery path ran
     assert any("empty" in " ".join(vlm.calls[i][1].splitlines()).lower() for i in range(len(vlm.calls)) if vlm.calls[i][0] == "act")
     acts = [c for c in vlm.calls if c[0] == "act"]
-    assert len(acts) < summary["steps"]                                           # chunked steps made no VLM call
+    assert len(acts) == summary["steps"]                                          # one call per step: a chunk is one step
+    assert any(len(st.get("moves") or []) > 1 for st in steps)                    # ... executed as one trajectory of several moves
     assert (rec.dir / "plan.json").exists() and (rec.dir / "step_000" / "prompt.txt").exists()
 
 

@@ -149,9 +149,20 @@ one. First live attempts (2026-09-27 afternoon) found that the arm topic and wal
 on the R1: any weight above 0 on `rt/arm_sdk` puts the robot into FSM 816 (ArmSdkLoco), the walks sent
 there were refused, and the one sent in 811 moved nothing. The streamer therefore hands the arms back to
 the controller for every step and takes them again afterwards, and logs the controller's answer to the
-velocity command; whether this firmware obeys SDK velocity commands at all is still open (a public
-report gives code 127 for all of them on ai_sport 1.0.2.154). Steps were also raised from 30 cm to 1 m
+velocity command. Decided the same afternoon: the controller answered 127 to a velocity command sent
+in 811 with the arms released, the answer another R1 EDU owner reports for every velocity command on
+ai_sport 1.0.2.154, so SDK walking is off in this firmware and the feature waits for Unitree. Steps were also raised from 30 cm to 1 m
 (Artur's number), with a named distance walked in one sized command of up to 1.5 m.
+
+## Trajectories and experience (2026-09-27, at Artur's request)
+
+Single 6 cm moves behind one Accept each were too small to judge and too slow to run. Two changes:
+the model's plan is now planned as one trajectory from the predicted poses, drawn whole in the twin and
+on the glasses, and accepted or rejected as one (executed move by move, each re-vetted from the
+measured pose, stopped where the arm is blocked); and every answered proposal becomes a picture card
+(pose view with the proposed path, context view, verdict, note, outcome) that the most relevant six
+of go with every later call, in this session and all future ones. The operator's judgement thus
+accumulates as pictures, not only as text, and the model sees what it proposed and what was refused.
 
 ## Not done yet
 

@@ -76,7 +76,7 @@ hand:
 loop:
   max_steps: 60
   history_len: 5
-  chunk_max: 3
+  chunk_max: 5               # moves per trajectory proposal: the model's "plan" is planned, drawn and accepted as ONE
   ik_fail_home_after: 3
   reprompt_once: true
 
@@ -124,6 +124,7 @@ locomotion:                  # whole-body steps through the robot's loco service
                              # to the controller: any weight > 0 on rt/arm_sdk puts the R1 into 816 (ArmSdkLoco), in which every
                              # walk was refused here, and the robot is back in 811 the moment the weight is 0 (2026-09-27).
   fsm_wait_s: 2.0            # how long to wait for an allowed FSM after the arms are released
+  note: "2026-09-27: this robot's controller answered 127 to a velocity command sent in FSM 811 with the arms released (the same answer another R1 EDU reports for every velocity command on ai_sport 1.0.2.154): SDK walking is switched off in this firmware, so a step is refused until Unitree enables it"
 
 demos:                       # recordings as demonstrations (harness/demos.py, tools/framelog.py)
   max_moments: 8             # contact sheet columns: Douglas-Peucker key moments of the joint-space path, at most this many
@@ -133,6 +134,12 @@ demos:                       # recordings as demonstrations (harness/demos.py, t
 feedback:
   path: runs/operator_feedback.jsonl   # every Accept / Reject with its note; later sessions see it as OPERATOR FEEDBACK
   max_in_prompt: 10
+
+experience:                  # every answered proposal as a picture card: the pose view with the proposed path + the context view,
+  enabled: true              # the verdict and the note; the most relevant cards go with every call (harness/experience.py)
+  dir: runs/experience
+  max_in_prompt: 6           # cards per call: this task's first, newest first, the running session's included
+  card_width_px: 800
 
 stats:
   path: runs/inference_log.jsonl       # one line per VLM call: latency, reported tokens, estimated context
