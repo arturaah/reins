@@ -36,7 +36,8 @@ def test_sim_http_disables_feeds_observations_and_runs():
         deadline=time.monotonic()+20
         while True:
             try:
-                with urllib.request.urlopen(base+'/api/plans',timeout=1) as r: token=json.load(r)['token']
+                with urllib.request.urlopen(base+'/api/plans',timeout=1) as r: plans=json.load(r)
+                token=plans['token']
                 break
             except (OSError,ValueError):
                 assert process.poll() is None, process.stderr.read().decode()
@@ -46,7 +47,7 @@ def test_sim_http_disables_feeds_observations_and_runs():
         assert state['mode']=='sim'
         assert all(not f['configured'] for f in state['feeds'].values())
         assert state['prompt']['configured']['observation'] is False
-        for path,command in [('/api/run',{'action':'dry','plan':'tools/plans/cup_grab_right.json'}),
+        for path,command in [('/api/run',{'action':'dry','plan':plans['plans'][0]['id']}),
                              ('/api/run',{'action':'execute','confirm':True}),
                              ('/api/prompt',{'prompt':'touch the bottle','source':'camera'})]:
             req=urllib.request.Request(base+path,json.dumps(command).encode(),headers={'X-Reins-Token':token})

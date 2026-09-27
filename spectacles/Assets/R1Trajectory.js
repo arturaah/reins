@@ -4,6 +4,8 @@
 // @input Asset.InternetModule internetModule
 // @input Asset.Material leftMaterial
 // @input Asset.Material rightMaterial
+// @input Asset.AudioTrackAsset microphoneAudio
+// @input bool useLiveVoice = true
 // @input Asset.AudioTrackAsset tagDetectedSound
 // @input SceneObject cameraObject
 // @input Component.MarkerTrackingComponent leftMarker
@@ -89,6 +91,79 @@ function noSpeechNotice() {
     else { voiceNotice("SPEECH RESULT EMPTY"); }
 }
 
+var liveReady = false;
+var liveSpeaking = false;
+var liveRole = "";
+var liveMic = null;
+var liveSamples = null;
+
+function stopLiveVoice(notify) {
+    voiceListening = liveReady = liveSpeaking = false;
+    try { if (liveMic) { liveMic.stop(); } } catch (e) {}
+    liveMic = liveSamples = null;
+    if (notify && socketReady) {
+        socket.send(JSON.stringify({type:"voice_stop", version:1, id:voiceCommandId}));
+    }
+}
+function liveVoiceEvent(event) {
+    if (event.type === "error") {
+        stopLiveVoice(true);
+        voiceNotice(event.text || "LIVE VOICE ERROR");
+    } else if (event.type === "stopped") {
+        var wasListening = voiceListening;
+        stopLiveVoice(false);
+        if (wasListening) { voiceNotice("VOICE STOPPED"); }
+    } else if (event.type === "listening" && voiceListening) {
+        try {
+            liveMic = script.microphoneAudio.control;
+            liveMic.sampleRate = 16000;
+            liveSamples = new Int16Array(liveMic.maxFrameSize);
+            liveMic.start();
+            if (liveMic.sampleRate !== 16000) { throw new Error("16 kHz microphone required"); }
+            liveReady = true;
+            voiceNotice("GPT-LIVE CONNECTED · R1 SPEAKER");
+        } catch (e) {
+            stopLiveVoice(true);
+            voiceNotice("MICROPHONE UNAVAILABLE - CHECK PERMISSION");
+        }
+    } else if (event.type === "transcript_delta" && voiceListening) {
+        if (liveRole !== event.role) { voicePartial = ""; liveRole = event.role; }
+        voicePartial = (voicePartial + event.text).slice(-500);
+    } else if (event.type === "log") {
+        if (event.stage === "playback") { liveSpeaking = event.status === "started"; }
+        if (event.stage === "backend" || event.stage === "tyto" && event.status === "nudge") {
+            voiceNotice(event.text || (event.stage + " " + event.status));
+        }
+    }
+}
+function streamLiveMicrophone() {
+    if (!script.useLiveVoice || !voiceListening) { return; }
+    if (!liveReady) {
+        if (getTime() - voiceStartedAt > 20) {
+            stopLiveVoice(true); voiceNotice("LIVE VOICE CONNECTION TIMED OUT");
+        }
+        return;
+    }
+    try {
+        var shape = liveMic.getAudioFramePCM16(liveSamples);
+        if (!shape.x) { return; }
+        if (shape.y > 1 || shape.z > 1 || shape.x > liveSamples.length) {
+            throw new Error("Expected mono microphone audio");
+        }
+        for (var offset = 0; offset < shape.x; offset += 320) {
+            var count = Math.min(320, shape.x - offset);
+            var bytes = new Uint8Array(count * 2);
+            for (var i = 0; i < count; i++) {
+                var sample = liveSpeaking ? 0 : liveSamples[offset + i];
+                bytes[i*2] = sample & 255; bytes[i*2+1] = (sample >> 8) & 255;
+            }
+            socket.send(bytes);
+        }
+    } catch (e) {
+        stopLiveVoice(true); voiceNotice("MICROPHONE STREAM FAILED - RECONNECT");
+    }
+}
+
 function voiceText() {
     return (voiceFinal.join(" ") + " " + voicePartial).trim();
 }
@@ -98,6 +173,9 @@ function voiceNotice(message) {
     print("R1 AR voice: " + message);
 }
 function stopVoice(send) {
+    if (script.useLiveVoice) {
+        stopLiveVoice(true); voiceNotice("VOICE STOPPED"); return;
+    }
     if (!voiceListening) { return; }
     if (send) {
         // Keep the recognizer alive long enough to receive its final update.
@@ -114,6 +192,14 @@ function stopVoice(send) {
 }
 function startVoice() {
     if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
+    if (script.useLiveVoice) {
+        if (!script.microphoneAudio) { voiceNotice("MICROPHONE ASSET MISSING - RESEND LENS"); return; }
+        voiceFinal = []; voicePartial = ""; liveRole = "";
+        voiceListening = true; liveReady = liveSpeaking = false; voiceStartedAt = getTime();
+        voiceCommandId = "live-" + Date.now() + "-" + (++voiceSequence);
+        socket.send(JSON.stringify({type:"voice_start", version:1, sample_rate:16000, id:voiceCommandId}));
+        voiceNotice("CONNECTING GPT-LIVE"); return;
+    }
     if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
     if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
     if (speechInternetAvailable() === false) { voiceNotice("NO INTERNET FOR SPEECH"); return; }
@@ -214,7 +300,7 @@ function voicePinch(side) {
         if (voiceListening) { stopVoice(true); } else { startVoice(); }
     } else {
         voicePinchAt = now;
-        voiceNotice(voiceListening ? "RIGHT PINCH AGAIN TO SEND" : "RIGHT PINCH AGAIN TO SPEAK");
+        voiceNotice(voiceListening ? (script.useLiveVoice ? "RIGHT PINCH AGAIN TO STOP" : "RIGHT PINCH AGAIN TO SEND") : "RIGHT PINCH AGAIN TO SPEAK");
     }
 }
 
@@ -309,8 +395,8 @@ try {
     print("R1 AR: right double-pinch speaks or accepts; left cancels or rejects");
 } catch (e) { print("R1 AR: review gesture unavailable: " + e); }
 try {
-    asrModule = require('LensStudio:AsrModule');
-    print("R1 AR: Spectacles speech recognition ready");
+    if (!script.useLiveVoice) { asrModule = require('LensStudio:AsrModule'); }
+    print(script.useLiveVoice ? "R1 AR: GPT-Live microphone transport ready" : "R1 AR: Spectacles speech recognition ready");
 } catch (e) { print("R1 AR: speech recognition unavailable: " + e); }
 
 function showStatus(found, side) {
@@ -675,6 +761,10 @@ function connect() {
         socket.onmessage=function(event){
             try {
                 var trajectory = JSON.parse(event.data);
+                if (trajectory.type === "voice_event") {
+                    if (trajectory.id === voiceCommandId) { liveVoiceEvent(trajectory.event); }
+                    return;
+                }
                 if (trajectory.type === "review_ack") {
                     if (pendingReview && trajectory.id === pendingReview.id) {
                         reviewMessage = trajectory.accepted ? "DECISION RECEIVED" : "PROPOSAL EXPIRED";
@@ -734,7 +824,8 @@ function connect() {
 }
 script.createEvent("UpdateEvent").bind(function(){
     updateAnchor();
-    if (voiceListening && voiceSendRequestedAt >= 0) {
+    streamLiveMicrophone();
+    if (!script.useLiveVoice && voiceListening && voiceSendRequestedAt >= 0) {
         var voiceWait = getTime() - voiceSendRequestedAt;
         if (voiceWait > 1.5 && voiceText()) {
             finishVoiceSend();
@@ -772,9 +863,9 @@ script.createEvent("UpdateEvent").bind(function(){
                 (reviewMessage || (!tagAnchored ? "SCAN BOTH TAGS FIRST" :
                  !socketReady ? "WAITING FOR CONNECTION" :
                  "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
-                (voiceListening ? (voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
+                (voiceListening ? (script.useLiveVoice ? (liveSpeaking ? "R1 SPEAKING\n" : liveReady ? "GPT-LIVE LISTENING\n" : "CONNECTING\n") : voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
                  (voiceText() || (getTime() - voiceStartedAt > 3 ? "NO WORDS YET" : "SPEAK NOW")).slice(-55) +
-                 "\nRIGHT x2 SEND   LEFT x2 CANCEL" : voiceMessage);
+                 (script.useLiveVoice ? "\nDOUBLE PINCH TO STOP" : "\nRIGHT x2 SEND   LEFT x2 CANCEL") : voiceMessage);
         }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }

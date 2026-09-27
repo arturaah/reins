@@ -28,14 +28,29 @@ FAKE_TOOL = textwrap.dedent("""
     print('DRY RUN, nothing published.', flush=True)
 """)
 
+# Tests must not depend on an operator's saved plan, which can be deleted.
+TEST_PLAN = {'schema_version': 1, 'name': 'test_right_reach', 'duration_s': 2,
+             'keyframes': [
+                 {'time_s': 0, 'joint_targets_rad': {'right_shoulder_pitch_joint': 0}},
+                 {'time_s': 2, 'joint_targets_rad': {'right_shoulder_pitch_joint': .2}},
+             ]}
+
 
 class DashboardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.sim = Simulation()
+        cls.tmp = tempfile.TemporaryDirectory()
+        plan = Path(cls.tmp.name) / 'right_reach.json'
+        plan.write_text(json.dumps(TEST_PLAN))
+        cls.sim.files['test/right_reach.json'] = plan
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
 
     def setUp(self):
-        self.sim.select('tools/plans/cup_grab_right.json')
+        self.sim.select('test/right_reach.json')
 
     def test_plan_library_only_contains_validated_files(self):
         self.assertTrue(self.sim.plans)
@@ -115,10 +130,11 @@ class DashboardTests(unittest.TestCase):
 
 class RunnerTests(unittest.TestCase):
     """arm_lift.py is replaced by FAKE_TOOL; nothing here can reach the robot."""
-    PLAN = ROOT / 'tools/plans/cup_grab_right.json'
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.PLAN = Path(self.tmp.name) / 'right_reach.json'
+        self.PLAN.write_text(json.dumps(TEST_PLAN))
         tool = Path(self.tmp.name) / 'fake_arm_lift.py'
         tool.write_text(FAKE_TOOL)
         self.args_log = Path(self.tmp.name) / 'args.log'

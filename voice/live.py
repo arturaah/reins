@@ -1,4 +1,4 @@
-"""Optional GPT-Live voice frontend with client-owned, simulation-only delegation.
+"""GPT-Live voice frontend with client-owned reasoning and optional R1 audio output.
 
 Run separately from the cascade: python -m voice.live --key-file /path/to/.env
 RobotBackend is the integration boundary; this module never imports motion tools.
@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager, suppress
 import json
 import os
 import time
+from pathlib import Path
 from typing import Protocol
 
 from websockets.asyncio.client import connect
@@ -83,10 +84,12 @@ class TestRobotBackend:
 
 
 class LiveSession:
-    def __init__(self, key, backend: RobotBackend, acoustics, *, voice=LIVE_VOICE, metallic=True):
+    def __init__(self, key, backend: RobotBackend, acoustics, *, voice=LIVE_VOICE, metallic=True,
+                 speaker=None, instructions=INSTRUCTIONS):
         self.key, self.backend, self.acoustics, self.voice = key, backend, acoustics, voice
         self.upstream = self.ws = self.focus = self.insight = None
         self.output_effect = RoboticStream(rate=16000) if metallic else None
+        self.speaker, self.instructions = speaker, instructions
         self.tasks = set()
         self.backend_task = None
         self.history = deque(maxlen=40)
@@ -111,6 +114,8 @@ class LiveSession:
             self.history.clear()  # Do not carry unclear transcript fragments into a later delegation.
             if self.backend_task: self.backend_task.cancel()
             await self.ws.send_json({'type': 'clear_audio'})
+            if self.speaker:
+                await self.speaker.clear()
             # Live may paraphrase. Exact rendered nudge wording remains a cascade feature.
             await self.send({'type': 'session.instructions.append', 'delegation_id': None,
                              'content': 'Stop the current answer. Ignore the unclear request. '
@@ -129,12 +134,15 @@ class LiveSession:
 
     async def prepare(self):
         try:
+            if self.speaker:
+                self.speaker.on_busy = self.set_speaker
+                await self.speaker.start()
             self.upstream = await connect(
                 'wss://api.openai.com/v1/live/sessions',
                 additional_headers={'Authorization': 'Bearer ' + self.key},
                 open_timeout=10, close_timeout=2, max_size=262144, max_queue=16)
             await self.send({'type': 'session.start', 'session': {
-                'model': LIVE_MODEL, 'store': False, 'instructions': INSTRUCTIONS,
+                'model': LIVE_MODEL, 'store': False, 'instructions': self.instructions,
                 'audio': {'format': {'type': 'audio/pcm', 'rate': 16000},
                           'output': {'voice': self.voice}},
                 'delegation': {'type': 'client'}}})
@@ -224,7 +232,10 @@ class LiveSession:
                 pcm = base64.b64decode(event['delta'], validate=True)
                 if not pcm or len(pcm) % 2 or len(pcm) > 64000: raise SpeechError('invalid_response')
                 if self.output_effect: pcm = self.output_effect.process(pcm)
-                await self.ws.send_bytes(pcm)
+                if self.speaker:
+                    await self.speaker.play(pcm)
+                else:
+                    await self.ws.send_bytes(pcm)
             elif kind in ('session.input_transcript.delta', 'session.output_transcript.delta'):
                 role = 'user' if kind == 'session.input_transcript.delta' else 'assistant'
                 if role == 'user' and self.blocked: continue
@@ -282,7 +293,8 @@ class LiveSession:
                                 model=FOCUS_MODEL, enhancement_level=self.acoustics.focus_level)
                 await self.ws.send_json({'type': 'listening'})
             elif kind == 'speaker' and self.listening and type(event.get('busy')) is bool:
-                await self.set_speaker(event['busy'])
+                if not self.speaker:  # The R1 output owns its own playback gate.
+                    await self.set_speaker(event['busy'])
             else:
                 raise ValueError('Unknown live action')
 
@@ -293,6 +305,8 @@ class LiveSession:
                         text='Streaming metallic tone · no full-reply buffering.' if self.output_effect else 'Natural voice.')
         receiver = self.spawn(self.receive_upstream())
         browser = self.spawn(self.receive_browser())
+        if self.speaker:
+            self.spawn(self.speaker.monitor())
         try:
             while True:
                 done, _ = await asyncio.wait(self.tasks, timeout=.1, return_when=asyncio.FIRST_COMPLETED)
@@ -304,6 +318,8 @@ class LiveSession:
             self.closing = True
             for task in self.tasks:
                 if task is not receiver: task.cancel()
+            if self.speaker:
+                await self.speaker.close()
             if self.upstream and not receiver.done():
                 with suppress(Exception):
                     await self.send({'type': 'session.close'})
@@ -318,6 +334,7 @@ class LiveSession:
         try:
             if self.insight: await self.insight.close()
         finally:
+            if self.speaker: await self.speaker.close()
             if self.focus: self.focus.close()
             if self.upstream: await self.upstream.close()
             await self.backend.close()
@@ -329,12 +346,18 @@ async def live_conversation(ws, session):
 
 
 def main():
-    from .__main__ import load_keys
+    from .config import load_keys, ROOT
     import uvicorn
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--key-file')
     parser.add_argument('--port', type=int, default=8770)
     parser.add_argument('--backend-model', default='gpt-5-mini')
+    parser.add_argument('--backend', choices=['test', 'spectacles'], default='test')
+    parser.add_argument('--voice-inbox', type=Path, default=ROOT / 'runs/spectacles_voice.json')
+    parser.add_argument('--output', choices=['browser', 'r1'], default='browser')
+    parser.add_argument('--robot-iface', help='R1 body Ethernet interface; required with --output r1')
+    parser.add_argument('--robot-python', default=str(ROOT / '.venv/bin/python'),
+                        help='Python with unitree_sdk2py installed; separate from the voice environment')
     parser.add_argument('--voice', default=LIVE_VOICE)
     parser.add_argument('--metallic', action=argparse.BooleanOptionalAction, default=True,
                         help='Apply the cascade metallic tone to streamed audio without buffering replies')
@@ -342,7 +365,12 @@ def main():
     parser.add_argument('--tyto', action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535: parser.error('Invalid port')
-    load_keys(args.key_file)
+    if args.output == 'r1' and not args.robot_iface:
+        parser.error('--output r1 requires --robot-iface')
+    try:
+        load_keys(args.key_file)
+    except ValueError as error:
+        parser.error(str(error))
     if not os.environ.get('OPENAI_API_KEY'): parser.error('Set OPENAI_API_KEY or provide --key-file')
     acoustics = Acoustics(focus=args.voice_focus, tyto=args.tyto, vad='webrtc',
                           license_key=os.environ.get('AIC_SDK_LICENSE', ''))
@@ -350,8 +378,18 @@ def main():
     @asynccontextmanager
     async def factory():
         key = os.environ['OPENAI_API_KEY']
-        session = LiveSession(key, TestRobotBackend(key, args.backend_model), acoustics,
-                              voice=args.voice, metallic=args.metallic)
+        from .inbox_backend import InboxBackend
+        from .robot_speaker import RobotSpeaker
+        backend = InboxBackend(args.voice_inbox) if args.backend == 'spectacles' else TestRobotBackend(key, args.backend_model)
+        instructions = INSTRUCTIONS
+        if args.backend == 'spectacles':
+            instructions += ('\nThe connected backend queues requests for the desktop dry-run planner. '
+                             'It returns queue status only, not results of planning or execution. '
+                             'Say a task is queued only after the backend confirms it. '
+                             'Proposals require separate operator review. Never claim the robot moved.')
+        speaker = RobotSpeaker(args.robot_python, args.robot_iface) if args.output == 'r1' else None
+        session = LiveSession(key, backend, acoustics, voice=args.voice, metallic=args.metallic,
+                              speaker=speaker, instructions=instructions)
         try:
             await session.prepare()
             yield session
@@ -360,11 +398,12 @@ def main():
 
     app = create_app(port=args.port, provider='gpt-live', session_factory=factory,
                      session_runner=live_conversation, index_asset='live.html', public_config={
-                         'live_model': LIVE_MODEL, 'backend_model': args.backend_model, 'voice': args.voice,
+                         'live_model': LIVE_MODEL, 'backend_model': args.backend_model if args.backend == 'test' else 'Spectacles dry-run inbox', 'voice': args.voice,
+                         'output': args.output,
                          'metallic': args.metallic,
                          'voice_focus': acoustics.focus, 'enhancement_level': acoustics.focus_level,
                          'tyto': acoustics.tyto, 'barge_in': False})
-    print(f'Reins GPT-Live → http://127.0.0.1:{args.port} · simulation only', flush=True)
+    print(f'Reins GPT-Live → http://127.0.0.1:{args.port} · output: {args.output} · no motion executor', flush=True)
     uvicorn.run(app, host='127.0.0.1', port=args.port, log_level='warning', ws_max_size=32768)
 
 
