@@ -174,7 +174,10 @@ are not representative latency or room-acoustics benchmarks. No R1 hardware test
 or live Cartesia test is claimed.
 
 Voice HTTP and WebSocket access are restricted to loopback hosts. The optional
-Spectacles relay uses a loopback ADB tunnel as well. Delegated dry-run tasks are
+Spectacles relay accepts USB/ADB or [paired Wi-Fi connections](../spectacles/VOICE.md#wireless-glasses-same-wi-fi-or-hotspot)
+on the separate plan-feed port. Cloud keys and the voice-service token stay on
+the Mac; local Wi-Fi uses a separate pairing token and unencrypted `ws://` for
+private-network demos. Delegated dry-run tasks are
 written to the existing desktop inbox, whose harness may log task text. WebSockets also
 require the page origin and a process token. Audio and captions stay in memory
 locally; enhanced audio and conversation text are sent to OpenAI, and ai-coustics

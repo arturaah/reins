@@ -37,10 +37,12 @@ try:
     from .review import ReviewMailbox
     from .voice_inbox import VoiceInbox
     from .live_voice import LiveVoiceRelay, local_voice_url
+    from .pairing import authenticate, load_token, validate_bind
 except ImportError:  # also runnable as `python spectacles/plan_feed.py`
     from review import ReviewMailbox
     from voice_inbox import VoiceInbox
     from live_voice import LiveVoiceRelay, local_voice_url
+    from pairing import authenticate, load_token, validate_bind
 
 ROOT = Path(__file__).resolve().parents[1]
 MJCF = ROOT / "sim/models/r1/R1_fixed_base.xml"
@@ -328,10 +330,13 @@ async def listen_relay(state, url):
 
 
 async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None, voice=None,
-                     live_voice_url=None):
+                     live_voice_url=None, pairing_token=None):
     from websockets.asyncio.server import serve
+    validate_bind(host, live_voice_url, pairing_token)
 
     async def handler(websocket):
+        if pairing_token and not await authenticate(websocket, pairing_token):
+            return
         print(f"Lens connected: {websocket.remote_address}", file=sys.stderr, flush=True)
         last_review_id = None
         live = LiveVoiceRelay(websocket, live_voice_url) if live_voice_url else None
@@ -411,7 +416,7 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
             await asyncio.gather(sender, receiver, return_exceptions=True)
             if live: await live.stop()
 
-    async with serve(handler, host, port, max_size=16384, max_queue=8):
+    async with serve(handler, host, port, max_size=16384, max_queue=8, close_timeout=2):
         print(f"Plan feed for {feed.path}: ws://{host}:{port}", file=sys.stderr, flush=True)
         await asyncio.Future()
 
@@ -435,12 +440,17 @@ def main():
                     help="mailbox for Spectacles speech; the desktop UI consumes it as a dry-run Claude task")
     ap.add_argument('--live-voice-url', type=local_voice_url,
                     help='GPT-Live service with R1 output, e.g. http://127.0.0.1:8770')
+    ap.add_argument('--pairing-file', type=Path,
+                    help='Lens pairing token file (required for live voice over Wi-Fi)')
     ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
     if not 2 <= a.points <= MAX_POINTS:
         ap.error(f"--points must be 2..{MAX_POINTS}")
-    if a.live_voice_url and a.host not in ('127.0.0.1', 'localhost'):
-        ap.error('Live voice requires --host 127.0.0.1 and an ADB reverse tunnel')
+    try:
+        pairing_token = load_token(a.pairing_file) if a.pairing_file else None
+        validate_bind(a.host, a.live_voice_url, pairing_token)
+    except ValueError as exc:
+        ap.error(str(exc))
     if a.base_pose_file and not (a.state_url or a.robot_iface):
         ap.error("--base-pose-file also needs measured joints via --robot-iface or --state-url")
     feed = Feed(mujoco.MjModel.from_xml_path(str(MJCF)), a.plan.resolve(), a.points)
@@ -459,7 +469,8 @@ def main():
         await serve_feed(feed, a.host, a.port, a.period, state,
                          BasePoseFile(a.base_pose_file) if a.base_pose_file else None,
                          ReviewMailbox(a.review_file.resolve()) if a.review_file else None,
-                         VoiceInbox(a.voice_inbox.resolve()), live_voice_url=a.live_voice_url)
+                         VoiceInbox(a.voice_inbox.resolve()), live_voice_url=a.live_voice_url,
+                         pairing_token=pairing_token)
     asyncio.run(run())
 
 

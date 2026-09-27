@@ -245,6 +245,7 @@
       rightMarker: !<reference.MarkerTrackingComponent> fc87db82-173b-4990-b323-d659a40980af
       websocketUrl: "ws://172.20.10.7:8765"
       fallbackWebsocketUrl: "ws://127.0.0.1:8765"
+      pairingToken: ""
       tagForwardM: 0.030000
       tagSideM: 0.130000
       tagHeightM: 1.019000
