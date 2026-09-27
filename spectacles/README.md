@@ -112,7 +112,7 @@ The desktop AI pane already asks Accept/Reject at each `PROPOSAL` before the har
 
 The default voice route now uses **GPT-Live-1** with the glasses' raw microphone
 and the **R1 speaker**. Follow [VOICE.md](VOICE.md) for the two local services,
-project `.env` keys, USB tunnel and updated Lens. Double right pinch starts a
+project `.env` keys, paired Wi-Fi or USB connection, and updated Lens. Double right pinch starts a
 continuous conversation; double right or double left stops it. A pending proposal
 stops voice and takes priority for the existing accept/reject gestures. Speech
 works without tag calibration; reviewing a trajectory still requires calibration.

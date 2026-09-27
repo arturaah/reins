@@ -66,7 +66,8 @@ def test_relay_rejects_browser_only_output_instead_of_losing_reply_audio(monkeyp
     asyncio.run(run())
 
 
-def test_plan_feed_multiplexes_audio_with_trajectories_and_does_not_enqueue_legacy_text(monkeypatch, tmp_path):
+@pytest.mark.parametrize('pairing_token', [None, 'wireless-test-token-1234567890abcd'])
+def test_plan_feed_multiplexes_audio_with_trajectories_and_does_not_enqueue_legacy_text(monkeypatch, tmp_path, pairing_token):
     async def run():
         audio = asyncio.Event(); disconnected = asyncio.Event()
         async def provider(ws):
@@ -88,12 +89,18 @@ def test_plan_feed_multiplexes_audio_with_trajectories_and_does_not_enqueue_lega
             sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
         async with serve(provider,'127.0.0.1',0) as upstream:
             url=f'http://127.0.0.1:{upstream.sockets[0].getsockname()[1]}'
-            task=asyncio.create_task(serve_feed(feed,'127.0.0.1',port,.01,voice=Inbox(),live_voice_url=url))
+            host = '0.0.0.0' if pairing_token else '127.0.0.1'
+            task=asyncio.create_task(serve_feed(feed,host,port,.01,voice=Inbox(),live_voice_url=url,
+                                              pairing_token=pairing_token))
             try:
                 for _ in range(100):
                     try: lens=await connect(f'ws://127.0.0.1:{port}'); break
                     except OSError: await asyncio.sleep(.01)
                 async with lens:
+                    if pairing_token:
+                        assert json.loads(await lens.recv())['type'] == 'pairing_required'
+                        await lens.send(json.dumps({'type':'pair','version':1,'token':pairing_token}))
+                        assert json.loads(await lens.recv()) == {'type':'pairing_result','version':1,'accepted':True}
                     await lens.send(json.dumps({'type':'voice_start','version':1,'sample_rate':16000,'id':'call-1'}))
                     while True:
                         event=json.loads(await asyncio.wait_for(lens.recv(),2))

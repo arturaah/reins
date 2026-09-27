@@ -49,3 +49,47 @@ test('legacy ASR retains main\'s transient-error retries and permission diagnost
   f.c.startVoice();assert.equal(starts,2);options.onTranscriptionErrorEvent.callback(401);
   assert.equal(f.c.microphoneBlocked,true);assert.equal(f.c.voiceMessage,'SPEECH PERMISSION DENIED');
 });
+
+function connectionFixture(token) {
+  const f=fixture();let closed=0;
+  const socket={send:value=>f.sent.push(value),close(){closed++}};
+  f.c.script.pairingToken=token;
+  f.c.script.websocketUrl='ws://192.168.1.5:8765';
+  f.c.script.internetModule={createWebSocket:()=>socket};
+  vm.runInContext(source.slice(source.indexOf('function connect() {'),source.indexOf('script.createEvent("UpdateEvent")')),f.c);
+  f.c.connect();socket.onopen();
+  return {...f,socket,closed:()=>closed,message:m=>socket.onmessage({data:JSON.stringify(m)})};
+}
+test('wireless microphone waits for pairing and each reconnect authenticates again',()=>{
+  const f=connectionFixture('test-token');
+  assert.equal(f.c.socketReady,false);
+  f.c.startVoice();assert.equal(f.c.voiceListening,false);assert.equal(f.started(),0);
+  f.message({type:'voice_event',id:f.c.voiceCommandId,event:{type:'listening'}});
+  assert.equal(f.started(),0);
+  f.message({type:'pairing_required',version:1});
+  assert.deepEqual(JSON.parse(f.sent[0]),{type:'pair',version:1,token:'test-token'});
+  f.message({type:'pairing_result',version:1,accepted:true});
+  assert.equal(f.c.socketReady,true);
+  f.c.startVoice();f.message({type:'voice_event',id:f.c.voiceCommandId,event:{type:'listening'}});
+  assert.equal(f.started(),1);
+  f.socket.onclose({code:1000});assert.equal(f.stopped(),1);assert.equal(f.c.socketReady,false);
+  f.c.connect();f.socket.onopen();assert.equal(f.c.socketReady,false);
+  f.message({type:'pairing_required',version:1});
+  assert.equal(JSON.parse(f.sent.at(-1)).type,'pair');
+});
+test('missing or incorrect pairing token never starts capture and shows the fix',()=>{
+  for (const token of ['', 'incorrect']) {
+    const f=connectionFixture(token);
+    f.message({type:'pairing_required',version:1});
+    f.message({type:'pairing_result',version:1,accepted:false});
+    f.c.startVoice();
+    assert.equal(f.c.socketReady,false);assert.equal(f.started(),0);assert.equal(f.closed(),1);
+    assert.equal(f.sent.filter(v=>JSON.parse(v).type==='voice_start').length,0);
+  }
+});
+test('USB works without a token and an old unpaired feed times out when a token is configured',()=>{
+  const usb=connectionFixture('');usb.c.startVoice();
+  assert.equal(usb.c.socketReady,true);assert.equal(JSON.parse(usb.sent[0]).type,'voice_start');
+  const wifi=connectionFixture('test-token');wifi.time(6);wifi.c.checkPairingTimeout();
+  assert.equal(wifi.closed(),1);assert.match(wifi.c.voiceMessage,/PAIRING TIMED OUT/);
+});

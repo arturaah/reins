@@ -12,6 +12,7 @@
 // @input Component.MarkerTrackingComponent rightMarker
 // @input string websocketUrl = "ws://127.0.0.1:8765"
 // @input string fallbackWebsocketUrl = ""
+// @input string pairingToken = ""
 // @input float tagForwardM = 0.03
 // @input float tagSideM = 0.13
 // @input float tagHeightM = 1.019
@@ -59,6 +60,7 @@ var reviewObject = null;
 var reviewText = null;
 var reviewFrame = null;
 var socketReady = false;
+var pairingDeadline = -1;
 var asrModule = null;
 var voiceListening = false;
 var voiceFinal = [];
@@ -75,6 +77,37 @@ var voiceGestureLockUntil = 0;
 var microphoneBlocked = false;
 var voiceSessionId = 0;
 var voiceUpdateCount = 0;
+
+function handlePairingMessage(message) {
+    if (message.type === "pairing_required") {
+        socketReady = false;
+        pairingDeadline = getTime() + 5;
+        socket.send(JSON.stringify({type:"pair", version:1, token:(script.pairingToken || "").trim()}));
+        return true;
+    }
+    if (message.type === "pairing_result") {
+        pairingDeadline = -1;
+        socketReady = message.version === 1 && message.accepted === true;
+        if (socketReady) {
+            lastNetworkError = "";
+            voiceNotice("PAIRED WITH MAC - DOUBLE RIGHT PINCH TO TALK");
+        } else {
+            lastNetworkError = "pairing";
+            voiceNotice((script.pairingToken || "").trim() ?
+                "PAIRING FAILED - CHECK TOKEN" : "SET PAIRING TOKEN IN LENS STUDIO");
+            socket.close();
+        }
+        return true;
+    }
+    return false;
+}
+function checkPairingTimeout() {
+    if (pairingDeadline >= 0 && !socketReady && getTime() > pairingDeadline) {
+        pairingDeadline = -1;
+        voiceNotice("PAIRING TIMED OUT - CHECK MAC FEED");
+        if (socket) { socket.close(); }
+    }
+}
 
 function speechInternetAvailable() {
     try {
@@ -757,10 +790,16 @@ function connect() {
     var url = urls[socketUrlIndex % urls.length];
     try {
         socket=script.internetModule.createWebSocket(url);
-        socket.onopen=function(){socketReady=true;lastNetworkError="";print("R1 AR: WebSocket connected to "+url);};
+        socket.onopen=function(){
+            socketReady = !(script.pairingToken || "").trim();
+            pairingDeadline = socketReady ? -1 : getTime() + 5;
+            lastNetworkError="";
+            print("R1 AR: WebSocket connected to "+url);
+        };
         socket.onmessage=function(event){
             try {
                 var trajectory = JSON.parse(event.data);
+                if (handlePairingMessage(trajectory) || !socketReady) { return; }
                 if (trajectory.type === "voice_event") {
                     if (trajectory.id === voiceCommandId) { liveVoiceEvent(trajectory.event); }
                     return;
@@ -804,7 +843,7 @@ function connect() {
             }
         };
         socket.onclose=function(event){
-            socketReady=false;socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
+            socketReady=false;pairingDeadline=-1;socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
             if (voiceListening) { stopVoice(false); }
             if (event && event.code && event.code!==1000 && !lastNetworkError) {
                 print("R1 AR: WebSocket closed with code "+event.code);
@@ -824,6 +863,7 @@ function connect() {
 }
 script.createEvent("UpdateEvent").bind(function(){
     updateAnchor();
+    checkPairingTimeout();
     streamLiveMicrophone();
     if (!script.useLiveVoice && voiceListening && voiceSendRequestedAt >= 0) {
         var voiceWait = getTime() - voiceSendRequestedAt;

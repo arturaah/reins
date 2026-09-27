@@ -18,6 +18,7 @@ runs/replays/
 # Local voice credentials and caches
 .env
 .env.*
+.spectacles-pairing-token
 .pytest_cache/
 
 .voice-cache/

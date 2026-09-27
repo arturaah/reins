@@ -1,7 +1,7 @@
 """Relay glasses PCM through the existing authenticated loopback voice service.
 
 The glasses never receive cloud keys or the local service token. The plan feed
-must bind to loopback and use ADB reverse while this audio relay is enabled.
+accepts USB/ADB on loopback or separately paired clients over a private LAN.
 """
 import asyncio
 from contextlib import suppress
