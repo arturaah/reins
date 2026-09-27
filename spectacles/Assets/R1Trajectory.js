@@ -244,7 +244,7 @@ function isPath(points) {
            points.every(isPoint);
 }
 function isTrajectoryPath(points) {
-    return (Array.isArray(points) && points.length === 0) || isPath(points);
+    return Array.isArray(points) && points.length <= 512 && points.every(isPoint);
 }
 function cross(a, b) {
     return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
@@ -296,6 +296,24 @@ function drawTube(points, visual, pointToCm, radiusOverride) {
     mesh.updateMesh();
 }
 
+function drawPoint(point, visual) {
+    var c=robotToMarker(point);
+    var r=Math.max(0.5,Math.min(4,script.pathRadiusCm*2.2));
+    var vertices=[c[0]+r,c[1],c[2], c[0]-r,c[1],c[2],
+                  c[0],c[1]+r,c[2], c[0],c[1]-r,c[2],
+                  c[0],c[1],c[2]+r, c[0],c[1],c[2]-r];
+    var indices=[2,4,0, 2,1,4, 2,5,1, 2,0,5,
+                 3,0,4, 3,4,1, 3,1,5, 3,5,0];
+    var mesh=new MeshBuilder([{name:"position",components:3}]);
+    mesh.topology=MeshTopology.Triangles;
+    mesh.indexType=MeshIndexType.UInt16;
+    mesh.appendVerticesInterleaved(vertices);
+    mesh.appendIndices(indices);
+    if (!mesh.isValid()) { print("R1 AR: invalid hand point mesh"); return; }
+    visual.mesh=mesh.getMesh();
+    mesh.updateMesh();
+}
+
 function applyTrajectory(message) {
     if (!message || message.type !== "trajectory" || message.version !== 1 ||
         message.frame !== "robot_base" || message.units !== "m" ||
@@ -305,10 +323,15 @@ function applyTrajectory(message) {
     }
     latestTrajectory = message;
     function drawHand(points, visual) {
-        // The feed sends [] when this hand has reached the end of its plan.
-        // Disabling also removes any mesh left from the previous update.
         visual.enabled = points.length > 0;
         if (!points.length) { return; }
+        if (points.length === 1 || points.every(function(p) {
+            var a=points[0];
+            return Math.abs(p[0]-a[0])+Math.abs(p[1]-a[1])+Math.abs(p[2]-a[2]) < 0.001;
+        })) {
+            drawPoint(points[0], visual);
+            return;
+        }
         drawTube(points, visual);
     }
     drawHand(message.hands.left, leftVisual);
@@ -349,7 +372,8 @@ function connect() {
                     hasReceivedTrajectory = true;
                 }
                 if (!liveLogged && trajectory && trajectory.hands &&
-                    isPath(trajectory.hands.left) && isPath(trajectory.hands.right)) {
+                    isTrajectoryPath(trajectory.hands.left) &&
+                    isTrajectoryPath(trajectory.hands.right)) {
                     print("R1 AR: live trajectory received ("+
                           trajectory.hands.left.length+" points per hand)");
                     liveLogged=true;

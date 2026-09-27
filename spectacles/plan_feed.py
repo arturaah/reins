@@ -115,31 +115,53 @@ class Feed:
             return self.live_text or self.text
         if not np.all(np.isfinite(measured)):
             return self.live_text or self.text
-        start = self.progress or 0
-        # Search only at or after the last measured position. Progress never
-        # moves backwards, and a viewer can join during an ongoing execution.
-        errors = np.sqrt(np.mean((self.joints[start:] - measured) ** 2, axis=1))
-        candidate = start + int(np.argmin(errors))
-        if errors[candidate - start] > 0.25:
-            return self.live_text or self.text
-        if self.progress is None:
-            if not state.commanding:
-                return self.text
-            self.progress = candidate
-        else:
-            self.progress = max(self.progress, candidate)
         self.live_data.qpos[:] = 0.0
         for name, value in q.items():
             if name in self.joint_addr and isinstance(value, (int, float)) and np.isfinite(value):
                 self.live_data.qpos[self.joint_addr[name]] = value
         mujoco.mj_kinematics(self.model, self.live_data)
+        current_hands = {side: [round(float(v), 4) for v in self.live_data.site_xpos[self.site[side]]]
+                         for side in ("left", "right")}
+        if self.progress is None and not state.commanding:
+            # Show the proposed path before execution, but draw an idle hand
+            # as its measured position rather than a zero-length polyline.
+            hands = {}
+            for side in ("left", "right"):
+                path = self.message["hands"][side]
+                moving = max(np.linalg.norm(np.asarray(p) - path[0]) for p in path) >= 0.01
+                hands[side] = path if moving else [current_hands[side]]
+            self.live_text = json.dumps({**self.message, "hands": hands,
+                                         "progress_source": "measured_joints"})
+            return self.live_text
+        start = self.progress or 0
+        # Search only at or after the last measured position. Progress never
+        # moves backwards, and a viewer can join during an ongoing execution.
+        errors = np.sqrt(np.mean((self.joints[start:] - measured) ** 2, axis=1))
+        best_error = float(np.min(errors))
+        if best_error > 0.25:
+            # A command unrelated to this plan must not leave an old path
+            # apparently attached to a moving robot.
+            self.live_text = json.dumps({**self.message,
+                                         "hands": {s: [p] for s, p in current_hands.items()},
+                                         "progress_source": "measured_joints"})
+            return self.live_text
+        # A dry-run can revisit the same joint pose on its return leg (or
+        # hold it across many samples). Measurement noise can make a much
+        # later sample marginally closer and otherwise erase the whole path.
+        # Keep the earliest sample whose fit is effectively as good.
+        candidate = start + int(np.flatnonzero(errors <= best_error + 0.01)[0])
+        if self.progress is None:
+            self.progress = candidate
+        else:
+            self.progress = max(self.progress, candidate)
         hands = {}
         for side in ("left", "right"):
             tail = self.message["hands"][side][self.progress + 1:]
-            current = [round(float(v), 4) for v in self.live_data.site_xpos[self.site[side]]]
-            # An empty path tells the Lens to hide a completed or stationary hand.
+            current = current_hands[side]
+            # A single measured point keeps a completed or stationary hand
+            # visible; only moving hands retain a path.
             hands[side] = ([current] + tail if tail and
-                           max(np.linalg.norm(np.asarray(p) - current) for p in tail) >= 0.01 else [])
+                           max(np.linalg.norm(np.asarray(p) - current) for p in tail) >= 0.01 else [current])
         self.live_text = json.dumps({**self.message, "hands": hands,
                                      "progress_source": "measured_joints"})
         return self.live_text

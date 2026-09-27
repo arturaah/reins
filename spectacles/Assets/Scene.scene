@@ -241,7 +241,7 @@
       cameraObject: !<reference.SceneObject> 00000000-0000-0065-0000-000000000064
       leftMarker: !<reference.MarkerTrackingComponent> 05966156-1950-40d5-a44e-0e7acb1fb60f
       rightMarker: !<reference.MarkerTrackingComponent> fc87db82-173b-4990-b323-d659a40980af
-      websocketUrl: "ws://192.168.1.145:8765"
+      websocketUrl: "ws://172.20.10.7:8765"
       fallbackWebsocketUrl: "ws://127.0.0.1:8765"
       tagForwardM: 0.030000
       tagSideM: 0.130000
