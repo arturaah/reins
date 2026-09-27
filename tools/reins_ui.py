@@ -652,8 +652,7 @@ def drain():
         command = VOICE_INBOX.take()
         if command and isinstance(command.get("text"), str):
             ai_mode.set("dry run")
-            ai_task.set(command["text"] + " (Voice request: use only the arm motions this harness supports; "
-                        "if walking or turning the robot base is required, explain that limitation and do not substitute an arm action.)")
+            ai_task.set(command["text"])
             ai_log("\n🎙 Spectacles request: " + command["text"] + "\n")
             ai_run()
     root.after(100, drain)

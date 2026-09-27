@@ -66,6 +66,8 @@ var voiceMessageUntil = 0;
 var voicePinchAt = -1000;
 var voiceCommandId = "";
 var voiceSequence = 0;
+var voiceGestureLockUntil = 0;
+var microphoneBlocked = false;
 
 function voiceText() {
     return (voiceFinal.join(" ") + " " + voicePartial).trim();
@@ -91,7 +93,9 @@ function stopVoice(send) {
     } catch (e) { voiceNotice("VOICE SEND FAILED"); }
 }
 function startVoice() {
+    if (!tagAnchored) { voiceNotice("SCAN BOTH SHOULDER TAGS FIRST"); return; }
     if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
+    if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
     if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
     voiceFinal = []; voicePartial = "";
     try {
@@ -107,12 +111,18 @@ function startVoice() {
         });
         options.onTranscriptionErrorEvent.add(function(code) {
             voiceListening = false;
-            voiceNotice("SPEECH ERROR " + code);
+            microphoneBlocked = true;
+            voiceNotice("MICROPHONE UNAVAILABLE " + code);
         });
         voiceListening = true;
         asrModule.startTranscribing(options);
         voiceNotice("LISTENING");
-    } catch (e) { voiceListening = false; voiceNotice("SPEECH START FAILED: " + e); }
+    } catch (e) {
+        voiceListening = false;
+        microphoneBlocked = true;
+        voiceNotice("MICROPHONE PERMISSION DENIED");
+        print("R1 AR voice start failed: " + e);
+    }
 }
 function voicePinch(side) {
     if (pendingReview) {
@@ -120,13 +130,19 @@ function voicePinch(side) {
         reviewPinch(side === "right" ? "approve" : "decline");
         return;
     }
+    if (!tagAnchored) {
+        if (side === "right") { voiceNotice("SCAN BOTH SHOULDER TAGS FIRST"); }
+        return;
+    }
     if (side === "left") {
         if (voiceListening) { stopVoice(false); }
         return;
     }
     var now = getTime();
+    if (now < voiceGestureLockUntil) { return; }
     if (now - voicePinchAt > 0.25 && now - voicePinchAt < 4) {
         voicePinchAt = -1000;
+        voiceGestureLockUntil = now + 1.5;
         if (voiceListening) { stopVoice(true); } else { startVoice(); }
     } else {
         voicePinchAt = now;
