@@ -29,6 +29,10 @@ function controls() {
 }
 function send(event) {if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(event));}
 function updateGate() {
+  if(config?.output==='r1') {
+    if(listening)$('status').textContent=speaking?'R1 is speaking · microphone suppressed':'Listening · R1 speaker connected';
+    return;
+  }
   const busy=!!output && output.currentTime<speechUntil;
   if(busy!==speaking) {
     speaking=busy;
@@ -124,7 +128,12 @@ $('start').onclick=async()=>{
           log({stage:'Voice',status:'streaming',model:config.live_model});updateGate();controls();
         }
         if(event.type==='transcript_delta')transcript(event.role,event.text);
-        if(event.type==='log')log(event);
+        if(event.type==='log') {
+          log(event);
+          if(config.output==='r1' && event.stage==='playback') {
+            speaking=event.status==='started';updateGate();
+          }
+        }
         if(event.type==='clear_audio')clearAudio();
         if(event.type==='error')await fail(event.text);
       }catch(error){await fail(error);}
@@ -140,6 +149,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')stop();});
 fetch('/config').then(r=>{if(!r.ok)throw new Error('Voice configuration unavailable');return r.json();}).then(c=>{
   config=c;$('voice').textContent=`${c.live_model} · ${c.voice}${c.metallic?' · metallic':''}`;$('backend').textContent=c.backend_model;
+  $('outputMode').textContent=c.output==='r1'?'R1 SPEAKER':'COMPUTER AUDIO';
   $('focus').textContent=c.voice_focus?`On · ${Math.round(c.enhancement_level*100)}%`:'Off';
   $('tyto').textContent=c.tyto?'On · nudges after 5s':'Off';controls();
 }).catch(fail);

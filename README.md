@@ -38,6 +38,8 @@ The optional [voice lab](voice/README.md) uses GPT-Live-1 for listening and
 streaming speech, with client delegation to an independent robot-LLM backend.
 Voice Focus 2.2 enhances input and Tyto 1.1 requests clearer audio when needed.
 The included GPT-5-mini adapter is a conversation-only test backend with no
-motion tools. Start it with `python -m voice.live --key-file .env.voice`.
+motion tools. Start it with `python -m voice.live`; the project `.env` supplies
+`OPENAI_KEY` and `AIC_KEY`. [Spectacles and R1 speaker setup](spectacles/VOICE.md)
+connects the glasses microphone to GPT-Live and streams replies to the robot.
 Run the dashboard with `--sim --voice-url http://127.0.0.1:8770/` beside the
 MuJoCo preview. The UI uses a neutral theme with the colourful Reins logo.

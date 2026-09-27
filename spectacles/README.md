@@ -110,9 +110,17 @@ The path starts at the reported hand, not the tag. The tag-to-robot offsets are 
 
 The desktop AI pane already asks Accept/Reject at each `PROPOSAL` before the harness can send an arm move. The Lens now shows that same pending proposal with its hand path. Spectacles' built-in Gesture Module supports pinches; it does not provide a built-in thumbs-up/down classifier. **Pinch the right hand twice within four seconds to Accept, or the left hand twice to Reject.** The first pinch only selects the choice; the second sends it. The card appears only while a proposal is pending. Scan both shoulder tags first so the path is calibrated; the gestures are ignored otherwise. A lost network connection also disables glasses decisions. The desktop buttons and `x` e-stop remain available.
 
-When there is no proposal to review, **double-pinch the right hand to start listening**, speak a request, then **double-pinch the right hand again to send** its transcript to Claude on Artur's Mac. Double-pinch the left hand to cancel dictation. The Lens uses Spectacles' AsrModule and shows the live transcript in a head-following card; microphone permission and internet access are needed on Spectacles. The phone and USB cable are not the audio transport. The feed acknowledges when it has queued the text; Artur's Reins desktop UI consumes the mailbox and starts a **dry-run** Claude session, so speech by itself cannot move the robot. A new proposal then appears in the glasses for review. If the UI is already busy, one spoken request waits in the mailbox; a second is rejected until the first is consumed. This path uses Claude CLI on Artur's Mac and does not need the separate GPT-Live PR's OpenAI or Tyto keys. The merged `voice/` service remains an optional computer-microphone prototype.
+The default voice route now uses **GPT-Live-1** with the glasses' raw microphone
+and the **R1 speaker**. Follow [VOICE.md](VOICE.md) for the two local services,
+project `.env` keys, USB tunnel and updated Lens. Double right pinch starts a
+continuous conversation; double right or double left stops it. A pending proposal
+stops voice and takes priority for the existing accept/reject gestures. Speech
+works without tag calibration; reviewing a trajectory still requires calibration.
 
-Speech works without scanning the shoulder tags; tag calibration is required to align trajectories and accept or reject their review cards. A new review interrupts dictation and takes gesture priority. The hand points and trajectory review remain active even if microphone permission is denied. The microphone starts only after the right double-pinch and stops on send/cancel; a denied permission disables further retries until the Lens is relaunched. Lens Studio's Project Settings → Spectacles declares microphone and speech permissions for this project. Spectacles may still require the wearer to allow the Lens's launch prompt because it combines microphone and WebSocket access. The Spectacles phone app also offers user-controlled Extended Permissions for trusted development Lenses.
+Setting `useLiveVoice` false in the Lens retains the older Snap ASR dictation
+route. In that mode double right pinch sends the transcript directly to the
+Claude dry-run inbox, without GPT-Live or spoken replies. The feed command below
+is for that legacy text route; use the relay command in VOICE.md for live audio.
 
 The Claude harness now includes guarded walking when the task text contains “walk.” Spoken requests are passed verbatim, so “walk one metre forward” reaches that route in dry-run mode. Walking has no arm-path proposal to review in the glasses yet; the trajectory review card continues to apply to arm proposals.
 

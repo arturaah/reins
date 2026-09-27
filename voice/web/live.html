@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reins · Live voice trial</title><link rel="stylesheet" href="/style.css"></head>
 <body><main>
-<div class="eyebrow">VOICE LAB <span>SIMULATION</span></div>
+<div class="eyebrow">VOICE LAB <span id="outputMode">COMPUTER AUDIO</span></div>
 <h1>Live voice · GPT-Live-1</h1>
 <p>GPT-Live-1 handles the conversation. Robot questions go to a separate text backend.</p>
 <div class="processing" aria-label="Live voice configuration">
 <div><span>Voice</span><strong id="voice">Loading…</strong></div>
-<div><span>Test backend</span><strong id="backend">Loading…</strong></div>
+<div><span>Backend</span><strong id="backend">Loading…</strong></div>
 <div><span>Voice Focus 2.2</span><strong id="focus">Loading…</strong></div>
 <div><span>Tyto 1.1</span><strong id="tyto">Loading…</strong></div>
 </div>
@@ -16,7 +16,7 @@
 <p>Speak naturally. Audio plays as it arrives. Barge-in is off: microphone audio is suppressed during speech playback.</p>
 <p class="small">Try “Hello, Reins”, then “Ask the robot backend how to move forward.” The backend can discuss the request; it cannot execute movement.</p>
 <p id="mic" class="small">Microphone off</p>
-<p class="small">Enhanced microphone audio streams to OpenAI. The test backend receives conversation text. Tyto runs locally and may ask for clearer audio. No separate STT or TTS call. No audio or transcripts are saved by this app. Stop ends the session.</p>
+<p class="small">Enhanced microphone audio streams to OpenAI. The backend receives conversation text. Tyto runs locally and may ask for clearer audio. No separate STT or TTS call. Audio is not recorded. Delegated desktop tasks may be logged by the harness. Stop ends voice; it does not cancel an already queued desktop task.</p>
 <p id="error" role="alert"></p>
 </section>
 <div id="transcript" aria-live="polite"></div>

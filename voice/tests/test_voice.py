@@ -178,13 +178,15 @@ def test_effect_preserves_duration_and_reduces_peak():
         with pytest.raises(ValueError): robotic_pcm(invalid)
 
 
-def test_conversation_has_no_motion_or_sdk_dependencies():
+def test_only_isolated_audio_worker_has_sdk_dependencies_and_no_motion_imports():
     root = Path(__file__).parents[1]
     for path in root.glob('*.py'):
         tree = ast.parse(path.read_text())
         imports = [n.module or '' for n in ast.walk(tree) if isinstance(n,ast.ImportFrom)]
         imports += [a.name for n in ast.walk(tree) if isinstance(n,ast.Import) for a in n.names]
-        assert not any(name.startswith(('unitree','cyclonedds','harness','core','tools','subprocess')) for name in imports)
+        allowed = {'unitree_sdk2py.core.channel', 'unitree_sdk2py.rpc.client'} if path.name == 'r1_worker.py' else set()
+        assert not any(name.startswith(('unitree','cyclonedds','harness','core','tools','subprocess'))
+                       and name not in allowed for name in imports), path.name
 
 
 def test_transcription_without_playback_rearms_connection():
