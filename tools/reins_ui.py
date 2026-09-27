@@ -101,7 +101,8 @@ _, wr_lbl = tile(row, "wrist_r", "Right wrist"); _.pack(side="left")
 PREVIEW = "runs/ui_preview.json"                      # each proposal, as a plan file the twin previews (hold=1)
 ai = {"p": None, "pending": False, "streamer": None}
 aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
-ttk.Label(aif, text="AI control  (VLM: claude -p on this Mac's Claude login, claude-fable-5-1)").pack(anchor="w")
+ttk.Label(aif, text="AI control  (VLM: claude -p on this Mac's Claude login, claude-fable-5-1; every Accept / Reject and its feedback is kept for later sessions)",
+          wraplength=SIZES["head"][0]).pack(anchor="w")
 ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
 arow = ttk.Frame(aif); arow.pack(fill="x")
 ai_mode = tk.StringVar(value="dry run"); ttk.Combobox(arow, textvariable=ai_mode, values=("dry run", "live"), state="readonly", width=7).pack(side="left")
@@ -130,6 +131,9 @@ def cockpit(path):
         except Exception as e: events.put(("log", f"twin server: {e}\n"))
     threading.Thread(target=go, daemon=True).start()
 ttk.Button(srow, text="Stop preview", width=12, command=lambda: cockpit("/preview/stop")).pack(side="right")
+STATS_PNG = os.path.join(ROOT, "runs/inference_stats.png")       # redrawn by the harness after every VLM call
+plot_lbl = tk.Label(twin, bg="#0f1419", fg="#666", text="inference time vs context: the plot appears after the first AI call")
+plot_lbl.pack(fill="x", padx=6, pady=(0, 6))
 
 # ---- control pane: trajectories ---------------------------------------------------------------
 ctrl = ttk.Frame(panes, width=380); panes.add(ctrl, weight=0)
@@ -396,10 +400,10 @@ def ai_answer(accept):
     if not ai["pending"] or not ai_running(): return
     ai["pending"] = False; accept_btn.state(["disabled"]); reject_btn.state(["disabled"])
     cockpit("/preview/stop")                                     # the yellow SENDING ghost then shows the real motion
+    note = ai_note.get().strip(); ai_note.set("")                # the feedback field goes to the model with either answer
     if accept:
-        ai_prop.configure(text="accepted: sending, then thinking…"); ai_write("")
+        ai_prop.configure(text="accepted" + (f" ({note})" if note else "") + ": sending, then thinking…"); ai_write(("y " + note) if note else "")
     else:
-        note = ai_note.get().strip(); ai_note.set("")
         ai_prop.configure(text="rejected" + (f" ({note})" if note else "") + ": the model plans again…"); ai_write("n " + note)
 
 def ai_stop():
@@ -416,7 +420,7 @@ ttk.Button(abtns, text="Stop", style="Danger.TButton", width=4, command=ai_stop)
 ai_task_entry.bind("<Return>", lambda _e: ai_run())
 accept_btn = ttk.Button(prow, text="Accept", style="Go.TButton", width=7, command=lambda: ai_answer(True)); accept_btn.pack(side="left"); accept_btn.state(["disabled"])
 reject_btn = ttk.Button(prow, text="Reject", style="Danger.TButton", width=7, command=lambda: ai_answer(False)); reject_btn.pack(side="left", padx=4); reject_btn.state(["disabled"])
-ttk.Label(prow, text="why:").pack(side="left"); ttk.Entry(prow, textvariable=ai_note).pack(side="left", fill="x", expand=True, padx=(2, 0))
+ttk.Label(prow, text="feedback:").pack(side="left"); ttk.Entry(prow, textvariable=ai_note).pack(side="left", fill="x", expand=True, padx=(2, 0))
 
 ttk.Button(btns, text="Dry run + preview", command=lambda: run(False)).pack(side="left")
 ttk.Button(btns, text="Execute…", command=lambda: run(True)).pack(side="left", padx=6)
@@ -443,12 +447,20 @@ def refresh():
     root.after(66, refresh)
 
 def status_thread():
+    seen = None
     while True:
         try:
             txt = urllib.request.urlopen("http://localhost:8082/status", timeout=2).read().decode()
         except Exception:
             txt = "twin server (tools/cockpit.py) not reachable"
-        events.put(("status", txt)); time.sleep(1.0)
+        events.put(("status", txt))
+        try:                                                        # the inference plot, whenever the harness redraws it
+            m = os.path.getmtime(STATS_PNG)
+            if m != seen:
+                seen = m; events.put(("plot", open(STATS_PNG, "rb").read()))
+        except OSError:
+            pass
+        time.sleep(1.0)
 threading.Thread(target=status_thread, daemon=True).start()
 def drain():
     try:
@@ -469,6 +481,12 @@ def drain():
                 accept_btn.state(["!disabled"]); reject_btn.state(["!disabled"])
                 cockpit(f"/preview?file={PREVIEW}&hold=1")
             elif kind == "ai_done": ai_finished(val)
+            elif kind == "plot":
+                try:
+                    photos["plot"] = ImageTk.PhotoImage(fit_to(Image.open(io.BytesIO(val)), (SIZES["twin"][0], 220)))
+                    plot_lbl.configure(image=photos["plot"], text="")
+                except Exception as ex:
+                    plot_lbl.configure(text=f"plot: {ex}"[:80])
     except queue.Empty:
         pass
     if proc["t0"]:
