@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the wrist camera only shows the carpet and the robot's own white leg, while the seated man sits centred and far up in the context view with the right arm not yet in frame, so the hand must sweep forward and up toward his chest; the last MV_UP gained nothing, so advance forward now.", "decision": "MV_FWD", "plan": ["MV_FWD", "MV_UP", "MV_FWD"]}

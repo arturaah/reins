@@ -1,0 +1,33 @@
+{
+ "stages": [
+  {
+   "id": "raise_and_extend_toward_seated_guy",
+   "target": "the seated man in the dark shirt with the laptop on his lap, centered in the context view (columns D-F), the person closest to the robot",
+   "affordance": "upper chest of the seated man, just below his face and above the laptop",
+   "motion": "REACH",
+   "description": "From the rest pose beside the right hip, sweep the right hand forward, up and slightly inward in one continuous motion (roughly 35 cm forward, 40 cm up, 10 cm toward the body midline, as in the earlier point-at-the-guy demo), so the arm extends straight out toward the seated man in the center rather than the standing man in jeans on the left or the person behind on the right. Do not lift straight up first; the forward and upward components happen together so the arm ends as an outstretched pointing line.",
+   "completion": "The white right arm is visible in the context view rising from the lower-right edge, forearm extended forward at about shoulder height, and the hand tip lies on the line between the robot and the seated man's chest, overlapping his torso region in the image and not the standing man on the left."
+  },
+  {
+   "id": "hold_point_at_seated_guy",
+   "target": "the seated man in the dark shirt with the laptop, center of the context view",
+   "affordance": "upper chest of the seated man",
+   "motion": "HOVER",
+   "description": "Hold the outstretched pointing pose steady, keeping the hand tip aimed at the seated man's chest and making small corrections only if the hand drifts off the line toward him. Do not advance further or touch him.",
+   "completion": "The extended right arm stays motionless across consecutive context frames with the hand tip still overlapping the seated man's torso region, clearly separated from the standing man in jeans and from the laptop."
+  },
+  {
+   "id": "retreat_to_rest",
+   "target": "rest pose beside the robot's right hip",
+   "affordance": "floor carpet area directly below the right hand's rest position",
+   "motion": "RETREAT",
+   "description": "Reverse the pointing sweep: bring the right hand back, down and outward (roughly 35 cm back, 40 cm down, 10 cm toward the right) until the arm hangs beside the hip in the original rest pose, keeping clear of the seated man's knees and the laptop.",
+   "completion": "The right arm is no longer raised in the context view, appearing only at the bottom-right edge or out of frame, and the right wrist camera again shows the carpet and the robot's own leg directly below with no person in view."
+  }
+ ],
+ "model": "claude-fable-5-1",
+ "latency_s": 41.39158296585083,
+ "input_tokens": 66,
+ "output_tokens": 2272,
+ "error": ""
+}

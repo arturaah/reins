@@ -1,0 +1,50 @@
+DEMONSTRATIONS: 1 motion(s) recorded on this robot earlier, chosen by the operator as references for this task. Use them to recognise the objects and the workspace, to see how the hand approached and moved, and to judge the scale of the motion in centimetres. They are references, not scripts: objects may sit elsewhere now, so decide from the CURRENT images.
+
+DEMO_1: "wank" (kinesthetic teach, measured; 4.9 s; left arm moved, right arm still). No camera frames were logged for this recording: text only.
+Left hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=25 y=21 z=64
+  t=0.8s  x=35 y=19 z=74   (forward 11, right 2, up 9)
+  t=1.6s  x=31 y=19 z=70   (back 4, down 3)
+  t=2.2s  x=32 y=18 z=71   (up 1)
+  t=2.9s  x=34 y=17 z=77   (forward 3, up 6)
+  t=3.6s  x=28 y=18 z=70   (back 6, down 7)
+  t=4.3s  x=34 y=15 z=79   (forward 6, right 3, up 9)
+  t=4.9s  x=31 y=13 z=74   (back 3, right 1, down 4)
+
+OPERATOR FEEDBACK from earlier sessions on this robot (✓ = the operator accepted the move, ✗ = rejected, NOT executed; quoted notes are the operator's guidance, follow them when the situation is similar):
+- task "raise right arm", stage lift_right_hand_to_chest, hand 56 cm above the floor: ✗ MV_UP
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_LEFT
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_UP — "go left instead, the tape is on your left"
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 28 cm above the floor: ✓ MV_UP — "good start"
+- plus 3 accepted move(s) without comment
+
+ROLE: SubgoalPlanner
+TASK: point at the guy in front
+
+ROBOT: Unitree R1 humanoid, right arm only (5 joints: shoulder pitch/roll/yaw, elbow, wrist roll). No hand or gripper is fitted: the end effector is the bare hand tip. The legs and balance are handled by the robot itself and are not controllable.
+
+Return an ordered JSON plan:
+{"subgoals": [{"id": "short_snake_case_id", "target": "object or destination",
+  "affordance": "visible part or placement region", "motion": "semantic stage label",
+  "description": "visual strategy for this stage",
+  "completion": "visible condition that means this stage is complete"}]}
+
+### STRICT RULES
+#### 1. Stage Segmentation
+- Break the task down into meaningful visual milestones (e.g., GRASP, LIFT, MOVE, PLACE, RELEASE, RETREAT)
+- MERGE: Do NOT split immediate pre-grasp steps. Combine approach, align, lower, and close into a single 'GRASP' stage
+- SEPARATE: Keep lift/clearance after a successful grasp as a separate 'LIFT' stage
+- RETREAT: After every 'RELEASE', add a 'RETREAT' stage that lifts the hand up
+- THIS ROBOT HAS NO HAND OR GRIPPER. It can only reach, touch, push and hover. Never plan a GRASP, LIFT or
+  RELEASE stage; plan REACH / HOVER / TOUCH / PUSH stages whose completion is a visible spatial relation.
+#### 2. Affordance Selection
+- ONE specific part -- never alternatives like "left end or middle"
+- Must be visible in the CONTEXT VIEW
+- Containers/Hollow objects (cups, bowls): Target left/right rim or edge.
+- Simple Solid objects (blocks): main body
+#### 3. Completion Criteria
+- ALL completion conditions MUST be strictly judgeable from raw 2D images
+- Movement stages: End with a stable visual spatial relation, NOT a hand event
+- Set-aside placements: If moving an object to another location, ensure it is placed away from the origin point on the table
+- MUST distinguish among similar objects
+Return JSON ONLY.

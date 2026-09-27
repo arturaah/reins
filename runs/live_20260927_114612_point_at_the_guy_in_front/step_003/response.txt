@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the wrist camera only sees the carpet and the robot's own base, while the seated man in the dark shirt sits centered and well above the still-hidden low right arm in the context view, so the arm must rise toward chest height and drift inward.", "decision": "MV_UP", "plan": ["MV_UP", "MV_LEFT", "MV_UP"]}

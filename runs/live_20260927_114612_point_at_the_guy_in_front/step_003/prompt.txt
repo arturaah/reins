@@ -1,0 +1,107 @@
+DEMONSTRATIONS: 4 motion(s) recorded on this robot earlier, chosen by the operator as references for this task. Their contact sheets are stacked in ONE image labelled DEMOS: each block is titled DEMO_k and has one row per camera (named at its left edge) and one column per key moment, left to right in time; where a context row says "cropped", its leftmost tile is the full camera view with a red box showing the region the other tiles are cropped to. Use them to recognise the objects and the workspace, to see how the hand approached and moved, and to judge the scale of the motion in centimetres. They are references, not scripts: objects may sit elsewhere now, so decide from the CURRENT images.
+
+DEMO_1: "recording of point_at_the_guy_closer_to_you" (recording; 15.9 s; left arm moved, right arm moved). No camera frames were logged for this recording: text only.
+Left hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=22 z=58
+  t=7.0s  x=11 y=21 z=57   (still)
+  t=15.9s  x=11 y=22 z=58   (still)
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-21 z=58
+  t=7.0s  x=47 y=-9 z=99   (forward 36, left 12, up 41)
+  t=15.9s  x=11 y=-21 z=58   (back 36, right 12, down 41)
+
+DEMO_2: "recording of move_both_hands_to_upwards_far_from_you" (recording; 14.4 s; left arm moved, right arm moved). No camera frames were logged for this recording: text only.
+Left hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=22 z=58
+  t=1.4s  x=11 y=19 z=57   (right 3)
+  t=2.7s  x=30 y=17 z=67   (forward 19, right 2, up 9)
+  t=4.2s  x=45 y=15 z=90   (forward 15, right 3, up 23)
+  t=4.7s  x=46 y=17 z=100   (forward 1, left 2, up 10)
+  t=5.6s  x=44 y=13 z=115   (back 2, right 4, up 15)
+  t=9.8s  x=9 y=21 z=57   (back 35, left 8, down 58)
+  t=14.4s  x=11 y=22 z=58   (forward 2)
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-21 z=58
+  t=1.4s  x=11 y=-20 z=57   (left 1)
+  t=2.7s  x=26 y=-20 z=63   (forward 15, up 6)
+  t=4.2s  x=46 y=-16 z=90   (forward 20, left 4, up 27)
+  t=4.7s  x=47 y=-17 z=101   (forward 1, right 1, up 10)
+  t=5.6s  x=45 y=-14 z=112   (back 2, left 3, up 12)
+  t=9.8s  x=11 y=-23 z=57   (back 34, right 9, down 55)
+  t=14.4s  x=11 y=-21 z=58   (left 2)
+
+DEMO_3: "move_both_hands_to_upwards_far_from_you" (kinesthetic teach, measured; 10.3 s; left arm moved, right arm moved). Contact sheet columns: t=0.0s, t=2.0s, t=3.4s, t=3.8s, t=4.6s, t=10.3s; rows: context, left wrist, right wrist.
+Left hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=20 z=57
+  t=2.0s  x=30 y=17 z=67   (forward 19, right 3, up 9)
+  t=3.4s  x=45 y=15 z=90   (forward 15, right 2, up 24)
+  t=3.8s  x=46 y=17 z=100   (left 2, up 10)
+  t=4.6s  x=44 y=13 z=115   (back 3, right 4, up 15)
+  t=10.3s  x=9 y=21 z=57   (back 35, left 7, down 58)
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-21 z=57
+  t=2.0s  x=26 y=-20 z=63   (forward 15, left 1, up 6)
+  t=3.4s  x=46 y=-16 z=91   (forward 20, left 4, up 27)
+  t=3.8s  x=47 y=-17 z=101   (right 1, up 10)
+  t=4.6s  x=45 y=-14 z=112   (back 2, left 3, up 11)
+  t=10.3s  x=11 y=-23 z=57   (back 34, right 9, down 55)
+
+DEMO_4: "point_at_the_chair_closer_to_you" (kinesthetic teach, measured; 7.5 s; left arm still, right arm moved). Contact sheet columns: t=0.0s, t=1.8s, t=2.9s, t=7.5s; rows: context, left wrist, right wrist.
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-20 z=57
+  t=1.8s  x=31 y=-2 z=68   (forward 20, left 17, up 11)
+  t=2.9s  x=39 y=2 z=83   (forward 9, left 5, up 15)
+  t=7.5s  x=11 y=-16 z=56   (back 28, right 18, down 26)
+
+OPERATOR FEEDBACK from earlier sessions on this robot (✓ = the operator accepted the move, ✗ = rejected, NOT executed; quoted notes are the operator's guidance, follow them when the situation is similar):
+- task "raise right arm", stage lift_right_hand_to_chest, hand 56 cm above the floor: ✗ MV_UP
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_LEFT
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_UP — "go left instead, the tape is on your left"
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 28 cm above the floor: ✓ MV_UP — "good start"
+- plus 3 accepted move(s) without comment
+
+TASK: point at the guy in front
+STAGE: REACH
+TARGET: the seated man in the dark shirt with the laptop on his lap, centered in the context view (columns D-F), the person closest to the robot
+AFFORD: upper chest of the seated man, just below his face and above the laptop
+Stage goal: From the rest pose beside the right hip, sweep the right hand forward, up and slightly inward in one continuous motion (roughly 35 cm forward, 40 cm up, 10 cm toward the body midline, as in the earlier point-at-the-guy demo), so the arm extends straight out toward the seated man in the center rather than the standing man in jeans on the left or the person behind on the right. Do not lift straight up first; the forward and upward components happen together so the arm ends as an outstretched pointing line.
+DONE WHEN: The white right arm is visible in the context view rising from the lower-right edge, forearm extended forward at about shoulder height, and the hand tip lies on the line between the robot and the seated man's chest, overlapping his torso region in the image and not the standing man on the left.
+Hand now: no hand
+Recent moves, newest first: MV_FWD(rejected), MV_UP, MV_FWD
+Recovery: The operator rejected your last proposal (MV_FWD). It was NOT executed: propose something different (another direction, a smaller step, or DONE if the stage is already complete).
+The hand tip is 7.5 cm above the table; each step moves ~4 cm.
+
+IMAGES: CONTEXT VIEW = the fixed camera on the robot's head looking at the workspace; RIGHT WRIST VIEW = the camera on
+the moving arm. The end effector is the right hand tip (the point 13 cm beyond the wrist).
+
+DIRECTION (these conventions matter more than the action names):
+Is TARGET inside the RIGHT WRIST VIEW?
+A) YES -> the wrist view is the primary guide. Judge AFFORD's position vs the hand tip and take the direction of LARGEST deviation:
+- AFFORD to the left in the wrist image  -> MV_LEFT
+- AFFORD to the right in the wrist image -> MV_RIGHT
+- AFFORD near the wrist image bottom (close to the hand) -> MV_DOWN
+- AFFORD near the wrist image top (far from the hand)    -> MV_FWD
+- AFFORD roughly centred and large -> the hand tip is over it: MV_DOWN
+B) NO -> the CONTEXT VIEW is the primary guide. Judge TARGET's position vs the hand tip and take the direction of LARGEST deviation:
+- TARGET to the left in the image   -> MV_LEFT
+- TARGET to the right in the image  -> MV_RIGHT
+- TARGET lower in the image (nearer the robot) -> MV_BACK
+- TARGET higher in the image (farther from the robot) -> MV_FWD
+- TARGET below the hand tip -> MV_DOWN ; hand tip lower than the target or under the table edge -> MV_UP
+C) MV_UP when:
+- Need to lift the object
+- too low to reach TARGET
+- retreating after a RELEASE
+- If the hand needs to spin about the forearm to align with the TARGET -> ROTATE_CW / ROTATE_CCW (wrist roll, the only rotation this arm has)
+ATTENTION:
+- If recent moves show GRASP(empty), do not GRASP in place again; prioritize MV_UP, MV_BACK, MV_DOWN, or MV_FWD
+- NEVER OSCILLATE: Do NOT choose the opposite of the newest recent move (Pairs: MV_LEFT/MV_RIGHT, MV_FWD/MV_BACK)
+- When opposite directions appear in recent moves, prioritize MV_DOWN or MV_UP
+- DONE only when "DONE WHEN" is already visible in the images; DONE ends this stage, not the task
+HAND: this robot has no hand. GRASP and RELEASE only pause the arm; do not use them.
+WRIST CHECK: begin your reasoning with `WRIST: YES` if the TARGET is visible in the wrist view, else `WRIST: NO`.
+ACTION PLAN -- only when WRIST: NO (TARGET far): plan your next 3 moves as "plan": [M1, M2, ...] (MV_ tokens only) and set decision to M1. Choose each move from the height and step size so the plan does not overshoot (e.g. never plan more MV_DOWN than the height above the table allows). When WRIST: YES, decide a single move.
+Think one visual sentence, then commit.
+Choose exactly one action:
+MV_FWD, MV_BACK, MV_LEFT, MV_RIGHT, MV_UP, MV_DOWN, ROTATE_CW, ROTATE_CCW, STILL, DONE
+Return JSON only: {"decision":"ONE_ACTION","reasoning":"one visual sentence"}

@@ -1,0 +1,53 @@
+{
+ "step": 2,
+ "t": 1790502691.875015,
+ "stage": "raise_and_extend_toward_seated_guy",
+ "action": "MV_FWD",
+ "hand_tip_before": [
+  0.11329,
+  -0.20772,
+  0.57474
+ ],
+ "roll_before": 0.0019982117228209972,
+ "joints_before": {
+  "waist_roll_joint": -0.0011984225129708648,
+  "waist_yaw_joint": -0.000844887865241617,
+  "left_shoulder_pitch_joint": 0.217987060546875,
+  "left_shoulder_roll_joint": 0.1584254652261734,
+  "left_shoulder_yaw_joint": 0.023100540041923523,
+  "left_elbow_joint": 0.8399150967597961,
+  "left_wrist_roll_joint": -0.004586804658174515,
+  "right_shoulder_pitch_joint": 0.21300162374973297,
+  "right_shoulder_roll_joint": -0.16523250937461853,
+  "right_shoulder_yaw_joint": 0.002240419154986739,
+  "right_elbow_joint": 0.8356764316558838,
+  "right_wrist_roll_joint": 0.0019982117228209972
+ },
+ "images_missing": [
+  "RIGHT WRIST VIEW"
+ ],
+ "ok": false,
+ "feedback": "the operator rejected this move",
+ "hand_tip_after": [
+  0.11329,
+  -0.20772,
+  0.57474
+ ],
+ "requested_dp": [
+  0.04,
+  0.0,
+  0.0
+ ],
+ "achieved_dp": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "q_target": null,
+ "q_after": null,
+ "ik_fail": false,
+ "timeout": false,
+ "clamped": false,
+ "notes": [],
+ "duration_s": 0.0
+}

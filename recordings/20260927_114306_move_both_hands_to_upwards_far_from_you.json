@@ -1,0 +1,5489 @@
+{
+ "schema_version": 1,
+ "name": "recording of move_both_hands_to_upwards_far_from_you",
+ "recorded_at": "2026-09-27T11:43:06",
+ "duration_s": 14.386,
+ "keyframes": [
+  {
+   "time_s": 0.0,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2256,
+    "left_shoulder_roll_joint": 0.1731,
+    "left_shoulder_yaw_joint": 0.0251,
+    "left_elbow_joint": 0.8175,
+    "left_wrist_roll_joint": -0.004,
+    "right_shoulder_pitch_joint": 0.2209,
+    "right_shoulder_roll_joint": -0.1795,
+    "right_shoulder_yaw_joint": -0.005,
+    "right_elbow_joint": 0.8188,
+    "right_wrist_roll_joint": 0.0024
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2177,
+    "left_shoulder_roll_joint": 0.1618,
+    "left_shoulder_yaw_joint": 0.0154,
+    "left_elbow_joint": 0.84,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2129,
+    "right_shoulder_roll_joint": -0.1651,
+    "right_shoulder_yaw_joint": 0.0055,
+    "right_elbow_joint": 0.8362,
+    "right_wrist_roll_joint": 0.002
+   }
+  },
+  {
+   "time_s": 0.064,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.224,
+    "left_shoulder_roll_joint": 0.1706,
+    "left_shoulder_yaw_joint": 0.0234,
+    "left_elbow_joint": 0.8203,
+    "left_wrist_roll_joint": -0.004,
+    "right_shoulder_pitch_joint": 0.22,
+    "right_shoulder_roll_joint": -0.1778,
+    "right_shoulder_yaw_joint": -0.0041,
+    "right_elbow_joint": 0.8231,
+    "right_wrist_roll_joint": 0.0024
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2177,
+    "left_shoulder_roll_joint": 0.1588,
+    "left_shoulder_yaw_joint": 0.0198,
+    "left_elbow_joint": 0.8401,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2128,
+    "right_shoulder_roll_joint": -0.1651,
+    "right_shoulder_yaw_joint": 0.0051,
+    "right_elbow_joint": 0.8367,
+    "right_wrist_roll_joint": 0.002
+   }
+  },
+  {
+   "time_s": 0.13,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2217,
+    "left_shoulder_roll_joint": 0.1673,
+    "left_shoulder_yaw_joint": 0.021,
+    "left_elbow_joint": 0.824,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2188,
+    "right_shoulder_roll_joint": -0.1755,
+    "right_shoulder_yaw_joint": -0.0029,
+    "right_elbow_joint": 0.829,
+    "right_wrist_roll_joint": 0.0023
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2176,
+    "left_shoulder_roll_joint": 0.1575,
+    "left_shoulder_yaw_joint": 0.0206,
+    "left_elbow_joint": 0.8407,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2128,
+    "right_shoulder_roll_joint": -0.165,
+    "right_shoulder_yaw_joint": 0.0053,
+    "right_elbow_joint": 0.8389,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.205,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2193,
+    "left_shoulder_roll_joint": 0.1635,
+    "left_shoulder_yaw_joint": 0.0184,
+    "left_elbow_joint": 0.8282,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2175,
+    "right_shoulder_roll_joint": -0.173,
+    "right_shoulder_yaw_joint": -0.0016,
+    "right_elbow_joint": 0.8354,
+    "right_wrist_roll_joint": 0.0022
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2174,
+    "left_shoulder_roll_joint": 0.1523,
+    "left_shoulder_yaw_joint": 0.0209,
+    "left_elbow_joint": 0.8414,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2127,
+    "right_shoulder_roll_joint": -0.1648,
+    "right_shoulder_yaw_joint": 0.0054,
+    "right_elbow_joint": 0.8424,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.276,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2169,
+    "left_shoulder_roll_joint": 0.16,
+    "left_shoulder_yaw_joint": 0.0159,
+    "left_elbow_joint": 0.8322,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2163,
+    "right_shoulder_roll_joint": -0.1706,
+    "right_shoulder_yaw_joint": -0.0004,
+    "right_elbow_joint": 0.8416,
+    "right_wrist_roll_joint": 0.0021
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2173,
+    "left_shoulder_roll_joint": 0.1492,
+    "left_shoulder_yaw_joint": 0.018,
+    "left_elbow_joint": 0.8439,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2126,
+    "right_shoulder_roll_joint": -0.1634,
+    "right_shoulder_yaw_joint": 0.006,
+    "right_elbow_joint": 0.8512,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.35,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2144,
+    "left_shoulder_roll_joint": 0.1562,
+    "left_shoulder_yaw_joint": 0.0133,
+    "left_elbow_joint": 0.8364,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.215,
+    "right_shoulder_roll_joint": -0.1681,
+    "right_shoulder_yaw_joint": 0.0009,
+    "right_elbow_joint": 0.8481,
+    "right_wrist_roll_joint": 0.002
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.217,
+    "left_shoulder_roll_joint": 0.1493,
+    "left_shoulder_yaw_joint": 0.0163,
+    "left_elbow_joint": 0.8452,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2126,
+    "right_shoulder_roll_joint": -0.1605,
+    "right_shoulder_yaw_joint": 0.0061,
+    "right_elbow_joint": 0.861,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.423,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.212,
+    "left_shoulder_roll_joint": 0.1526,
+    "left_shoulder_yaw_joint": 0.0108,
+    "left_elbow_joint": 0.8405,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2137,
+    "right_shoulder_roll_joint": -0.1656,
+    "right_shoulder_yaw_joint": 0.0022,
+    "right_elbow_joint": 0.8545,
+    "right_wrist_roll_joint": 0.0019
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2156,
+    "left_shoulder_roll_joint": 0.1488,
+    "left_shoulder_yaw_joint": 0.0135,
+    "left_elbow_joint": 0.8498,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2126,
+    "right_shoulder_roll_joint": -0.1546,
+    "right_shoulder_yaw_joint": 0.0078,
+    "right_elbow_joint": 0.8673,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.497,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2095,
+    "left_shoulder_roll_joint": 0.1488,
+    "left_shoulder_yaw_joint": 0.0082,
+    "left_elbow_joint": 0.8447,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1631,
+    "right_shoulder_yaw_joint": 0.0036,
+    "right_elbow_joint": 0.861,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2141,
+    "left_shoulder_roll_joint": 0.147,
+    "left_shoulder_yaw_joint": 0.0096,
+    "left_elbow_joint": 0.8591,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1535,
+    "right_shoulder_yaw_joint": 0.008,
+    "right_elbow_joint": 0.8733,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.572,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2094,
+    "left_shoulder_roll_joint": 0.1488,
+    "left_shoulder_yaw_joint": 0.0089,
+    "left_elbow_joint": 0.8448,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1574,
+    "right_shoulder_yaw_joint": 0.0014,
+    "right_elbow_joint": 0.8631,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2142,
+    "left_shoulder_roll_joint": 0.141,
+    "left_shoulder_yaw_joint": 0.007,
+    "left_elbow_joint": 0.8626,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1477,
+    "right_shoulder_yaw_joint": 0.0074,
+    "right_elbow_joint": 0.8785,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.643,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2094,
+    "left_shoulder_roll_joint": 0.1488,
+    "left_shoulder_yaw_joint": 0.009,
+    "left_elbow_joint": 0.8449,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1519,
+    "right_shoulder_yaw_joint": 0.0021,
+    "right_elbow_joint": 0.8647,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2142,
+    "left_shoulder_roll_joint": 0.1322,
+    "left_shoulder_yaw_joint": 0.0074,
+    "left_elbow_joint": 0.8631,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1453,
+    "right_shoulder_yaw_joint": 0.0084,
+    "right_elbow_joint": 0.88,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.717,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2093,
+    "left_shoulder_roll_joint": 0.1486,
+    "left_shoulder_yaw_joint": 0.01,
+    "left_elbow_joint": 0.8448,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1471,
+    "right_shoulder_yaw_joint": 0.003,
+    "right_elbow_joint": 0.8658,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2142,
+    "left_shoulder_roll_joint": 0.1321,
+    "left_shoulder_yaw_joint": 0.0066,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1417,
+    "right_shoulder_yaw_joint": 0.0081,
+    "right_elbow_joint": 0.8806,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.79,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2093,
+    "left_shoulder_roll_joint": 0.1481,
+    "left_shoulder_yaw_joint": 0.011,
+    "left_elbow_joint": 0.845,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2125,
+    "right_shoulder_roll_joint": -0.1462,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.8673,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1324,
+    "left_shoulder_yaw_joint": 0.0071,
+    "left_elbow_joint": 0.8628,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1365,
+    "right_shoulder_yaw_joint": 0.0087,
+    "right_elbow_joint": 0.8807,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.864,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2085,
+    "left_shoulder_roll_joint": 0.1434,
+    "left_shoulder_yaw_joint": 0.0115,
+    "left_elbow_joint": 0.845,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2125,
+    "right_shoulder_roll_joint": -0.1465,
+    "right_shoulder_yaw_joint": 0.0025,
+    "right_elbow_joint": 0.8686,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2142,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0078,
+    "left_elbow_joint": 0.8631,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1308,
+    "right_shoulder_yaw_joint": 0.0087,
+    "right_elbow_joint": 0.8822,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 0.938,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2077,
+    "left_shoulder_roll_joint": 0.1333,
+    "left_shoulder_yaw_joint": 0.0118,
+    "left_elbow_joint": 0.8448,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2125,
+    "right_shoulder_roll_joint": -0.1463,
+    "right_shoulder_yaw_joint": 0.0027,
+    "right_elbow_joint": 0.87,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1315,
+    "left_shoulder_yaw_joint": 0.0076,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1283,
+    "right_shoulder_yaw_joint": 0.009,
+    "right_elbow_joint": 0.884,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.006,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2076,
+    "left_shoulder_roll_joint": 0.124,
+    "left_shoulder_yaw_joint": 0.0122,
+    "left_elbow_joint": 0.8447,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1459,
+    "right_shoulder_yaw_joint": 0.003,
+    "right_elbow_joint": 0.8712,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1268,
+    "left_shoulder_yaw_joint": 0.0083,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1281,
+    "right_shoulder_yaw_joint": 0.009,
+    "right_elbow_joint": 0.8842,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.075,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2076,
+    "left_shoulder_roll_joint": 0.1201,
+    "left_shoulder_yaw_joint": 0.0125,
+    "left_elbow_joint": 0.8448,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1454,
+    "right_shoulder_yaw_joint": 0.0031,
+    "right_elbow_joint": 0.8711,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1154,
+    "left_shoulder_yaw_joint": 0.0085,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2124,
+    "right_shoulder_roll_joint": -0.1278,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.8851,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.147,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2076,
+    "left_shoulder_roll_joint": 0.1188,
+    "left_shoulder_yaw_joint": 0.0125,
+    "left_elbow_joint": 0.8447,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2122,
+    "right_shoulder_roll_joint": -0.1454,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.8709,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1069,
+    "left_shoulder_yaw_joint": 0.0071,
+    "left_elbow_joint": 0.8631,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1269,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.885,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.21,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2074,
+    "left_shoulder_roll_joint": 0.115,
+    "left_shoulder_yaw_joint": 0.0127,
+    "left_elbow_joint": 0.8446,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2122,
+    "right_shoulder_roll_joint": -0.1454,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.8709,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1034,
+    "left_shoulder_yaw_joint": 0.008,
+    "left_elbow_joint": 0.8631,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1268,
+    "right_shoulder_yaw_joint": 0.009,
+    "right_elbow_joint": 0.885,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.281,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2073,
+    "left_shoulder_roll_joint": 0.1111,
+    "left_shoulder_yaw_joint": 0.0119,
+    "left_elbow_joint": 0.8447,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2121,
+    "right_shoulder_roll_joint": -0.1451,
+    "right_shoulder_yaw_joint": 0.0029,
+    "right_elbow_joint": 0.8707,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1029,
+    "left_shoulder_yaw_joint": 0.0081,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1264,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.8851,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.356,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2066,
+    "left_shoulder_roll_joint": 0.11,
+    "left_shoulder_yaw_joint": 0.0122,
+    "left_elbow_joint": 0.8446,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2117,
+    "right_shoulder_roll_joint": -0.1425,
+    "right_shoulder_yaw_joint": 0.0025,
+    "right_elbow_joint": 0.8691,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.1027,
+    "left_shoulder_yaw_joint": 0.0081,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1264,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.885,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.428,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.206,
+    "left_shoulder_roll_joint": 0.1101,
+    "left_shoulder_yaw_joint": 0.0123,
+    "left_elbow_joint": 0.8443,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2112,
+    "right_shoulder_roll_joint": -0.1397,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.866,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.214,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0081,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1262,
+    "right_shoulder_yaw_joint": 0.009,
+    "right_elbow_joint": 0.8848,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.494,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2046,
+    "left_shoulder_roll_joint": 0.1104,
+    "left_shoulder_yaw_joint": 0.0124,
+    "left_elbow_joint": 0.8433,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2104,
+    "right_shoulder_roll_joint": -0.1388,
+    "right_shoulder_yaw_joint": 0.0031,
+    "right_elbow_joint": 0.8609,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2139,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0081,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.126,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.8839,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.564,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1994,
+    "left_shoulder_roll_joint": 0.1111,
+    "left_shoulder_yaw_joint": 0.0133,
+    "left_elbow_joint": 0.8413,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.2065,
+    "right_shoulder_roll_joint": -0.1393,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.8553,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2134,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0081,
+    "left_elbow_joint": 0.863,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2123,
+    "right_shoulder_roll_joint": -0.1259,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.8812,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.638,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1863,
+    "left_shoulder_roll_joint": 0.1115,
+    "left_shoulder_yaw_joint": 0.0158,
+    "left_elbow_joint": 0.838,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1947,
+    "right_shoulder_roll_joint": -0.1395,
+    "right_shoulder_yaw_joint": 0.0025,
+    "right_elbow_joint": 0.8527,
+    "right_wrist_roll_joint": 0.0017
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2061,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0084,
+    "left_elbow_joint": 0.8633,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2116,
+    "right_shoulder_roll_joint": -0.1259,
+    "right_shoulder_yaw_joint": 0.009,
+    "right_elbow_joint": 0.8778,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.712,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1664,
+    "left_shoulder_roll_joint": 0.1114,
+    "left_shoulder_yaw_joint": 0.021,
+    "left_elbow_joint": 0.834,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1793,
+    "right_shoulder_roll_joint": -0.1397,
+    "right_shoulder_yaw_joint": 0.0023,
+    "right_elbow_joint": 0.8453,
+    "right_wrist_roll_joint": 0.0015
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.198,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0106,
+    "left_elbow_joint": 0.8629,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.2086,
+    "right_shoulder_roll_joint": -0.1259,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.8753,
+    "right_wrist_roll_joint": 0.0019
+   }
+  },
+  {
+   "time_s": 1.785,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1366,
+    "left_shoulder_roll_joint": 0.1115,
+    "left_shoulder_yaw_joint": 0.0227,
+    "left_elbow_joint": 0.8288,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1679,
+    "right_shoulder_roll_joint": -0.1398,
+    "right_shoulder_yaw_joint": 0.0024,
+    "right_elbow_joint": 0.836,
+    "right_wrist_roll_joint": 0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.183,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.016,
+    "left_elbow_joint": 0.8623,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1954,
+    "right_shoulder_roll_joint": -0.1259,
+    "right_shoulder_yaw_joint": 0.009,
+    "right_elbow_joint": 0.8734,
+    "right_wrist_roll_joint": 0.0018
+   }
+  },
+  {
+   "time_s": 1.858,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1116,
+    "left_shoulder_roll_joint": 0.1118,
+    "left_shoulder_yaw_joint": 0.0247,
+    "left_elbow_joint": 0.8152,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1507,
+    "right_shoulder_roll_joint": -0.1401,
+    "right_shoulder_yaw_joint": 0.0023,
+    "right_elbow_joint": 0.8306,
+    "right_wrist_roll_joint": -0.0005
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.1542,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0212,
+    "left_elbow_joint": 0.8592,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.179,
+    "right_shoulder_roll_joint": -0.1259,
+    "right_shoulder_yaw_joint": 0.009,
+    "right_elbow_joint": 0.8671,
+    "right_wrist_roll_joint": 0.0016
+   }
+  },
+  {
+   "time_s": 1.925,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.0846,
+    "left_shoulder_roll_joint": 0.1119,
+    "left_shoulder_yaw_joint": 0.025,
+    "left_elbow_joint": 0.8134,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1329,
+    "right_shoulder_roll_joint": -0.1405,
+    "right_shoulder_yaw_joint": 0.0016,
+    "right_elbow_joint": 0.8291,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.1262,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.023,
+    "left_elbow_joint": 0.8505,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1631,
+    "right_shoulder_roll_joint": -0.1259,
+    "right_shoulder_yaw_joint": 0.0089,
+    "right_elbow_joint": 0.8586,
+    "right_wrist_roll_joint": 0.0007
+   }
+  },
+  {
+   "time_s": 1.996,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.0561,
+    "left_shoulder_roll_joint": 0.1119,
+    "left_shoulder_yaw_joint": 0.0249,
+    "left_elbow_joint": 0.8104,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1175,
+    "right_shoulder_roll_joint": -0.141,
+    "right_shoulder_yaw_joint": 0.0011,
+    "right_elbow_joint": 0.8248,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.1014,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8407,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1471,
+    "right_shoulder_roll_joint": -0.1258,
+    "right_shoulder_yaw_joint": 0.0087,
+    "right_elbow_joint": 0.8559,
+    "right_wrist_roll_joint": -0.0002
+   }
+  },
+  {
+   "time_s": 2.071,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.0279,
+    "left_shoulder_roll_joint": 0.112,
+    "left_shoulder_yaw_joint": 0.0252,
+    "left_elbow_joint": 0.8043,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1078,
+    "right_shoulder_roll_joint": -0.1411,
+    "right_shoulder_yaw_joint": 0.0003,
+    "right_elbow_joint": 0.8169,
+    "right_wrist_roll_joint": -0.001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.0762,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0238,
+    "left_elbow_joint": 0.84,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1321,
+    "right_shoulder_roll_joint": -0.1258,
+    "right_shoulder_yaw_joint": 0.0085,
+    "right_elbow_joint": 0.8545,
+    "right_wrist_roll_joint": -0.0003
+   }
+  },
+  {
+   "time_s": 2.145,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.0016,
+    "left_shoulder_roll_joint": 0.1128,
+    "left_shoulder_yaw_joint": 0.027,
+    "left_elbow_joint": 0.7993,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.0923,
+    "right_shoulder_roll_joint": -0.1415,
+    "right_shoulder_yaw_joint": -0.001,
+    "right_elbow_joint": 0.8135,
+    "right_wrist_roll_joint": -0.001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.051,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0239,
+    "left_elbow_joint": 0.8376,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1267,
+    "right_shoulder_roll_joint": -0.1258,
+    "right_shoulder_yaw_joint": 0.0078,
+    "right_elbow_joint": 0.8459,
+    "right_wrist_roll_joint": -0.0004
+   }
+  },
+  {
+   "time_s": 2.216,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.0243,
+    "left_shoulder_roll_joint": 0.1132,
+    "left_shoulder_yaw_joint": 0.028,
+    "left_elbow_joint": 0.7946,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.0701,
+    "right_shoulder_roll_joint": -0.1448,
+    "right_shoulder_yaw_joint": -0.002,
+    "right_elbow_joint": 0.8113,
+    "right_wrist_roll_joint": -0.001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.0307,
+    "left_shoulder_roll_joint": 0.1021,
+    "left_shoulder_yaw_joint": 0.025,
+    "left_elbow_joint": 0.835,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1138,
+    "right_shoulder_roll_joint": -0.1258,
+    "right_shoulder_yaw_joint": 0.007,
+    "right_elbow_joint": 0.842,
+    "right_wrist_roll_joint": -0.0004
+   }
+  },
+  {
+   "time_s": 2.287,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.0522,
+    "left_shoulder_roll_joint": 0.113,
+    "left_shoulder_yaw_joint": 0.0281,
+    "left_elbow_joint": 0.7884,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.044,
+    "right_shoulder_roll_joint": -0.1487,
+    "right_shoulder_yaw_joint": -0.0029,
+    "right_elbow_joint": 0.8085,
+    "right_wrist_roll_joint": -0.001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.0109,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0247,
+    "left_elbow_joint": 0.8312,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.0978,
+    "right_shoulder_roll_joint": -0.1263,
+    "right_shoulder_yaw_joint": 0.0063,
+    "right_elbow_joint": 0.8377,
+    "right_wrist_roll_joint": -0.0004
+   }
+  },
+  {
+   "time_s": 2.356,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.0806,
+    "left_shoulder_roll_joint": 0.1131,
+    "left_shoulder_yaw_joint": 0.0287,
+    "left_elbow_joint": 0.7815,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.0167,
+    "right_shoulder_roll_joint": -0.1501,
+    "right_shoulder_yaw_joint": -0.0044,
+    "right_elbow_joint": 0.8069,
+    "right_wrist_roll_joint": -0.001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.0093,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.025,
+    "left_elbow_joint": 0.8218,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.075,
+    "right_shoulder_roll_joint": -0.1263,
+    "right_shoulder_yaw_joint": 0.0057,
+    "right_elbow_joint": 0.8364,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 2.43,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.1118,
+    "left_shoulder_roll_joint": 0.1131,
+    "left_shoulder_yaw_joint": 0.0291,
+    "left_elbow_joint": 0.7734,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.0119,
+    "right_shoulder_roll_joint": -0.1526,
+    "right_shoulder_yaw_joint": -0.0056,
+    "right_elbow_joint": 0.8043,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.0364,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0252,
+    "left_elbow_joint": 0.8174,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.0477,
+    "right_shoulder_roll_joint": -0.1263,
+    "right_shoulder_yaw_joint": 0.0051,
+    "right_elbow_joint": 0.8346,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 2.504,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.1439,
+    "left_shoulder_roll_joint": 0.1131,
+    "left_shoulder_yaw_joint": 0.0298,
+    "left_elbow_joint": 0.7685,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.0406,
+    "right_shoulder_roll_joint": -0.1588,
+    "right_shoulder_yaw_joint": -0.0058,
+    "right_elbow_joint": 0.8043,
+    "right_wrist_roll_joint": -0.001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.0663,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0254,
+    "left_elbow_joint": 0.8147,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.0191,
+    "right_shoulder_roll_joint": -0.1264,
+    "right_shoulder_yaw_joint": 0.0026,
+    "right_elbow_joint": 0.834,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 2.576,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.1727,
+    "left_shoulder_roll_joint": 0.1131,
+    "left_shoulder_yaw_joint": 0.0301,
+    "left_elbow_joint": 0.7533,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.0641,
+    "right_shoulder_roll_joint": -0.159,
+    "right_shoulder_yaw_joint": -0.0058,
+    "right_elbow_joint": 0.8004,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.0927,
+    "left_shoulder_roll_joint": 0.1021,
+    "left_shoulder_yaw_joint": 0.0256,
+    "left_elbow_joint": 0.81,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.0081,
+    "right_shoulder_roll_joint": -0.1278,
+    "right_shoulder_yaw_joint": 0.0017,
+    "right_elbow_joint": 0.8337,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 2.65,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.1996,
+    "left_shoulder_roll_joint": 0.1139,
+    "left_shoulder_yaw_joint": 0.0322,
+    "left_elbow_joint": 0.7356,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.093,
+    "right_shoulder_roll_joint": -0.1608,
+    "right_shoulder_yaw_joint": -0.0067,
+    "right_elbow_joint": 0.7985,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.1184,
+    "left_shoulder_roll_joint": 0.102,
+    "left_shoulder_yaw_joint": 0.0257,
+    "left_elbow_joint": 0.7965,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.0288,
+    "right_shoulder_roll_joint": -0.1311,
+    "right_shoulder_yaw_joint": 0.0014,
+    "right_elbow_joint": 0.832,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 2.724,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.2288,
+    "left_shoulder_roll_joint": 0.1137,
+    "left_shoulder_yaw_joint": 0.0323,
+    "left_elbow_joint": 0.7341,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.1187,
+    "right_shoulder_roll_joint": -0.1681,
+    "right_shoulder_yaw_joint": -0.007,
+    "right_elbow_joint": 0.7922,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.1435,
+    "left_shoulder_roll_joint": 0.1021,
+    "left_shoulder_yaw_joint": 0.0271,
+    "left_elbow_joint": 0.7819,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.0498,
+    "right_shoulder_roll_joint": -0.1341,
+    "right_shoulder_yaw_joint": 0.0006,
+    "right_elbow_joint": 0.8316,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 2.797,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.2605,
+    "left_shoulder_roll_joint": 0.1172,
+    "left_shoulder_yaw_joint": 0.0324,
+    "left_elbow_joint": 0.733,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.1519,
+    "right_shoulder_roll_joint": -0.1708,
+    "right_shoulder_yaw_joint": -0.008,
+    "right_elbow_joint": 0.7903,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.1709,
+    "left_shoulder_roll_joint": 0.1021,
+    "left_shoulder_yaw_joint": 0.0271,
+    "left_elbow_joint": 0.7768,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.0717,
+    "right_shoulder_roll_joint": -0.1384,
+    "right_shoulder_yaw_joint": 0.0008,
+    "right_elbow_joint": 0.8295,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 2.868,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.2885,
+    "left_shoulder_roll_joint": 0.1225,
+    "left_shoulder_yaw_joint": 0.0328,
+    "left_elbow_joint": 0.7328,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.1837,
+    "right_shoulder_roll_joint": -0.1746,
+    "right_shoulder_yaw_joint": -0.0082,
+    "right_elbow_joint": 0.7882,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.1942,
+    "left_shoulder_roll_joint": 0.1024,
+    "left_shoulder_yaw_joint": 0.0275,
+    "left_elbow_joint": 0.7742,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.0965,
+    "right_shoulder_roll_joint": -0.143,
+    "right_shoulder_yaw_joint": -0.001,
+    "right_elbow_joint": 0.8295,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 2.94,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.3168,
+    "left_shoulder_roll_joint": 0.131,
+    "left_shoulder_yaw_joint": 0.0334,
+    "left_elbow_joint": 0.7325,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.2173,
+    "right_shoulder_roll_joint": -0.1766,
+    "right_shoulder_yaw_joint": -0.0097,
+    "right_elbow_joint": 0.7861,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.2193,
+    "left_shoulder_roll_joint": 0.1024,
+    "left_shoulder_yaw_joint": 0.0271,
+    "left_elbow_joint": 0.7737,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.1261,
+    "right_shoulder_roll_joint": -0.1468,
+    "right_shoulder_yaw_joint": -0.0009,
+    "right_elbow_joint": 0.8289,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.014,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.3482,
+    "left_shoulder_roll_joint": 0.1347,
+    "left_shoulder_yaw_joint": 0.0379,
+    "left_elbow_joint": 0.7324,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.2538,
+    "right_shoulder_roll_joint": -0.1797,
+    "right_shoulder_yaw_joint": -0.0111,
+    "right_elbow_joint": 0.7851,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.2469,
+    "left_shoulder_roll_joint": 0.1057,
+    "left_shoulder_yaw_joint": 0.028,
+    "left_elbow_joint": 0.7737,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.1595,
+    "right_shoulder_roll_joint": -0.1492,
+    "right_shoulder_yaw_joint": -0.0019,
+    "right_elbow_joint": 0.828,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.088,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.38,
+    "left_shoulder_roll_joint": 0.1348,
+    "left_shoulder_yaw_joint": 0.0429,
+    "left_elbow_joint": 0.7324,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.2918,
+    "right_shoulder_roll_joint": -0.1831,
+    "right_shoulder_yaw_joint": -0.0142,
+    "right_elbow_joint": 0.7853,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.2738,
+    "left_shoulder_roll_joint": 0.1105,
+    "left_shoulder_yaw_joint": 0.0291,
+    "left_elbow_joint": 0.7726,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.1933,
+    "right_shoulder_roll_joint": -0.1491,
+    "right_shoulder_yaw_joint": -0.0018,
+    "right_elbow_joint": 0.8265,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.162,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.4116,
+    "left_shoulder_roll_joint": 0.1349,
+    "left_shoulder_yaw_joint": 0.0458,
+    "left_elbow_joint": 0.7323,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.3307,
+    "right_shoulder_roll_joint": -0.1866,
+    "right_shoulder_yaw_joint": -0.0194,
+    "right_elbow_joint": 0.786,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.303,
+    "left_shoulder_roll_joint": 0.1121,
+    "left_shoulder_yaw_joint": 0.0325,
+    "left_elbow_joint": 0.7729,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.2268,
+    "right_shoulder_roll_joint": -0.1495,
+    "right_shoulder_yaw_joint": -0.0033,
+    "right_elbow_joint": 0.8262,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.236,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.446,
+    "left_shoulder_roll_joint": 0.135,
+    "left_shoulder_yaw_joint": 0.0478,
+    "left_elbow_joint": 0.7327,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.3688,
+    "right_shoulder_roll_joint": -0.1903,
+    "right_shoulder_yaw_joint": -0.0238,
+    "right_elbow_joint": 0.7858,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.3315,
+    "left_shoulder_roll_joint": 0.112,
+    "left_shoulder_yaw_joint": 0.0337,
+    "left_elbow_joint": 0.773,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.2618,
+    "right_shoulder_roll_joint": -0.1495,
+    "right_shoulder_yaw_joint": -0.0056,
+    "right_elbow_joint": 0.8271,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.305,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.4798,
+    "left_shoulder_roll_joint": 0.1356,
+    "left_shoulder_yaw_joint": 0.049,
+    "left_elbow_joint": 0.7342,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.4033,
+    "right_shoulder_roll_joint": -0.1917,
+    "right_shoulder_yaw_joint": -0.0256,
+    "right_elbow_joint": 0.7849,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.3581,
+    "left_shoulder_roll_joint": 0.112,
+    "left_shoulder_yaw_joint": 0.0352,
+    "left_elbow_joint": 0.7737,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.2924,
+    "right_shoulder_roll_joint": -0.1501,
+    "right_shoulder_yaw_joint": -0.0071,
+    "right_elbow_joint": 0.8271,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.373,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.5114,
+    "left_shoulder_roll_joint": 0.1378,
+    "left_shoulder_yaw_joint": 0.0491,
+    "left_elbow_joint": 0.7357,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.4397,
+    "right_shoulder_roll_joint": -0.1919,
+    "right_shoulder_yaw_joint": -0.0261,
+    "right_elbow_joint": 0.7857,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.3865,
+    "left_shoulder_roll_joint": 0.112,
+    "left_shoulder_yaw_joint": 0.0376,
+    "left_elbow_joint": 0.7745,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.3226,
+    "right_shoulder_roll_joint": -0.1502,
+    "right_shoulder_yaw_joint": -0.0091,
+    "right_elbow_joint": 0.8272,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.447,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.543,
+    "left_shoulder_roll_joint": 0.1468,
+    "left_shoulder_yaw_joint": 0.0487,
+    "left_elbow_joint": 0.7366,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.4818,
+    "right_shoulder_roll_joint": -0.192,
+    "right_shoulder_yaw_joint": -0.0264,
+    "right_elbow_joint": 0.7857,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4192,
+    "left_shoulder_roll_joint": 0.1121,
+    "left_shoulder_yaw_joint": 0.0393,
+    "left_elbow_joint": 0.7762,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.3577,
+    "right_shoulder_roll_joint": -0.1503,
+    "right_shoulder_yaw_joint": -0.0119,
+    "right_elbow_joint": 0.8286,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 3.52,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.5719,
+    "left_shoulder_roll_joint": 0.1561,
+    "left_shoulder_yaw_joint": 0.0495,
+    "left_elbow_joint": 0.7383,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.5234,
+    "right_shoulder_roll_joint": -0.1934,
+    "right_shoulder_yaw_joint": -0.0266,
+    "right_elbow_joint": 0.7864,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4502,
+    "left_shoulder_roll_joint": 0.1135,
+    "left_shoulder_yaw_joint": 0.0403,
+    "left_elbow_joint": 0.7776,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.3934,
+    "right_shoulder_roll_joint": -0.1503,
+    "right_shoulder_yaw_joint": -0.0155,
+    "right_elbow_joint": 0.8293,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 3.591,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.5996,
+    "left_shoulder_roll_joint": 0.1702,
+    "left_shoulder_yaw_joint": 0.0496,
+    "left_elbow_joint": 0.738,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.5617,
+    "right_shoulder_roll_joint": -0.2024,
+    "right_shoulder_yaw_joint": -0.0285,
+    "right_elbow_joint": 0.7847,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4751,
+    "left_shoulder_roll_joint": 0.1193,
+    "left_shoulder_yaw_joint": 0.0398,
+    "left_elbow_joint": 0.779,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.43,
+    "right_shoulder_roll_joint": -0.1507,
+    "right_shoulder_yaw_joint": -0.0186,
+    "right_elbow_joint": 0.8298,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.66,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.6292,
+    "left_shoulder_roll_joint": 0.182,
+    "left_shoulder_yaw_joint": 0.0499,
+    "left_elbow_joint": 0.7395,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.5998,
+    "right_shoulder_roll_joint": -0.2111,
+    "right_shoulder_yaw_joint": -0.0313,
+    "right_elbow_joint": 0.7849,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4971,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0398,
+    "left_elbow_joint": 0.7798,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.4622,
+    "right_shoulder_roll_joint": -0.1566,
+    "right_shoulder_yaw_joint": -0.02,
+    "right_elbow_joint": 0.8296,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 3.733,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.6614,
+    "left_shoulder_roll_joint": 0.1904,
+    "left_shoulder_yaw_joint": 0.0506,
+    "left_elbow_joint": 0.7404,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.6426,
+    "right_shoulder_roll_joint": -0.2173,
+    "right_shoulder_yaw_joint": -0.0374,
+    "right_elbow_joint": 0.7862,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.5236,
+    "left_shoulder_roll_joint": 0.1479,
+    "left_shoulder_yaw_joint": 0.0407,
+    "left_elbow_joint": 0.7824,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.4984,
+    "right_shoulder_roll_joint": -0.1735,
+    "right_shoulder_yaw_joint": -0.023,
+    "right_elbow_joint": 0.8319,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 3.805,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.6934,
+    "left_shoulder_roll_joint": 0.1927,
+    "left_shoulder_yaw_joint": 0.0521,
+    "left_elbow_joint": 0.7403,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.6842,
+    "right_shoulder_roll_joint": -0.222,
+    "right_shoulder_yaw_joint": -0.0414,
+    "right_elbow_joint": 0.7871,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.549,
+    "left_shoulder_roll_joint": 0.1621,
+    "left_shoulder_yaw_joint": 0.0419,
+    "left_elbow_joint": 0.7829,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.5358,
+    "right_shoulder_roll_joint": -0.1868,
+    "right_shoulder_yaw_joint": -0.0262,
+    "right_elbow_joint": 0.8315,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 3.875,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.7255,
+    "left_shoulder_roll_joint": 0.1927,
+    "left_shoulder_yaw_joint": 0.0532,
+    "left_elbow_joint": 0.7414,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.7226,
+    "right_shoulder_roll_joint": -0.2252,
+    "right_shoulder_yaw_joint": -0.0427,
+    "right_elbow_joint": 0.7879,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.5767,
+    "left_shoulder_roll_joint": 0.1677,
+    "left_shoulder_yaw_joint": 0.0423,
+    "left_elbow_joint": 0.7837,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.5737,
+    "right_shoulder_roll_joint": -0.1911,
+    "right_shoulder_yaw_joint": -0.0285,
+    "right_elbow_joint": 0.8313,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 3.948,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.7617,
+    "left_shoulder_roll_joint": 0.1926,
+    "left_shoulder_yaw_joint": 0.0533,
+    "left_elbow_joint": 0.7438,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.7625,
+    "right_shoulder_roll_joint": -0.2268,
+    "right_shoulder_yaw_joint": -0.043,
+    "right_elbow_joint": 0.7887,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.6084,
+    "left_shoulder_roll_joint": 0.1671,
+    "left_shoulder_yaw_joint": 0.0409,
+    "left_elbow_joint": 0.7844,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.6117,
+    "right_shoulder_roll_joint": -0.1903,
+    "right_shoulder_yaw_joint": -0.0287,
+    "right_elbow_joint": 0.8327,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.019,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.7981,
+    "left_shoulder_roll_joint": 0.193,
+    "left_shoulder_yaw_joint": 0.0533,
+    "left_elbow_joint": 0.7462,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.8019,
+    "right_shoulder_roll_joint": -0.2286,
+    "right_shoulder_yaw_joint": -0.0432,
+    "right_elbow_joint": 0.7891,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.6425,
+    "left_shoulder_roll_joint": 0.1673,
+    "left_shoulder_yaw_joint": 0.0416,
+    "left_elbow_joint": 0.7868,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.6467,
+    "right_shoulder_roll_joint": -0.1903,
+    "right_shoulder_yaw_joint": -0.0288,
+    "right_elbow_joint": 0.8345,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.088,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.8324,
+    "left_shoulder_roll_joint": 0.1941,
+    "left_shoulder_yaw_joint": 0.0538,
+    "left_elbow_joint": 0.7506,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.8404,
+    "right_shoulder_roll_joint": -0.2321,
+    "right_shoulder_yaw_joint": -0.0434,
+    "right_elbow_joint": 0.7897,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.6755,
+    "left_shoulder_roll_joint": 0.1673,
+    "left_shoulder_yaw_joint": 0.0413,
+    "left_elbow_joint": 0.7885,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.6807,
+    "right_shoulder_roll_joint": -0.1902,
+    "right_shoulder_yaw_joint": -0.0287,
+    "right_elbow_joint": 0.8342,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.162,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.8708,
+    "left_shoulder_roll_joint": 0.1951,
+    "left_shoulder_yaw_joint": 0.055,
+    "left_elbow_joint": 0.7595,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.879,
+    "right_shoulder_roll_joint": -0.2375,
+    "right_shoulder_yaw_joint": -0.043,
+    "right_elbow_joint": 0.7899,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.7083,
+    "left_shoulder_roll_joint": 0.1673,
+    "left_shoulder_yaw_joint": 0.0414,
+    "left_elbow_joint": 0.7939,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.717,
+    "right_shoulder_roll_joint": -0.1905,
+    "right_shoulder_yaw_joint": -0.0288,
+    "right_elbow_joint": 0.8349,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.234,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.9025,
+    "left_shoulder_roll_joint": 0.2035,
+    "left_shoulder_yaw_joint": 0.0567,
+    "left_elbow_joint": 0.7612,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.9169,
+    "right_shoulder_roll_joint": -0.2396,
+    "right_shoulder_yaw_joint": -0.0437,
+    "right_elbow_joint": 0.7886,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.7415,
+    "left_shoulder_roll_joint": 0.1674,
+    "left_shoulder_yaw_joint": 0.0415,
+    "left_elbow_joint": 0.8011,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.7523,
+    "right_shoulder_roll_joint": -0.1908,
+    "right_shoulder_yaw_joint": -0.0288,
+    "right_elbow_joint": 0.8344,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.303,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.9333,
+    "left_shoulder_roll_joint": 0.2159,
+    "left_shoulder_yaw_joint": 0.0634,
+    "left_elbow_joint": 0.7619,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.9523,
+    "right_shoulder_roll_joint": -0.2412,
+    "right_shoulder_yaw_joint": -0.044,
+    "right_elbow_joint": 0.7886,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.7697,
+    "left_shoulder_roll_joint": 0.1702,
+    "left_shoulder_yaw_joint": 0.0421,
+    "left_elbow_joint": 0.8035,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.7853,
+    "right_shoulder_roll_joint": -0.1911,
+    "right_shoulder_yaw_joint": -0.0287,
+    "right_elbow_joint": 0.8349,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.372,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.9656,
+    "left_shoulder_roll_joint": 0.2324,
+    "left_shoulder_yaw_joint": 0.0686,
+    "left_elbow_joint": 0.7624,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.9874,
+    "right_shoulder_roll_joint": -0.2452,
+    "right_shoulder_yaw_joint": -0.0442,
+    "right_elbow_joint": 0.7896,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.7978,
+    "left_shoulder_roll_joint": 0.1756,
+    "left_shoulder_yaw_joint": 0.0474,
+    "left_elbow_joint": 0.8051,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.8194,
+    "right_shoulder_roll_joint": -0.1921,
+    "right_shoulder_yaw_joint": -0.029,
+    "right_elbow_joint": 0.8345,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.438,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.9969,
+    "left_shoulder_roll_joint": 0.2506,
+    "left_shoulder_yaw_joint": 0.0707,
+    "left_elbow_joint": 0.7631,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -1.0199,
+    "right_shoulder_roll_joint": -0.2567,
+    "right_shoulder_yaw_joint": -0.044,
+    "right_elbow_joint": 0.7904,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.8253,
+    "left_shoulder_roll_joint": 0.1859,
+    "left_shoulder_yaw_joint": 0.0493,
+    "left_elbow_joint": 0.806,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.8491,
+    "right_shoulder_roll_joint": -0.1987,
+    "right_shoulder_yaw_joint": -0.0276,
+    "right_elbow_joint": 0.8348,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.504,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.0268,
+    "left_shoulder_roll_joint": 0.2699,
+    "left_shoulder_yaw_joint": 0.0714,
+    "left_elbow_joint": 0.7637,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.0509,
+    "right_shoulder_roll_joint": -0.2766,
+    "right_shoulder_yaw_joint": -0.044,
+    "right_elbow_joint": 0.7901,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.8542,
+    "left_shoulder_roll_joint": 0.2054,
+    "left_shoulder_yaw_joint": 0.0521,
+    "left_elbow_joint": 0.8078,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.8775,
+    "right_shoulder_roll_joint": -0.2119,
+    "right_shoulder_yaw_joint": -0.0288,
+    "right_elbow_joint": 0.8358,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.578,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.0567,
+    "left_shoulder_roll_joint": 0.2913,
+    "left_shoulder_yaw_joint": 0.0725,
+    "left_elbow_joint": 0.7634,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -1.0838,
+    "right_shoulder_roll_joint": -0.3025,
+    "right_shoulder_yaw_joint": -0.0448,
+    "right_elbow_joint": 0.7895,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.8866,
+    "left_shoulder_roll_joint": 0.2299,
+    "left_shoulder_yaw_joint": 0.0587,
+    "left_elbow_joint": 0.8089,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.9116,
+    "right_shoulder_roll_joint": -0.2341,
+    "right_shoulder_yaw_joint": -0.0283,
+    "right_elbow_joint": 0.8353,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.648,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.0849,
+    "left_shoulder_roll_joint": 0.3112,
+    "left_shoulder_yaw_joint": 0.0728,
+    "left_elbow_joint": 0.7638,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.1155,
+    "right_shoulder_roll_joint": -0.3241,
+    "right_shoulder_yaw_joint": -0.045,
+    "right_elbow_joint": 0.7908,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.9137,
+    "left_shoulder_roll_joint": 0.2504,
+    "left_shoulder_yaw_joint": 0.0661,
+    "left_elbow_joint": 0.8102,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.9407,
+    "right_shoulder_roll_joint": -0.2573,
+    "right_shoulder_yaw_joint": -0.0286,
+    "right_elbow_joint": 0.8353,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.718,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.1159,
+    "left_shoulder_roll_joint": 0.3227,
+    "left_shoulder_yaw_joint": 0.0748,
+    "left_elbow_joint": 0.7641,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.1433,
+    "right_shoulder_roll_joint": -0.3412,
+    "right_shoulder_yaw_joint": -0.0464,
+    "right_elbow_joint": 0.7932,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.9389,
+    "left_shoulder_roll_joint": 0.2707,
+    "left_shoulder_yaw_joint": 0.0671,
+    "left_elbow_joint": 0.8122,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.9717,
+    "right_shoulder_roll_joint": -0.2798,
+    "right_shoulder_yaw_joint": -0.0287,
+    "right_elbow_joint": 0.836,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.786,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.1485,
+    "left_shoulder_roll_joint": 0.3287,
+    "left_shoulder_yaw_joint": 0.076,
+    "left_elbow_joint": 0.7633,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.1677,
+    "right_shoulder_roll_joint": -0.3461,
+    "right_shoulder_yaw_joint": -0.047,
+    "right_elbow_joint": 0.7929,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.9641,
+    "left_shoulder_roll_joint": 0.2827,
+    "left_shoulder_yaw_joint": 0.0684,
+    "left_elbow_joint": 0.8128,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.9982,
+    "right_shoulder_roll_joint": -0.2981,
+    "right_shoulder_yaw_joint": -0.0303,
+    "right_elbow_joint": 0.8359,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 4.856,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.1852,
+    "left_shoulder_roll_joint": 0.3301,
+    "left_shoulder_yaw_joint": 0.0757,
+    "left_elbow_joint": 0.7631,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.194,
+    "right_shoulder_roll_joint": -0.3468,
+    "right_shoulder_yaw_joint": -0.0467,
+    "right_elbow_joint": 0.7935,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.9931,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0694,
+    "left_elbow_joint": 0.8142,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.0242,
+    "right_shoulder_roll_joint": -0.3061,
+    "right_shoulder_yaw_joint": -0.0335,
+    "right_elbow_joint": 0.8355,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 4.93,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.2246,
+    "left_shoulder_roll_joint": 0.3297,
+    "left_shoulder_yaw_joint": 0.0747,
+    "left_elbow_joint": 0.7627,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.2218,
+    "right_shoulder_roll_joint": -0.3465,
+    "right_shoulder_yaw_joint": -0.0464,
+    "right_elbow_joint": 0.7933,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.0304,
+    "left_shoulder_roll_joint": 0.2899,
+    "left_shoulder_yaw_joint": 0.0685,
+    "left_elbow_joint": 0.8148,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.0472,
+    "right_shoulder_roll_joint": -0.3047,
+    "right_shoulder_yaw_joint": -0.0351,
+    "right_elbow_joint": 0.8357,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.001,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.2601,
+    "left_shoulder_roll_joint": 0.3297,
+    "left_shoulder_yaw_joint": 0.0744,
+    "left_elbow_joint": 0.762,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.2479,
+    "right_shoulder_roll_joint": -0.3466,
+    "right_shoulder_yaw_joint": -0.0465,
+    "right_elbow_joint": 0.7934,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.0697,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0689,
+    "left_elbow_joint": 0.815,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -1.0691,
+    "right_shoulder_roll_joint": -0.3049,
+    "right_shoulder_yaw_joint": -0.0351,
+    "right_elbow_joint": 0.8374,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 5.071,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.2914,
+    "left_shoulder_roll_joint": 0.3299,
+    "left_shoulder_yaw_joint": 0.0744,
+    "left_elbow_joint": 0.7614,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.2729,
+    "right_shoulder_roll_joint": -0.3467,
+    "right_shoulder_yaw_joint": -0.0466,
+    "right_elbow_joint": 0.7939,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.1068,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0685,
+    "left_elbow_joint": 0.8139,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.0951,
+    "right_shoulder_roll_joint": -0.3048,
+    "right_shoulder_yaw_joint": -0.0351,
+    "right_elbow_joint": 0.8374,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.141,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.3199,
+    "left_shoulder_roll_joint": 0.3299,
+    "left_shoulder_yaw_joint": 0.0742,
+    "left_elbow_joint": 0.7614,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -1.2982,
+    "right_shoulder_roll_joint": -0.3466,
+    "right_shoulder_yaw_joint": -0.0464,
+    "right_elbow_joint": 0.7933,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.1387,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0687,
+    "left_elbow_joint": 0.8129,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -1.1189,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0352,
+    "right_elbow_joint": 0.8368,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 5.214,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.35,
+    "left_shoulder_roll_joint": 0.3301,
+    "left_shoulder_yaw_joint": 0.0747,
+    "left_elbow_joint": 0.7619,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3236,
+    "right_shoulder_roll_joint": -0.3468,
+    "right_shoulder_yaw_joint": -0.0466,
+    "right_elbow_joint": 0.794,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.1663,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0685,
+    "left_elbow_joint": 0.8124,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.1455,
+    "right_shoulder_roll_joint": -0.3049,
+    "right_shoulder_yaw_joint": -0.0352,
+    "right_elbow_joint": 0.8371,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.284,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.3765,
+    "left_shoulder_roll_joint": 0.33,
+    "left_shoulder_yaw_joint": 0.0744,
+    "left_elbow_joint": 0.7609,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3473,
+    "right_shoulder_roll_joint": -0.347,
+    "right_shoulder_yaw_joint": -0.0466,
+    "right_elbow_joint": 0.7931,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.1891,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0685,
+    "left_elbow_joint": 0.8126,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -1.1675,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0352,
+    "right_elbow_joint": 0.8361,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.355,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.405,
+    "left_shoulder_roll_joint": 0.3305,
+    "left_shoulder_yaw_joint": 0.0748,
+    "left_elbow_joint": 0.7617,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3724,
+    "right_shoulder_roll_joint": -0.3473,
+    "right_shoulder_yaw_joint": -0.0467,
+    "right_elbow_joint": 0.7944,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2149,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0686,
+    "left_elbow_joint": 0.8127,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.193,
+    "right_shoulder_roll_joint": -0.3049,
+    "right_shoulder_yaw_joint": -0.0352,
+    "right_elbow_joint": 0.8378,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.425,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4316,
+    "left_shoulder_roll_joint": 0.3305,
+    "left_shoulder_yaw_joint": 0.0746,
+    "left_elbow_joint": 0.7615,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3935,
+    "right_shoulder_roll_joint": -0.3474,
+    "right_shoulder_yaw_joint": -0.0466,
+    "right_elbow_joint": 0.7937,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2428,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0687,
+    "left_elbow_joint": 0.8124,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -1.2159,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0352,
+    "right_elbow_joint": 0.8356,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.494,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4537,
+    "left_shoulder_roll_joint": 0.3306,
+    "left_shoulder_yaw_joint": 0.0742,
+    "left_elbow_joint": 0.7614,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.4103,
+    "right_shoulder_roll_joint": -0.3475,
+    "right_shoulder_yaw_joint": -0.0466,
+    "right_elbow_joint": 0.7956,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2692,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0686,
+    "left_elbow_joint": 0.8122,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2362,
+    "right_shoulder_roll_joint": -0.3049,
+    "right_shoulder_yaw_joint": -0.0352,
+    "right_elbow_joint": 0.8357,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.565,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4675,
+    "left_shoulder_roll_joint": 0.3305,
+    "left_shoulder_yaw_joint": 0.0737,
+    "left_elbow_joint": 0.7614,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.4213,
+    "right_shoulder_roll_joint": -0.3474,
+    "right_shoulder_yaw_joint": -0.0462,
+    "right_elbow_joint": 0.7974,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.294,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0685,
+    "left_elbow_joint": 0.8116,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2559,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0352,
+    "right_elbow_joint": 0.8359,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.63,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4714,
+    "left_shoulder_roll_joint": 0.3304,
+    "left_shoulder_yaw_joint": 0.0732,
+    "left_elbow_joint": 0.7617,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.4249,
+    "right_shoulder_roll_joint": -0.3474,
+    "right_shoulder_yaw_joint": -0.0458,
+    "right_elbow_joint": 0.7988,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.3102,
+    "left_shoulder_roll_joint": 0.2901,
+    "left_shoulder_yaw_joint": 0.0686,
+    "left_elbow_joint": 0.8106,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2694,
+    "right_shoulder_roll_joint": -0.3049,
+    "right_shoulder_yaw_joint": -0.035,
+    "right_elbow_joint": 0.8369,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.702,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4683,
+    "left_shoulder_roll_joint": 0.3304,
+    "left_shoulder_yaw_joint": 0.0724,
+    "left_elbow_joint": 0.7624,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.4241,
+    "right_shoulder_roll_joint": -0.3473,
+    "right_shoulder_yaw_joint": -0.0457,
+    "right_elbow_joint": 0.8027,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.3198,
+    "left_shoulder_roll_joint": 0.2901,
+    "left_shoulder_yaw_joint": 0.0683,
+    "left_elbow_joint": 0.8104,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2717,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0351,
+    "right_elbow_joint": 0.8364,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.773,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4599,
+    "left_shoulder_roll_joint": 0.3302,
+    "left_shoulder_yaw_joint": 0.0721,
+    "left_elbow_joint": 0.7627,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.4215,
+    "right_shoulder_roll_joint": -0.3471,
+    "right_shoulder_yaw_joint": -0.0454,
+    "right_elbow_joint": 0.8104,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.3205,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0681,
+    "left_elbow_joint": 0.8107,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2717,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0351,
+    "right_elbow_joint": 0.841,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.842,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4479,
+    "left_shoulder_roll_joint": 0.3294,
+    "left_shoulder_yaw_joint": 0.0709,
+    "left_elbow_joint": 0.7632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.4143,
+    "right_shoulder_roll_joint": -0.3465,
+    "right_shoulder_yaw_joint": -0.0441,
+    "right_elbow_joint": 0.8141,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.3202,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.068,
+    "left_elbow_joint": 0.8107,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2717,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0351,
+    "right_elbow_joint": 0.8479,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.911,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4318,
+    "left_shoulder_roll_joint": 0.329,
+    "left_shoulder_yaw_joint": 0.0704,
+    "left_elbow_joint": 0.7644,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3964,
+    "right_shoulder_roll_joint": -0.3457,
+    "right_shoulder_yaw_joint": -0.0433,
+    "right_elbow_joint": 0.8181,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.3186,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0674,
+    "left_elbow_joint": 0.8107,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2711,
+    "right_shoulder_roll_joint": -0.3049,
+    "right_shoulder_yaw_joint": -0.035,
+    "right_elbow_joint": 0.8569,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 5.985,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.4109,
+    "left_shoulder_roll_joint": 0.3289,
+    "left_shoulder_yaw_joint": 0.0701,
+    "left_elbow_joint": 0.7666,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3756,
+    "right_shoulder_roll_joint": -0.3454,
+    "right_shoulder_yaw_joint": -0.043,
+    "right_elbow_joint": 0.8221,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.3079,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0672,
+    "left_elbow_joint": 0.8105,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2682,
+    "right_shoulder_roll_joint": -0.3049,
+    "right_shoulder_yaw_joint": -0.0349,
+    "right_elbow_joint": 0.8605,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.059,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.3936,
+    "left_shoulder_roll_joint": 0.3285,
+    "left_shoulder_yaw_joint": 0.0701,
+    "left_elbow_joint": 0.7691,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3554,
+    "right_shoulder_roll_joint": -0.3449,
+    "right_shoulder_yaw_joint": -0.0429,
+    "right_elbow_joint": 0.828,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2878,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0665,
+    "left_elbow_joint": 0.812,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2596,
+    "right_shoulder_roll_joint": -0.305,
+    "right_shoulder_yaw_joint": -0.0349,
+    "right_elbow_joint": 0.8627,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.13,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.3786,
+    "left_shoulder_roll_joint": 0.3258,
+    "left_shoulder_yaw_joint": 0.0696,
+    "left_elbow_joint": 0.7722,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3341,
+    "right_shoulder_roll_joint": -0.3443,
+    "right_shoulder_yaw_joint": -0.0426,
+    "right_elbow_joint": 0.8311,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2675,
+    "left_shoulder_roll_joint": 0.29,
+    "left_shoulder_yaw_joint": 0.0665,
+    "left_elbow_joint": 0.8142,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.2399,
+    "right_shoulder_roll_joint": -0.3048,
+    "right_shoulder_yaw_joint": -0.0348,
+    "right_elbow_joint": 0.8696,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.198,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.3619,
+    "left_shoulder_roll_joint": 0.3214,
+    "left_shoulder_yaw_joint": 0.0689,
+    "left_elbow_joint": 0.776,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.3102,
+    "right_shoulder_roll_joint": -0.3435,
+    "right_shoulder_yaw_joint": -0.0419,
+    "right_elbow_joint": 0.8333,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2485,
+    "left_shoulder_roll_joint": 0.2899,
+    "left_shoulder_yaw_joint": 0.0666,
+    "left_elbow_joint": 0.8166,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.212,
+    "right_shoulder_roll_joint": -0.3047,
+    "right_shoulder_yaw_joint": -0.0346,
+    "right_elbow_joint": 0.8764,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.271,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.3366,
+    "left_shoulder_roll_joint": 0.3142,
+    "left_shoulder_yaw_joint": 0.0686,
+    "left_elbow_joint": 0.7802,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.2796,
+    "right_shoulder_roll_joint": -0.3423,
+    "right_shoulder_yaw_joint": -0.0411,
+    "right_elbow_joint": 0.8347,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2323,
+    "left_shoulder_roll_joint": 0.2893,
+    "left_shoulder_yaw_joint": 0.0664,
+    "left_elbow_joint": 0.8202,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -1.1819,
+    "right_shoulder_roll_joint": -0.3047,
+    "right_shoulder_yaw_joint": -0.0344,
+    "right_elbow_joint": 0.8779,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.34,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.3048,
+    "left_shoulder_roll_joint": 0.3068,
+    "left_shoulder_yaw_joint": 0.0685,
+    "left_elbow_joint": 0.7828,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.2461,
+    "right_shoulder_roll_joint": -0.3396,
+    "right_shoulder_yaw_joint": -0.0413,
+    "right_elbow_joint": 0.8346,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.2137,
+    "left_shoulder_roll_joint": 0.2885,
+    "left_shoulder_yaw_joint": 0.0663,
+    "left_elbow_joint": 0.8201,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -1.1515,
+    "right_shoulder_roll_joint": -0.3046,
+    "right_shoulder_yaw_joint": -0.0342,
+    "right_elbow_joint": 0.8779,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 6.409,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.2668,
+    "left_shoulder_roll_joint": 0.3028,
+    "left_shoulder_yaw_joint": 0.0678,
+    "left_elbow_joint": 0.7845,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.2085,
+    "right_shoulder_roll_joint": -0.3326,
+    "right_shoulder_yaw_joint": -0.0412,
+    "right_elbow_joint": 0.8356,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.1859,
+    "left_shoulder_roll_joint": 0.2883,
+    "left_shoulder_yaw_joint": 0.0661,
+    "left_elbow_joint": 0.8204,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.122,
+    "right_shoulder_roll_joint": -0.3042,
+    "right_shoulder_yaw_joint": -0.0341,
+    "right_elbow_joint": 0.8795,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.48,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.2207,
+    "left_shoulder_roll_joint": 0.2964,
+    "left_shoulder_yaw_joint": 0.0676,
+    "left_elbow_joint": 0.7854,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.1648,
+    "right_shoulder_roll_joint": -0.3238,
+    "right_shoulder_yaw_joint": -0.0403,
+    "right_elbow_joint": 0.8357,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.1474,
+    "left_shoulder_roll_joint": 0.2868,
+    "left_shoulder_yaw_joint": 0.0658,
+    "left_elbow_joint": 0.821,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.0879,
+    "right_shoulder_roll_joint": -0.3034,
+    "right_shoulder_yaw_joint": -0.0341,
+    "right_elbow_joint": 0.8789,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.554,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.1696,
+    "left_shoulder_roll_joint": 0.2936,
+    "left_shoulder_yaw_joint": 0.0667,
+    "left_elbow_joint": 0.7864,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.1172,
+    "right_shoulder_roll_joint": -0.3201,
+    "right_shoulder_yaw_joint": -0.0394,
+    "right_elbow_joint": 0.8356,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.0979,
+    "left_shoulder_roll_joint": 0.2774,
+    "left_shoulder_yaw_joint": 0.0653,
+    "left_elbow_joint": 0.8232,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.0434,
+    "right_shoulder_roll_joint": -0.3025,
+    "right_shoulder_yaw_joint": -0.0335,
+    "right_elbow_joint": 0.88,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.621,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.1219,
+    "left_shoulder_roll_joint": 0.2901,
+    "left_shoulder_yaw_joint": 0.0668,
+    "left_elbow_joint": 0.7858,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.0702,
+    "right_shoulder_roll_joint": -0.3193,
+    "right_shoulder_yaw_joint": -0.039,
+    "right_elbow_joint": 0.8369,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -1.048,
+    "left_shoulder_roll_joint": 0.2669,
+    "left_shoulder_yaw_joint": 0.065,
+    "left_elbow_joint": 0.8234,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -1.0002,
+    "right_shoulder_roll_joint": -0.2964,
+    "right_shoulder_yaw_joint": -0.0323,
+    "right_elbow_joint": 0.8797,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.69,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.0734,
+    "left_shoulder_roll_joint": 0.289,
+    "left_shoulder_yaw_joint": 0.0667,
+    "left_elbow_joint": 0.786,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -1.0224,
+    "right_shoulder_roll_joint": -0.3149,
+    "right_shoulder_yaw_joint": -0.0388,
+    "right_elbow_joint": 0.8377,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.9969,
+    "left_shoulder_roll_joint": 0.2612,
+    "left_shoulder_yaw_joint": 0.0641,
+    "left_elbow_joint": 0.8244,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.9517,
+    "right_shoulder_roll_joint": -0.2911,
+    "right_shoulder_yaw_joint": -0.028,
+    "right_elbow_joint": 0.8804,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.763,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -1.0215,
+    "left_shoulder_roll_joint": 0.2888,
+    "left_shoulder_yaw_joint": 0.0665,
+    "left_elbow_joint": 0.7852,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.9722,
+    "right_shoulder_roll_joint": -0.3123,
+    "right_shoulder_yaw_joint": -0.0387,
+    "right_elbow_joint": 0.8378,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.9483,
+    "left_shoulder_roll_joint": 0.259,
+    "left_shoulder_yaw_joint": 0.0642,
+    "left_elbow_joint": 0.8275,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.902,
+    "right_shoulder_roll_joint": -0.2844,
+    "right_shoulder_yaw_joint": -0.0265,
+    "right_elbow_joint": 0.8824,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 6.833,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.9717,
+    "left_shoulder_roll_joint": 0.2882,
+    "left_shoulder_yaw_joint": 0.066,
+    "left_elbow_joint": 0.7844,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.9248,
+    "right_shoulder_roll_joint": -0.3113,
+    "right_shoulder_yaw_joint": -0.0383,
+    "right_elbow_joint": 0.8379,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.9035,
+    "left_shoulder_roll_joint": 0.2581,
+    "left_shoulder_yaw_joint": 0.0645,
+    "left_elbow_joint": 0.8266,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.8548,
+    "right_shoulder_roll_joint": -0.2806,
+    "right_shoulder_yaw_joint": -0.0265,
+    "right_elbow_joint": 0.8818,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.905,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.9207,
+    "left_shoulder_roll_joint": 0.2877,
+    "left_shoulder_yaw_joint": 0.0655,
+    "left_elbow_joint": 0.784,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": -0.8778,
+    "right_shoulder_roll_joint": -0.3083,
+    "right_shoulder_yaw_joint": -0.0379,
+    "right_elbow_joint": 0.8382,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.8556,
+    "left_shoulder_roll_joint": 0.2581,
+    "left_shoulder_yaw_joint": 0.0644,
+    "left_elbow_joint": 0.8277,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.8102,
+    "right_shoulder_roll_joint": -0.2788,
+    "right_shoulder_yaw_joint": -0.0263,
+    "right_elbow_joint": 0.8838,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 6.978,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.8692,
+    "left_shoulder_roll_joint": 0.2872,
+    "left_shoulder_yaw_joint": 0.0656,
+    "left_elbow_joint": 0.7831,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.8314,
+    "right_shoulder_roll_joint": -0.3039,
+    "right_shoulder_yaw_joint": -0.0359,
+    "right_elbow_joint": 0.8383,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.8075,
+    "left_shoulder_roll_joint": 0.258,
+    "left_shoulder_yaw_joint": 0.0642,
+    "left_elbow_joint": 0.8265,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.7681,
+    "right_shoulder_roll_joint": -0.2783,
+    "right_shoulder_yaw_joint": -0.0263,
+    "right_elbow_joint": 0.8828,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 7.046,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.8227,
+    "left_shoulder_roll_joint": 0.2841,
+    "left_shoulder_yaw_joint": 0.0648,
+    "left_elbow_joint": 0.7828,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.7866,
+    "right_shoulder_roll_joint": -0.3032,
+    "right_shoulder_yaw_joint": -0.0295,
+    "right_elbow_joint": 0.8383,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.761,
+    "left_shoulder_roll_joint": 0.2578,
+    "left_shoulder_yaw_joint": 0.0642,
+    "left_elbow_joint": 0.8269,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.7271,
+    "right_shoulder_roll_joint": -0.2779,
+    "right_shoulder_yaw_joint": -0.0256,
+    "right_elbow_joint": 0.8833,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 7.121,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.7781,
+    "left_shoulder_roll_joint": 0.2791,
+    "left_shoulder_yaw_joint": 0.0645,
+    "left_elbow_joint": 0.7818,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.7424,
+    "right_shoulder_roll_joint": -0.3029,
+    "right_shoulder_yaw_joint": -0.0253,
+    "right_elbow_joint": 0.838,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.7139,
+    "left_shoulder_roll_joint": 0.2568,
+    "left_shoulder_yaw_joint": 0.0641,
+    "left_elbow_joint": 0.826,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.6831,
+    "right_shoulder_roll_joint": -0.2771,
+    "right_shoulder_yaw_joint": -0.0219,
+    "right_elbow_joint": 0.8829,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 7.193,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.7351,
+    "left_shoulder_roll_joint": 0.2774,
+    "left_shoulder_yaw_joint": 0.0644,
+    "left_elbow_joint": 0.7801,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.7044,
+    "right_shoulder_roll_joint": -0.3011,
+    "right_shoulder_yaw_joint": -0.0232,
+    "right_elbow_joint": 0.8384,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.6748,
+    "left_shoulder_roll_joint": 0.2554,
+    "left_shoulder_yaw_joint": 0.0641,
+    "left_elbow_joint": 0.826,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.6439,
+    "right_shoulder_roll_joint": -0.2737,
+    "right_shoulder_yaw_joint": -0.021,
+    "right_elbow_joint": 0.8837,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 7.267,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.696,
+    "left_shoulder_roll_joint": 0.2708,
+    "left_shoulder_yaw_joint": 0.0643,
+    "left_elbow_joint": 0.7791,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.6657,
+    "right_shoulder_roll_joint": -0.3004,
+    "right_shoulder_yaw_joint": -0.0227,
+    "right_elbow_joint": 0.8398,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.6356,
+    "left_shoulder_roll_joint": 0.2487,
+    "left_shoulder_yaw_joint": 0.0645,
+    "left_elbow_joint": 0.8228,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.6049,
+    "right_shoulder_roll_joint": -0.2712,
+    "right_shoulder_yaw_joint": -0.0189,
+    "right_elbow_joint": 0.8835,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 7.339,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.6589,
+    "left_shoulder_roll_joint": 0.2638,
+    "left_shoulder_yaw_joint": 0.0629,
+    "left_elbow_joint": 0.7792,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.6279,
+    "right_shoulder_roll_joint": -0.2949,
+    "right_shoulder_yaw_joint": -0.0218,
+    "right_elbow_joint": 0.8401,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.6005,
+    "left_shoulder_roll_joint": 0.247,
+    "left_shoulder_yaw_joint": 0.062,
+    "left_elbow_joint": 0.8225,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.5724,
+    "right_shoulder_roll_joint": -0.2695,
+    "right_shoulder_yaw_joint": -0.0179,
+    "right_elbow_joint": 0.8832,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.413,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.6203,
+    "left_shoulder_roll_joint": 0.2568,
+    "left_shoulder_yaw_joint": 0.0608,
+    "left_elbow_joint": 0.7787,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.5901,
+    "right_shoulder_roll_joint": -0.2882,
+    "right_shoulder_yaw_joint": -0.022,
+    "right_elbow_joint": 0.841,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.5655,
+    "left_shoulder_roll_joint": 0.2462,
+    "left_shoulder_yaw_joint": 0.0621,
+    "left_elbow_joint": 0.8223,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.5384,
+    "right_shoulder_roll_joint": -0.2663,
+    "right_shoulder_yaw_joint": -0.0182,
+    "right_elbow_joint": 0.8824,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 7.487,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.5839,
+    "left_shoulder_roll_joint": 0.2506,
+    "left_shoulder_yaw_joint": 0.0588,
+    "left_elbow_joint": 0.7782,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.5534,
+    "right_shoulder_roll_joint": -0.2826,
+    "right_shoulder_yaw_joint": -0.0219,
+    "right_elbow_joint": 0.8429,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.5332,
+    "left_shoulder_roll_joint": 0.2356,
+    "left_shoulder_yaw_joint": 0.0609,
+    "left_elbow_joint": 0.8208,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.5031,
+    "right_shoulder_roll_joint": -0.2615,
+    "right_shoulder_yaw_joint": -0.0171,
+    "right_elbow_joint": 0.8832,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.557,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.551,
+    "left_shoulder_roll_joint": 0.2484,
+    "left_shoulder_yaw_joint": 0.0527,
+    "left_elbow_joint": 0.7778,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.5212,
+    "right_shoulder_roll_joint": -0.2779,
+    "right_shoulder_yaw_joint": -0.0213,
+    "right_elbow_joint": 0.8451,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4983,
+    "left_shoulder_roll_joint": 0.2259,
+    "left_shoulder_yaw_joint": 0.0588,
+    "left_elbow_joint": 0.8209,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.4724,
+    "right_shoulder_roll_joint": -0.254,
+    "right_shoulder_yaw_joint": -0.017,
+    "right_elbow_joint": 0.8829,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.631,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.517,
+    "left_shoulder_roll_joint": 0.2482,
+    "left_shoulder_yaw_joint": 0.0447,
+    "left_elbow_joint": 0.7781,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.487,
+    "right_shoulder_roll_joint": -0.2734,
+    "right_shoulder_yaw_joint": -0.021,
+    "right_elbow_joint": 0.8479,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4648,
+    "left_shoulder_roll_joint": 0.2212,
+    "left_shoulder_yaw_joint": 0.0447,
+    "left_elbow_joint": 0.8212,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.4385,
+    "right_shoulder_roll_joint": -0.2532,
+    "right_shoulder_yaw_joint": -0.0143,
+    "right_elbow_joint": 0.8849,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.705,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.4845,
+    "left_shoulder_roll_joint": 0.2481,
+    "left_shoulder_yaw_joint": 0.0403,
+    "left_elbow_joint": 0.7786,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.4533,
+    "right_shoulder_roll_joint": -0.2687,
+    "right_shoulder_yaw_joint": -0.0212,
+    "right_elbow_joint": 0.8501,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4368,
+    "left_shoulder_roll_joint": 0.2213,
+    "left_shoulder_yaw_joint": 0.036,
+    "left_elbow_joint": 0.821,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.4103,
+    "right_shoulder_roll_joint": -0.253,
+    "right_shoulder_yaw_joint": -0.014,
+    "right_elbow_joint": 0.8868,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.77,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.4562,
+    "left_shoulder_roll_joint": 0.2478,
+    "left_shoulder_yaw_joint": 0.0384,
+    "left_elbow_joint": 0.7786,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.4257,
+    "right_shoulder_roll_joint": -0.2645,
+    "right_shoulder_yaw_joint": -0.0212,
+    "right_elbow_joint": 0.8516,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.4137,
+    "left_shoulder_roll_joint": 0.2213,
+    "left_shoulder_yaw_joint": 0.0313,
+    "left_elbow_joint": 0.8204,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.3849,
+    "right_shoulder_roll_joint": -0.2497,
+    "right_shoulder_yaw_joint": -0.0143,
+    "right_elbow_joint": 0.8872,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.84,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.4279,
+    "left_shoulder_roll_joint": 0.2469,
+    "left_shoulder_yaw_joint": 0.033,
+    "left_elbow_joint": 0.7794,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.3976,
+    "right_shoulder_roll_joint": -0.2632,
+    "right_shoulder_yaw_joint": -0.0199,
+    "right_elbow_joint": 0.8542,
+    "right_wrist_roll_joint": -0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.3843,
+    "left_shoulder_roll_joint": 0.2213,
+    "left_shoulder_yaw_joint": 0.0278,
+    "left_elbow_joint": 0.8204,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.3574,
+    "right_shoulder_roll_joint": -0.2377,
+    "right_shoulder_yaw_joint": -0.014,
+    "right_elbow_joint": 0.8882,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.914,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.3943,
+    "left_shoulder_roll_joint": 0.2455,
+    "left_shoulder_yaw_joint": 0.0279,
+    "left_elbow_joint": 0.7788,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.3686,
+    "right_shoulder_roll_joint": -0.2627,
+    "right_shoulder_yaw_joint": -0.0168,
+    "right_elbow_joint": 0.8562,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.3563,
+    "left_shoulder_roll_joint": 0.2209,
+    "left_shoulder_yaw_joint": 0.0264,
+    "left_elbow_joint": 0.8204,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.3263,
+    "right_shoulder_roll_joint": -0.2324,
+    "right_shoulder_yaw_joint": -0.0115,
+    "right_elbow_joint": 0.8908,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 7.986,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.3574,
+    "left_shoulder_roll_joint": 0.2386,
+    "left_shoulder_yaw_joint": 0.0278,
+    "left_elbow_joint": 0.7808,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.339,
+    "right_shoulder_roll_joint": -0.2624,
+    "right_shoulder_yaw_joint": -0.0101,
+    "right_elbow_joint": 0.8604,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.3264,
+    "left_shoulder_roll_joint": 0.2205,
+    "left_shoulder_yaw_joint": 0.0249,
+    "left_elbow_joint": 0.8199,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.3019,
+    "right_shoulder_roll_joint": -0.2303,
+    "right_shoulder_yaw_joint": -0.0053,
+    "right_elbow_joint": 0.8926,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 8.059,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.3181,
+    "left_shoulder_roll_joint": 0.2288,
+    "left_shoulder_yaw_joint": 0.0265,
+    "left_elbow_joint": 0.7854,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.3043,
+    "right_shoulder_roll_joint": -0.2619,
+    "right_shoulder_yaw_joint": -0.0014,
+    "right_elbow_joint": 0.8612,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.2947,
+    "left_shoulder_roll_joint": 0.2158,
+    "left_shoulder_yaw_joint": 0.0248,
+    "left_elbow_joint": 0.8203,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.2768,
+    "right_shoulder_roll_joint": -0.2303,
+    "right_shoulder_yaw_joint": -0.0011,
+    "right_elbow_joint": 0.8928,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 8.133,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.2747,
+    "left_shoulder_roll_joint": 0.2113,
+    "left_shoulder_yaw_joint": 0.0268,
+    "left_elbow_joint": 0.7885,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.2694,
+    "right_shoulder_roll_joint": -0.2565,
+    "right_shoulder_yaw_joint": -0.0005,
+    "right_elbow_joint": 0.8632,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.2567,
+    "left_shoulder_roll_joint": 0.2057,
+    "left_shoulder_yaw_joint": 0.0238,
+    "left_elbow_joint": 0.8213,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.248,
+    "right_shoulder_roll_joint": -0.2299,
+    "right_shoulder_yaw_joint": 0.0025,
+    "right_elbow_joint": 0.8931,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.204,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.2335,
+    "left_shoulder_roll_joint": 0.1942,
+    "left_shoulder_yaw_joint": 0.0258,
+    "left_elbow_joint": 0.7912,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.2323,
+    "right_shoulder_roll_joint": -0.2502,
+    "right_shoulder_yaw_joint": 0.0013,
+    "right_elbow_joint": 0.8674,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.2204,
+    "left_shoulder_roll_joint": 0.1925,
+    "left_shoulder_yaw_joint": 0.0242,
+    "left_elbow_joint": 0.8214,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": -0.2174,
+    "right_shoulder_roll_joint": -0.2286,
+    "right_shoulder_yaw_joint": 0.0034,
+    "right_elbow_joint": 0.8938,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 8.272,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.1983,
+    "left_shoulder_roll_joint": 0.1818,
+    "left_shoulder_yaw_joint": 0.0249,
+    "left_elbow_joint": 0.7931,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.1986,
+    "right_shoulder_roll_joint": -0.2445,
+    "right_shoulder_yaw_joint": 0.0027,
+    "right_elbow_joint": 0.8696,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.1831,
+    "left_shoulder_roll_joint": 0.1782,
+    "left_shoulder_yaw_joint": 0.0238,
+    "left_elbow_joint": 0.8218,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.1858,
+    "right_shoulder_roll_joint": -0.2249,
+    "right_shoulder_yaw_joint": 0.0037,
+    "right_elbow_joint": 0.8972,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 8.342,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.1655,
+    "left_shoulder_roll_joint": 0.171,
+    "left_shoulder_yaw_joint": 0.0249,
+    "left_elbow_joint": 0.7951,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.1657,
+    "right_shoulder_roll_joint": -0.2405,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.8708,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.1499,
+    "left_shoulder_roll_joint": 0.1635,
+    "left_shoulder_yaw_joint": 0.0229,
+    "left_elbow_joint": 0.8239,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.1528,
+    "right_shoulder_roll_joint": -0.2213,
+    "right_shoulder_yaw_joint": 0.0078,
+    "right_elbow_joint": 0.9002,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.416,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.1301,
+    "left_shoulder_roll_joint": 0.1593,
+    "left_shoulder_yaw_joint": 0.0252,
+    "left_elbow_joint": 0.7976,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.1321,
+    "right_shoulder_roll_joint": -0.2382,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.8735,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.1177,
+    "left_shoulder_roll_joint": 0.1512,
+    "left_shoulder_yaw_joint": 0.0243,
+    "left_elbow_joint": 0.8236,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.1197,
+    "right_shoulder_roll_joint": -0.2202,
+    "right_shoulder_yaw_joint": 0.0106,
+    "right_elbow_joint": 0.901,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.481,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.0958,
+    "left_shoulder_roll_joint": 0.1514,
+    "left_shoulder_yaw_joint": 0.0246,
+    "left_elbow_joint": 0.8004,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.1034,
+    "right_shoulder_roll_joint": -0.2373,
+    "right_shoulder_yaw_joint": 0.0035,
+    "right_elbow_joint": 0.8767,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.0914,
+    "left_shoulder_roll_joint": 0.1468,
+    "left_shoulder_yaw_joint": 0.0233,
+    "left_elbow_joint": 0.8244,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.0958,
+    "right_shoulder_roll_joint": -0.2166,
+    "right_shoulder_yaw_joint": 0.0107,
+    "right_elbow_joint": 0.9041,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.549,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.0592,
+    "left_shoulder_roll_joint": 0.1498,
+    "left_shoulder_yaw_joint": 0.0241,
+    "left_elbow_joint": 0.8043,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.0729,
+    "right_shoulder_roll_joint": -0.2373,
+    "right_shoulder_yaw_joint": 0.0039,
+    "right_elbow_joint": 0.878,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.064,
+    "left_shoulder_roll_joint": 0.1406,
+    "left_shoulder_yaw_joint": 0.0233,
+    "left_elbow_joint": 0.824,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.0689,
+    "right_shoulder_roll_joint": -0.214,
+    "right_shoulder_yaw_joint": 0.0123,
+    "right_elbow_joint": 0.9074,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.623,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": -0.0217,
+    "left_shoulder_roll_joint": 0.1498,
+    "left_shoulder_yaw_joint": 0.0242,
+    "left_elbow_joint": 0.8099,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.0412,
+    "right_shoulder_roll_joint": -0.2382,
+    "right_shoulder_yaw_joint": 0.0037,
+    "right_elbow_joint": 0.8788,
+    "right_wrist_roll_joint": -0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": -0.0299,
+    "left_shoulder_roll_joint": 0.1331,
+    "left_shoulder_yaw_joint": 0.0245,
+    "left_elbow_joint": 0.8262,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.0374,
+    "right_shoulder_roll_joint": -0.2145,
+    "right_shoulder_yaw_joint": 0.0134,
+    "right_elbow_joint": 0.9094,
+    "right_wrist_roll_joint": -0.0008
+   }
+  },
+  {
+   "time_s": 8.696,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.0178,
+    "left_shoulder_roll_joint": 0.1502,
+    "left_shoulder_yaw_joint": 0.024,
+    "left_elbow_joint": 0.8148,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": -0.0106,
+    "right_shoulder_roll_joint": -0.2372,
+    "right_shoulder_yaw_joint": 0.007,
+    "right_elbow_joint": 0.881,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.0062,
+    "left_shoulder_roll_joint": 0.1317,
+    "left_shoulder_yaw_joint": 0.0228,
+    "left_elbow_joint": 0.8356,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": -0.0091,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0143,
+    "right_elbow_joint": 0.9124,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.768,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.0553,
+    "left_shoulder_roll_joint": 0.1503,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8184,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.0176,
+    "right_shoulder_roll_joint": -0.2372,
+    "right_shoulder_yaw_joint": 0.0125,
+    "right_elbow_joint": 0.8813,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.0409,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.842,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.0167,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0149,
+    "right_elbow_joint": 0.912,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.842,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.0893,
+    "left_shoulder_roll_joint": 0.1504,
+    "left_shoulder_yaw_joint": 0.022,
+    "left_elbow_joint": 0.8196,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.0415,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0156,
+    "right_elbow_joint": 0.8831,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.0751,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0233,
+    "left_elbow_joint": 0.8426,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.041,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0175,
+    "right_elbow_joint": 0.9117,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.913,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1182,
+    "left_shoulder_roll_joint": 0.1503,
+    "left_shoulder_yaw_joint": 0.0205,
+    "left_elbow_joint": 0.8208,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.063,
+    "right_shoulder_roll_joint": -0.2372,
+    "right_shoulder_yaw_joint": 0.0164,
+    "right_elbow_joint": 0.8837,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.1071,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.023,
+    "left_elbow_joint": 0.8434,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.0638,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0189,
+    "right_elbow_joint": 0.9131,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 8.984,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1449,
+    "left_shoulder_roll_joint": 0.1504,
+    "left_shoulder_yaw_joint": 0.0198,
+    "left_elbow_joint": 0.8229,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.0834,
+    "right_shoulder_roll_joint": -0.2372,
+    "right_shoulder_yaw_joint": 0.0167,
+    "right_elbow_joint": 0.8845,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.1336,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.8438,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.0806,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.019,
+    "right_elbow_joint": 0.9129,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.056,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1705,
+    "left_shoulder_roll_joint": 0.1505,
+    "left_shoulder_yaw_joint": 0.0196,
+    "left_elbow_joint": 0.8247,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1025,
+    "right_shoulder_roll_joint": -0.2373,
+    "right_shoulder_yaw_joint": 0.0171,
+    "right_elbow_joint": 0.8856,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.1552,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0214,
+    "left_elbow_joint": 0.8443,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.0964,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0191,
+    "right_elbow_joint": 0.9117,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.127,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.1963,
+    "left_shoulder_roll_joint": 0.1505,
+    "left_shoulder_yaw_joint": 0.0193,
+    "left_elbow_joint": 0.8254,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1205,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0176,
+    "right_elbow_joint": 0.886,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.1746,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0215,
+    "left_elbow_joint": 0.8444,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1113,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9128,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.196,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2213,
+    "left_shoulder_roll_joint": 0.1507,
+    "left_shoulder_yaw_joint": 0.0193,
+    "left_elbow_joint": 0.8263,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1376,
+    "right_shoulder_roll_joint": -0.237,
+    "right_shoulder_yaw_joint": 0.0183,
+    "right_elbow_joint": 0.8865,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.195,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0211,
+    "left_elbow_joint": 0.8439,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1263,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0195,
+    "right_elbow_joint": 0.9125,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.27,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2436,
+    "left_shoulder_roll_joint": 0.1508,
+    "left_shoulder_yaw_joint": 0.0201,
+    "left_elbow_joint": 0.829,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1541,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0184,
+    "right_elbow_joint": 0.8878,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.219,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0211,
+    "left_elbow_joint": 0.8442,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1447,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0195,
+    "right_elbow_joint": 0.9121,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.34,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2613,
+    "left_shoulder_roll_joint": 0.1508,
+    "left_shoulder_yaw_joint": 0.0204,
+    "left_elbow_joint": 0.8307,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1677,
+    "right_shoulder_roll_joint": -0.2372,
+    "right_shoulder_yaw_joint": 0.0184,
+    "right_elbow_joint": 0.8879,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2407,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.021,
+    "left_elbow_joint": 0.8446,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1628,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0195,
+    "right_elbow_joint": 0.9126,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.411,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2726,
+    "left_shoulder_roll_joint": 0.1508,
+    "left_shoulder_yaw_joint": 0.0209,
+    "left_elbow_joint": 0.8338,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1753,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0181,
+    "right_elbow_joint": 0.8971,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2566,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0212,
+    "left_elbow_joint": 0.8462,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1726,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0196,
+    "right_elbow_joint": 0.9125,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.483,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2742,
+    "left_shoulder_roll_joint": 0.1507,
+    "left_shoulder_yaw_joint": 0.0222,
+    "left_elbow_joint": 0.8332,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1735,
+    "right_shoulder_roll_joint": -0.2373,
+    "right_shoulder_yaw_joint": 0.0174,
+    "right_elbow_joint": 0.9177,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2666,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0212,
+    "left_elbow_joint": 0.8486,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1737,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0196,
+    "right_elbow_joint": 0.9208,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.552,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2718,
+    "left_shoulder_roll_joint": 0.1507,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8278,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0172,
+    "right_elbow_joint": 0.9217,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2667,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0216,
+    "left_elbow_joint": 0.8495,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1733,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0195,
+    "right_elbow_joint": 0.9318,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.617,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2647,
+    "left_shoulder_roll_joint": 0.1507,
+    "left_shoulder_yaw_joint": 0.0242,
+    "left_elbow_joint": 0.8384,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1723,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0165,
+    "right_elbow_joint": 0.922,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2665,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.022,
+    "left_elbow_joint": 0.8495,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1734,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0196,
+    "right_elbow_joint": 0.9369,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.691,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2569,
+    "left_shoulder_roll_joint": 0.1505,
+    "left_shoulder_yaw_joint": 0.0241,
+    "left_elbow_joint": 0.8527,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.172,
+    "right_shoulder_roll_joint": -0.2372,
+    "right_shoulder_yaw_joint": 0.0158,
+    "right_elbow_joint": 0.9223,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2648,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0226,
+    "left_elbow_joint": 0.8597,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1734,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0194,
+    "right_elbow_joint": 0.9379,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.762,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2509,
+    "left_shoulder_roll_joint": 0.1502,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8609,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1721,
+    "right_shoulder_roll_joint": -0.2373,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9227,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2621,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.8661,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1733,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9379,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.835,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2468,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8634,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1721,
+    "right_shoulder_roll_joint": -0.2372,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9227,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2548,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8704,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1733,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9381,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.909,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2462,
+    "left_shoulder_roll_joint": 0.1502,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8634,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.172,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9228,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2528,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8739,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1733,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 9.98,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2446,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2469,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8791,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9379,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.05,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2443,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.172,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9227,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2464,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.8814,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9379,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.122,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2442,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8819,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.193,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2442,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.8819,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9379,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.26,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2441,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8819,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.335,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8819,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9379,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.406,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.475,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9225,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.544,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.614,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.687,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.761,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.828,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.899,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2464,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 10.969,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2464,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.043,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.112,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.181,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.252,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.322,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.389,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2464,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.461,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2439,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2464,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.535,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.604,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.676,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8632,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.75,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8633,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.821,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8633,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.896,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.244,
+    "left_shoulder_roll_joint": 0.1501,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8633,
+    "left_wrist_roll_joint": -0.0045,
+    "right_shoulder_pitch_joint": 0.1719,
+    "right_shoulder_roll_joint": -0.2371,
+    "right_shoulder_yaw_joint": 0.0154,
+    "right_elbow_joint": 0.9226,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 11.97,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2438,
+    "left_shoulder_roll_joint": 0.1503,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8627,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1724,
+    "right_shoulder_roll_joint": -0.2365,
+    "right_shoulder_yaw_joint": 0.0152,
+    "right_elbow_joint": 0.9215,
+    "right_wrist_roll_joint": -0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.938,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.041,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2433,
+    "left_shoulder_roll_joint": 0.151,
+    "left_shoulder_yaw_joint": 0.0238,
+    "left_elbow_joint": 0.8614,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1738,
+    "right_shoulder_roll_joint": -0.2349,
+    "right_shoulder_yaw_joint": 0.0146,
+    "right_elbow_joint": 0.9185,
+    "right_wrist_roll_joint": -0.0006
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0224,
+    "left_elbow_joint": 0.882,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1732,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9378,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.114,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2428,
+    "left_shoulder_roll_joint": 0.1517,
+    "left_shoulder_yaw_joint": 0.0238,
+    "left_elbow_joint": 0.86,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1753,
+    "right_shoulder_roll_joint": -0.2332,
+    "right_shoulder_yaw_joint": 0.014,
+    "right_elbow_joint": 0.9154,
+    "right_wrist_roll_joint": -0.0005
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2463,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8818,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1733,
+    "right_shoulder_roll_joint": -0.2143,
+    "right_shoulder_yaw_joint": 0.0193,
+    "right_elbow_joint": 0.9371,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.188,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2422,
+    "left_shoulder_roll_joint": 0.1524,
+    "left_shoulder_yaw_joint": 0.0239,
+    "left_elbow_joint": 0.8586,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1767,
+    "right_shoulder_roll_joint": -0.2315,
+    "right_shoulder_yaw_joint": 0.0134,
+    "right_elbow_joint": 0.9123,
+    "right_wrist_roll_joint": -0.0004
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2462,
+    "left_shoulder_roll_joint": 0.1326,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8817,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1734,
+    "right_shoulder_roll_joint": -0.2142,
+    "right_shoulder_yaw_joint": 0.0192,
+    "right_elbow_joint": 0.9361,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.26,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2417,
+    "left_shoulder_roll_joint": 0.1531,
+    "left_shoulder_yaw_joint": 0.0239,
+    "left_elbow_joint": 0.8573,
+    "left_wrist_roll_joint": -0.0044,
+    "right_shoulder_pitch_joint": 0.1781,
+    "right_shoulder_roll_joint": -0.2299,
+    "right_shoulder_yaw_joint": 0.0128,
+    "right_elbow_joint": 0.9093,
+    "right_wrist_roll_joint": -0.0003
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2457,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8814,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1735,
+    "right_shoulder_roll_joint": -0.2141,
+    "right_shoulder_yaw_joint": 0.0191,
+    "right_elbow_joint": 0.9334,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.334,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2412,
+    "left_shoulder_roll_joint": 0.1538,
+    "left_shoulder_yaw_joint": 0.024,
+    "left_elbow_joint": 0.8559,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1796,
+    "right_shoulder_roll_joint": -0.2282,
+    "right_shoulder_yaw_joint": 0.0122,
+    "right_elbow_joint": 0.9062,
+    "right_wrist_roll_joint": -0.0002
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2457,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.881,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1735,
+    "right_shoulder_roll_joint": -0.214,
+    "right_shoulder_yaw_joint": 0.019,
+    "right_elbow_joint": 0.9323,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.406,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2407,
+    "left_shoulder_roll_joint": 0.1545,
+    "left_shoulder_yaw_joint": 0.0241,
+    "left_elbow_joint": 0.8546,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.181,
+    "right_shoulder_roll_joint": -0.2265,
+    "right_shoulder_yaw_joint": 0.0116,
+    "right_elbow_joint": 0.9032,
+    "right_wrist_roll_joint": -0.0001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2456,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0226,
+    "left_elbow_joint": 0.8807,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1737,
+    "right_shoulder_roll_joint": -0.2137,
+    "right_shoulder_yaw_joint": 0.0188,
+    "right_elbow_joint": 0.9298,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.48,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2402,
+    "left_shoulder_roll_joint": 0.1552,
+    "left_shoulder_yaw_joint": 0.0241,
+    "left_elbow_joint": 0.8532,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1825,
+    "right_shoulder_roll_joint": -0.2248,
+    "right_shoulder_yaw_joint": 0.011,
+    "right_elbow_joint": 0.9001,
+    "right_wrist_roll_joint": -0.0
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2455,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8801,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1737,
+    "right_shoulder_roll_joint": -0.213,
+    "right_shoulder_yaw_joint": 0.0187,
+    "right_elbow_joint": 0.9279,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.548,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2397,
+    "left_shoulder_roll_joint": 0.1558,
+    "left_shoulder_yaw_joint": 0.0242,
+    "left_elbow_joint": 0.852,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1838,
+    "right_shoulder_roll_joint": -0.2233,
+    "right_shoulder_yaw_joint": 0.0104,
+    "right_elbow_joint": 0.8972,
+    "right_wrist_roll_joint": 0.0001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2454,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0226,
+    "left_elbow_joint": 0.8789,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1739,
+    "right_shoulder_roll_joint": -0.2121,
+    "right_shoulder_yaw_joint": 0.0186,
+    "right_elbow_joint": 0.9247,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.615,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2392,
+    "left_shoulder_roll_joint": 0.1565,
+    "left_shoulder_yaw_joint": 0.0242,
+    "left_elbow_joint": 0.8507,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1851,
+    "right_shoulder_roll_joint": -0.2218,
+    "right_shoulder_yaw_joint": 0.0099,
+    "right_elbow_joint": 0.8944,
+    "right_wrist_roll_joint": 0.0002
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2453,
+    "left_shoulder_roll_joint": 0.1328,
+    "left_shoulder_yaw_joint": 0.0227,
+    "left_elbow_joint": 0.8763,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.174,
+    "right_shoulder_roll_joint": -0.2061,
+    "right_shoulder_yaw_joint": 0.017,
+    "right_elbow_joint": 0.9214,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.685,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2387,
+    "left_shoulder_roll_joint": 0.1571,
+    "left_shoulder_yaw_joint": 0.0243,
+    "left_elbow_joint": 0.8494,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1865,
+    "right_shoulder_roll_joint": -0.2202,
+    "right_shoulder_yaw_joint": 0.0093,
+    "right_elbow_joint": 0.8914,
+    "right_wrist_roll_joint": 0.0002
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2453,
+    "left_shoulder_roll_joint": 0.1327,
+    "left_shoulder_yaw_joint": 0.0225,
+    "left_elbow_joint": 0.8735,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1742,
+    "right_shoulder_roll_joint": -0.2039,
+    "right_shoulder_yaw_joint": 0.018,
+    "right_elbow_joint": 0.9182,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.759,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2382,
+    "left_shoulder_roll_joint": 0.1578,
+    "left_shoulder_yaw_joint": 0.0243,
+    "left_elbow_joint": 0.848,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.188,
+    "right_shoulder_roll_joint": -0.2185,
+    "right_shoulder_yaw_joint": 0.0087,
+    "right_elbow_joint": 0.8883,
+    "right_wrist_roll_joint": 0.0003
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2452,
+    "left_shoulder_roll_joint": 0.1331,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8674,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1747,
+    "right_shoulder_roll_joint": -0.2048,
+    "right_shoulder_yaw_joint": 0.0171,
+    "right_elbow_joint": 0.9163,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.826,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2377,
+    "left_shoulder_roll_joint": 0.1585,
+    "left_shoulder_yaw_joint": 0.0244,
+    "left_elbow_joint": 0.8468,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1893,
+    "right_shoulder_roll_joint": -0.2169,
+    "right_shoulder_yaw_joint": 0.0081,
+    "right_elbow_joint": 0.8855,
+    "right_wrist_roll_joint": 0.0004
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2445,
+    "left_shoulder_roll_joint": 0.1329,
+    "left_shoulder_yaw_joint": 0.0232,
+    "left_elbow_joint": 0.8651,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1815,
+    "right_shoulder_roll_joint": -0.2046,
+    "right_shoulder_yaw_joint": 0.017,
+    "right_elbow_joint": 0.9125,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.9,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2371,
+    "left_shoulder_roll_joint": 0.1592,
+    "left_shoulder_yaw_joint": 0.0244,
+    "left_elbow_joint": 0.8454,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1907,
+    "right_shoulder_roll_joint": -0.2152,
+    "right_shoulder_yaw_joint": 0.0075,
+    "right_elbow_joint": 0.8824,
+    "right_wrist_roll_joint": 0.0005
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2428,
+    "left_shoulder_roll_joint": 0.1331,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8648,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1824,
+    "right_shoulder_roll_joint": -0.2045,
+    "right_shoulder_yaw_joint": 0.0169,
+    "right_elbow_joint": 0.9121,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 12.971,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2366,
+    "left_shoulder_roll_joint": 0.1598,
+    "left_shoulder_yaw_joint": 0.0245,
+    "left_elbow_joint": 0.8441,
+    "left_wrist_roll_joint": -0.0043,
+    "right_shoulder_pitch_joint": 0.1921,
+    "right_shoulder_roll_joint": -0.2136,
+    "right_shoulder_yaw_joint": 0.0069,
+    "right_elbow_joint": 0.8794,
+    "right_wrist_roll_joint": 0.0006
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2422,
+    "left_shoulder_roll_joint": 0.133,
+    "left_shoulder_yaw_joint": 0.0233,
+    "left_elbow_joint": 0.8648,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1829,
+    "right_shoulder_roll_joint": -0.2045,
+    "right_shoulder_yaw_joint": 0.0165,
+    "right_elbow_joint": 0.9114,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 13.04,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2361,
+    "left_shoulder_roll_joint": 0.1605,
+    "left_shoulder_yaw_joint": 0.0245,
+    "left_elbow_joint": 0.8428,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.1935,
+    "right_shoulder_roll_joint": -0.212,
+    "right_shoulder_yaw_joint": 0.0063,
+    "right_elbow_joint": 0.8765,
+    "right_wrist_roll_joint": 0.0007
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2422,
+    "left_shoulder_roll_joint": 0.1331,
+    "left_shoulder_yaw_joint": 0.0235,
+    "left_elbow_joint": 0.8646,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1834,
+    "right_shoulder_roll_joint": -0.2044,
+    "right_shoulder_yaw_joint": 0.0164,
+    "right_elbow_joint": 0.9092,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 13.112,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2356,
+    "left_shoulder_roll_joint": 0.1612,
+    "left_shoulder_yaw_joint": 0.0246,
+    "left_elbow_joint": 0.8414,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.1949,
+    "right_shoulder_roll_joint": -0.2104,
+    "right_shoulder_yaw_joint": 0.0057,
+    "right_elbow_joint": 0.8735,
+    "right_wrist_roll_joint": 0.0008
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2421,
+    "left_shoulder_roll_joint": 0.1331,
+    "left_shoulder_yaw_joint": 0.0234,
+    "left_elbow_joint": 0.8646,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1873,
+    "right_shoulder_roll_joint": -0.2043,
+    "right_shoulder_yaw_joint": 0.016,
+    "right_elbow_joint": 0.9054,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 13.181,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2351,
+    "left_shoulder_roll_joint": 0.1618,
+    "left_shoulder_yaw_joint": 0.0246,
+    "left_elbow_joint": 0.8402,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.1963,
+    "right_shoulder_roll_joint": -0.2088,
+    "right_shoulder_yaw_joint": 0.0052,
+    "right_elbow_joint": 0.8706,
+    "right_wrist_roll_joint": 0.0009
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2419,
+    "left_shoulder_roll_joint": 0.1332,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8643,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1954,
+    "right_shoulder_roll_joint": -0.2041,
+    "right_shoulder_yaw_joint": 0.0157,
+    "right_elbow_joint": 0.8999,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 13.255,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2346,
+    "left_shoulder_roll_joint": 0.1625,
+    "left_shoulder_yaw_joint": 0.0247,
+    "left_elbow_joint": 0.8388,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.1977,
+    "right_shoulder_roll_joint": -0.2071,
+    "right_shoulder_yaw_joint": 0.0046,
+    "right_elbow_joint": 0.8675,
+    "right_wrist_roll_joint": 0.001
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.242,
+    "left_shoulder_roll_joint": 0.1332,
+    "left_shoulder_yaw_joint": 0.0235,
+    "left_elbow_joint": 0.8644,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1966,
+    "right_shoulder_roll_joint": -0.2008,
+    "right_shoulder_yaw_joint": 0.015,
+    "right_elbow_joint": 0.897,
+    "right_wrist_roll_joint": -0.0007
+   }
+  },
+  {
+   "time_s": 13.325,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2341,
+    "left_shoulder_roll_joint": 0.1632,
+    "left_shoulder_yaw_joint": 0.0247,
+    "left_elbow_joint": 0.8375,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.1991,
+    "right_shoulder_roll_joint": -0.2055,
+    "right_shoulder_yaw_joint": 0.004,
+    "right_elbow_joint": 0.8646,
+    "right_wrist_roll_joint": 0.0011
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2415,
+    "left_shoulder_roll_joint": 0.1332,
+    "left_shoulder_yaw_joint": 0.0232,
+    "left_elbow_joint": 0.8638,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1967,
+    "right_shoulder_roll_joint": -0.1939,
+    "right_shoulder_yaw_joint": 0.0151,
+    "right_elbow_joint": 0.8917,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 13.396,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2336,
+    "left_shoulder_roll_joint": 0.1639,
+    "left_shoulder_yaw_joint": 0.0248,
+    "left_elbow_joint": 0.8362,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2005,
+    "right_shoulder_roll_joint": -0.2039,
+    "right_shoulder_yaw_joint": 0.0034,
+    "right_elbow_joint": 0.8616,
+    "right_wrist_roll_joint": 0.0011
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.238,
+    "left_shoulder_roll_joint": 0.1337,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8631,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1967,
+    "right_shoulder_roll_joint": -0.1863,
+    "right_shoulder_yaw_joint": 0.0149,
+    "right_elbow_joint": 0.8876,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 13.465,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2331,
+    "left_shoulder_roll_joint": 0.1645,
+    "left_shoulder_yaw_joint": 0.0249,
+    "left_elbow_joint": 0.8349,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2019,
+    "right_shoulder_roll_joint": -0.2023,
+    "right_shoulder_yaw_joint": 0.0028,
+    "right_elbow_joint": 0.8587,
+    "right_wrist_roll_joint": 0.0012
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2366,
+    "left_shoulder_roll_joint": 0.1337,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8621,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1968,
+    "right_shoulder_roll_joint": -0.1833,
+    "right_shoulder_yaw_joint": 0.0146,
+    "right_elbow_joint": 0.8846,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 13.538,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2326,
+    "left_shoulder_roll_joint": 0.1652,
+    "left_shoulder_yaw_joint": 0.0249,
+    "left_elbow_joint": 0.8335,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2033,
+    "right_shoulder_roll_joint": -0.2007,
+    "right_shoulder_yaw_joint": 0.0022,
+    "right_elbow_joint": 0.8556,
+    "right_wrist_roll_joint": 0.0013
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2358,
+    "left_shoulder_roll_joint": 0.1338,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.862,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.197,
+    "right_shoulder_roll_joint": -0.1815,
+    "right_shoulder_yaw_joint": 0.0144,
+    "right_elbow_joint": 0.8815,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 13.607,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2321,
+    "left_shoulder_roll_joint": 0.1659,
+    "left_shoulder_yaw_joint": 0.025,
+    "left_elbow_joint": 0.8322,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2047,
+    "right_shoulder_roll_joint": -0.1991,
+    "right_shoulder_yaw_joint": 0.0017,
+    "right_elbow_joint": 0.8527,
+    "right_wrist_roll_joint": 0.0014
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2353,
+    "left_shoulder_roll_joint": 0.1339,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8612,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.1983,
+    "right_shoulder_roll_joint": -0.181,
+    "right_shoulder_yaw_joint": 0.0144,
+    "right_elbow_joint": 0.8786,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 13.679,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2316,
+    "left_shoulder_roll_joint": 0.1666,
+    "left_shoulder_yaw_joint": 0.025,
+    "left_elbow_joint": 0.8309,
+    "left_wrist_roll_joint": -0.0042,
+    "right_shoulder_pitch_joint": 0.2061,
+    "right_shoulder_roll_joint": -0.1974,
+    "right_shoulder_yaw_joint": 0.0011,
+    "right_elbow_joint": 0.8497,
+    "right_wrist_roll_joint": 0.0015
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2352,
+    "left_shoulder_roll_joint": 0.1339,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.861,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2003,
+    "right_shoulder_roll_joint": -0.181,
+    "right_shoulder_yaw_joint": 0.0142,
+    "right_elbow_joint": 0.8769,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 13.748,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2311,
+    "left_shoulder_roll_joint": 0.1672,
+    "left_shoulder_yaw_joint": 0.0251,
+    "left_elbow_joint": 0.8296,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2074,
+    "right_shoulder_roll_joint": -0.1959,
+    "right_shoulder_yaw_joint": 0.0005,
+    "right_elbow_joint": 0.8468,
+    "right_wrist_roll_joint": 0.0016
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2348,
+    "left_shoulder_roll_joint": 0.134,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8605,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2044,
+    "right_shoulder_roll_joint": -0.1805,
+    "right_shoulder_yaw_joint": 0.0141,
+    "right_elbow_joint": 0.8756,
+    "right_wrist_roll_joint": -0.0006
+   }
+  },
+  {
+   "time_s": 13.818,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2306,
+    "left_shoulder_roll_joint": 0.1679,
+    "left_shoulder_yaw_joint": 0.0251,
+    "left_elbow_joint": 0.8283,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2088,
+    "right_shoulder_roll_joint": -0.1943,
+    "right_shoulder_yaw_joint": -0.0001,
+    "right_elbow_joint": 0.8439,
+    "right_wrist_roll_joint": 0.0017
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2347,
+    "left_shoulder_roll_joint": 0.1341,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8603,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2044,
+    "right_shoulder_roll_joint": -0.18,
+    "right_shoulder_yaw_joint": 0.0141,
+    "right_elbow_joint": 0.8743,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 13.889,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2301,
+    "left_shoulder_roll_joint": 0.1685,
+    "left_shoulder_yaw_joint": 0.0252,
+    "left_elbow_joint": 0.827,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2102,
+    "right_shoulder_roll_joint": -0.1926,
+    "right_shoulder_yaw_joint": -0.0007,
+    "right_elbow_joint": 0.8409,
+    "right_wrist_roll_joint": 0.0018
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2341,
+    "left_shoulder_roll_joint": 0.1342,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8596,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2044,
+    "right_shoulder_roll_joint": -0.1799,
+    "right_shoulder_yaw_joint": 0.0139,
+    "right_elbow_joint": 0.8712,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 13.958,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2296,
+    "left_shoulder_roll_joint": 0.1692,
+    "left_shoulder_yaw_joint": 0.0252,
+    "left_elbow_joint": 0.8257,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2116,
+    "right_shoulder_roll_joint": -0.1911,
+    "right_shoulder_yaw_joint": -0.0012,
+    "right_elbow_joint": 0.838,
+    "right_wrist_roll_joint": 0.0019
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2341,
+    "left_shoulder_roll_joint": 0.1343,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8592,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2045,
+    "right_shoulder_roll_joint": -0.1796,
+    "right_shoulder_yaw_joint": 0.0137,
+    "right_elbow_joint": 0.8702,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 14.032,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.229,
+    "left_shoulder_roll_joint": 0.1699,
+    "left_shoulder_yaw_joint": 0.0253,
+    "left_elbow_joint": 0.8243,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.213,
+    "right_shoulder_roll_joint": -0.1894,
+    "right_shoulder_yaw_joint": -0.0019,
+    "right_elbow_joint": 0.8349,
+    "right_wrist_roll_joint": 0.0019
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2341,
+    "left_shoulder_roll_joint": 0.1344,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8579,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2046,
+    "right_shoulder_roll_joint": -0.1782,
+    "right_shoulder_yaw_joint": 0.013,
+    "right_elbow_joint": 0.8694,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 14.101,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2285,
+    "left_shoulder_roll_joint": 0.1706,
+    "left_shoulder_yaw_joint": 0.0253,
+    "left_elbow_joint": 0.823,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2144,
+    "right_shoulder_roll_joint": -0.1878,
+    "right_shoulder_yaw_joint": -0.0024,
+    "right_elbow_joint": 0.832,
+    "right_wrist_roll_joint": 0.002
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.234,
+    "left_shoulder_roll_joint": 0.1345,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8562,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2047,
+    "right_shoulder_roll_joint": -0.1734,
+    "right_shoulder_yaw_joint": 0.011,
+    "right_elbow_joint": 0.8658,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 14.171,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.228,
+    "left_shoulder_roll_joint": 0.1712,
+    "left_shoulder_yaw_joint": 0.0254,
+    "left_elbow_joint": 0.8217,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2158,
+    "right_shoulder_roll_joint": -0.1862,
+    "right_shoulder_yaw_joint": -0.003,
+    "right_elbow_joint": 0.829,
+    "right_wrist_roll_joint": 0.0021
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.234,
+    "left_shoulder_roll_joint": 0.1345,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.8551,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2048,
+    "right_shoulder_roll_joint": -0.1695,
+    "right_shoulder_yaw_joint": 0.0107,
+    "right_elbow_joint": 0.8606,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 14.24,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2275,
+    "left_shoulder_roll_joint": 0.1719,
+    "left_shoulder_yaw_joint": 0.0254,
+    "left_elbow_joint": 0.8204,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2171,
+    "right_shoulder_roll_joint": -0.1846,
+    "right_shoulder_yaw_joint": -0.0036,
+    "right_elbow_joint": 0.8261,
+    "right_wrist_roll_joint": 0.0022
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.234,
+    "left_shoulder_roll_joint": 0.1346,
+    "left_shoulder_yaw_joint": 0.0236,
+    "left_elbow_joint": 0.8522,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.205,
+    "right_shoulder_roll_joint": -0.1651,
+    "right_shoulder_yaw_joint": 0.0097,
+    "right_elbow_joint": 0.8582,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 14.313,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.227,
+    "left_shoulder_roll_joint": 0.1726,
+    "left_shoulder_yaw_joint": 0.0255,
+    "left_elbow_joint": 0.8191,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.2186,
+    "right_shoulder_roll_joint": -0.183,
+    "right_shoulder_yaw_joint": -0.0042,
+    "right_elbow_joint": 0.8231,
+    "right_wrist_roll_joint": 0.0023
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.234,
+    "left_shoulder_roll_joint": 0.1349,
+    "left_shoulder_yaw_joint": 0.024,
+    "left_elbow_joint": 0.8476,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2053,
+    "right_shoulder_roll_joint": -0.1653,
+    "right_shoulder_yaw_joint": 0.0091,
+    "right_elbow_joint": 0.8563,
+    "right_wrist_roll_joint": -0.0005
+   }
+  },
+  {
+   "time_s": 14.386,
+   "joint_targets_rad": {
+    "left_shoulder_pitch_joint": 0.2265,
+    "left_shoulder_roll_joint": 0.1733,
+    "left_shoulder_yaw_joint": 0.0256,
+    "left_elbow_joint": 0.8177,
+    "left_wrist_roll_joint": -0.0041,
+    "right_shoulder_pitch_joint": 0.22,
+    "right_shoulder_roll_joint": -0.1813,
+    "right_shoulder_yaw_joint": -0.0048,
+    "right_elbow_joint": 0.82,
+    "right_wrist_roll_joint": 0.0024
+   },
+   "measured_rad": {
+    "left_shoulder_pitch_joint": 0.2339,
+    "left_shoulder_roll_joint": 0.1349,
+    "left_shoulder_yaw_joint": 0.0237,
+    "left_elbow_joint": 0.843,
+    "left_wrist_roll_joint": -0.0046,
+    "right_shoulder_pitch_joint": 0.2062,
+    "right_shoulder_roll_joint": -0.1653,
+    "right_shoulder_yaw_joint": 0.007,
+    "right_elbow_joint": 0.8538,
+    "right_wrist_roll_joint": -0.0005
+   }
+  }
+ ]
+}

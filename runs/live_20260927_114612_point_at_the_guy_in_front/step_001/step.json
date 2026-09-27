@@ -1,0 +1,68 @@
+{
+ "step": 1,
+ "t": 1790502685.5106409,
+ "stage": "raise_and_extend_toward_seated_guy",
+ "action": "MV_UP",
+ "hand_tip_before": [
+  0.11329,
+  -0.20772,
+  0.57474
+ ],
+ "roll_before": 0.0019982117228209972,
+ "joints_before": {
+  "waist_roll_joint": -0.0012044146424159408,
+  "waist_yaw_joint": -0.000850879994686693,
+  "left_shoulder_pitch_joint": 0.217987060546875,
+  "left_shoulder_roll_joint": 0.1584254652261734,
+  "left_shoulder_yaw_joint": 0.023115677759051323,
+  "left_elbow_joint": 0.8399150967597961,
+  "left_wrist_roll_joint": -0.004586804658174515,
+  "right_shoulder_pitch_joint": 0.2130076289176941,
+  "right_shoulder_roll_joint": -0.16521453857421875,
+  "right_shoulder_yaw_joint": 0.002225281437858939,
+  "right_elbow_joint": 0.8356612324714661,
+  "right_wrist_roll_joint": 0.0019982117228209972
+ },
+ "images_missing": [
+  "RIGHT WRIST VIEW"
+ ],
+ "ok": true,
+ "feedback": "moved -0.0 of 4.0 cm -> blocked or in contact, do NOT repeat this move clamped: hand kept inside the workspace box (x); translation capped from 5.4 to 5.0 cm",
+ "hand_tip_after": [
+  0.11329,
+  -0.20772,
+  0.57474
+ ],
+ "requested_dp": [
+  0.0,
+  0.0,
+  0.04
+ ],
+ "achieved_dp": [
+  -0.0,
+  -1e-05,
+  -0.0
+ ],
+ "q_target": [
+  0.2811,
+  -0.17924,
+  0.00363,
+  0.52427,
+  0.002
+ ],
+ "q_after": [
+  0.213,
+  -0.16523,
+  0.00223,
+  0.83568,
+  0.00201
+ ],
+ "ik_fail": false,
+ "timeout": false,
+ "clamped": true,
+ "notes": [
+  "hand kept inside the workspace box (x)",
+  "translation capped from 5.4 to 5.0 cm"
+ ],
+ "duration_s": 0.0007412433624267578
+}
