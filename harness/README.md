@@ -27,7 +27,7 @@ Everything uses the repo venv (`.venv/bin/python`, see CLAUDE.md step 6) plus `a
 `pytest`, `pyyaml`. All numbers live in [config.yaml](config.yaml); override any with `--set key=value`.
 
 ```
-.venv/bin/python -m pytest harness                       # 76 tests, no hardware, about 6 s
+.venv/bin/python -m pytest harness                       # 84 tests, no hardware, about 7 s
 
 # simulation: kinematic mock on the MuJoCo scene, rendered cameras
 MUJOCO_GL=cgl .venv/bin/python -m harness sim "move your hand above the block"        # chat provider
@@ -57,32 +57,52 @@ duration, which arm moved, the hand tip at the motion's key moments in cm in the
 the change between moments in the same forward/left/up words the actions use) and, when the
 recording has one, its contact sheet image `recordings/<name>.sheet.jpg`. `tools/teach.py` and
 `tools/record.py` make that sheet since 2026-09-27: they sample the head and wrist streams at 3 Hz
-while recording (`tools/framelog.py`) and tile the frames at 6 key moments (equal joint-space
-arc-length fractions, first and last always; one row per camera, one column per moment, time
-labels) and note the moments in the JSON under `"sheet"`. Older recordings work text-only. The
-prompt tells the model the demonstrations are references, not scripts.
+while recording (`tools/framelog.py`) and tile the frames at the motion's key moments, one row per
+camera, one column per moment, time labels, and note the moments in the JSON under `"sheet"`.
+Sampling is meant to keep the image context small: the moments are Douglas-Peucker samples of the
+joint-space path (`demos.tolerance_rad`, at most `demos.max_moments`), so a straight reach gets 3
+frames and a motion with turns up to 8; the context row is cropped to the region of the image that
+changed during the recording (where the arm and the objects moved), with one full-view tile that
+shows the crop box; the sheet is never wider than `demos.max_width_px` (1568, the model's long-edge
+limit), and `"sheet.tokens_est"` records what it costs. All selected sheets are stacked into ONE
+image labelled DEMOS, one Read for `claude -p` instead of one per demo. Older recordings work
+text-only. The prompt tells the model the demonstrations are references, not scripts.
 
 ## Accept / Reject before every move
 
 With `--confirm` (live does it by default) the loop prints `PROPOSAL: <what would move>` before
-every motion, including the start pose, and reads one line: Enter sends it, `n` rejects it,
-`n <note>` rejects it and the model reads the note in its next call ("The operator rejected your
-last proposal (MV_LEFT) with the note ..."; a rejected chunk is dropped; the history shows
-`MV_LEFT(rejected)`), `x` is the e-stop. `--preview FILE` writes each proposal as a plan file in
+every motion, including the start pose, and reads one line: Enter sends it, `y <note>` sends it and
+the model reads the note in its next call, `n` rejects it, `n <note>` rejects it with the note
+("The operator rejected your last proposal (MV_LEFT) with the note ..."; a rejected chunk is
+dropped; the history shows `MV_LEFT(rejected)`), `x` is the e-stop. Every answer is appended to
+`feedback.path` (`runs/operator_feedback.jsonl`: task, stage, action, accepted, note, hand height)
+and later sessions get it back as an OPERATOR FEEDBACK block before the prompt: entries for the
+same task first, newest first, rejections and noted accepts listed (up to `feedback.max_in_prompt`),
+bare accepts only counted. `--preview FILE` writes each proposal as a plan file in
 the sim contract first (moving arm at 50 Hz, other arm and waist held), which the twin server plays
 as ghost arms: `GET /preview?file=runs/ui_preview.json&hold=1` keeps it on top until
 `/preview/stop`, even while the streamer holds the arms with weight 1.
+
+## Inference time vs context
+
+Every VLM call appends a line to `stats.path` (`runs/inference_log.jsonl`): latency, the tokens the
+provider reported (with `claude -p` almost all input is a cache read, so `input_tokens` alone is
+tiny), and an estimated context that is comparable across providers: prompt characters / 4 plus
+image pixels / 750. After each call `stats.plot` (`runs/inference_stats.png`) is redrawn: x =
+estimated context tokens, y = seconds; this session in colour (plan = triangle, act = dot), earlier
+sessions grey. The window shows it under the twin and reloads it whenever the file changes.
 
 ## Desktop window: the AI pane
 
 `tools/reins_ui.py` (started by `tools/start_all.sh`) has this loop under the cameras: task, dry
 run | live, arm, step profile, floor z (`workspace.table_z_m`), a multi-select list of recordings
 as context (✓ = has a contact sheet), Run / Stop, the current proposal with Accept / Reject and a
-note field, and the session log. It runs exactly
+feedback field that goes to the model with either answer, the session log, and under the twin the
+inference-time-vs-context plot. It runs exactly
 `python -m harness --arm A --profile P --set workspace.table_z_m=Z live|dry-run IFACE TASK --vlm claude-cli --confirm --preview runs/ui_preview.json --demos ...`
 as a subprocess, so the VLM is `claude -p` on the Mac's Claude login. Every `PROPOSAL` line
 enables the buttons and loads the held preview in the twin pane; Accept stops the preview (the
-yellow SENDING ghost then shows the real motion) and sends Enter; Reject sends `n <note>`; Stop
+yellow SENDING ghost then shows the real motion) and sends Enter or `y <note>`; Reject sends `n <note>`; Stop
 sends Ctrl-C (the session releases the arms). Live mode starts `harness.robot.arm_stream` itself
 when port 8790 is closed (log `/tmp/harness_stream.log`) and asks once before the arms are
 engaged; the ENGAGE prompt is answered by the window. Dry run reads real joints and cameras and

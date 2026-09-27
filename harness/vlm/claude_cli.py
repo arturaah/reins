@@ -54,7 +54,9 @@ class ClaudeCliVLM(VLM):
         text = json.dumps(out) if isinstance(out, dict) else str(env.get("result", ""))
         usage = env.get("usage") or {}
         resp = VLMResponse(text, env.get("model") or self.model, lat, int(usage.get("input_tokens", 0) or 0),
-                           int(usage.get("output_tokens", 0) or 0), "end_turn", raw={k: env.get(k) for k in ("total_cost_usd", "num_turns", "session_id")})
+                           int(usage.get("output_tokens", 0) or 0), "end_turn",
+                           raw={**{k: env.get(k) for k in ("total_cost_usd", "num_turns", "session_id")},
+                                **{k: usage.get(k) for k in ("cache_read_input_tokens", "cache_creation_input_tokens")}})
         if env.get("is_error"):
             resp.error = f"claude -p error: {text[:200]}"
         return resp

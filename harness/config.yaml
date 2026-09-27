@@ -91,6 +91,19 @@ vlm:
 recorder:
   root: runs
 
+demos:                       # recordings as demonstrations (harness/demos.py, tools/framelog.py)
+  max_moments: 8             # contact sheet columns: Douglas-Peucker key moments of the joint-space path, at most this many
+  tolerance_rad: 0.08        # a sample further than this from the line between its neighbouring moments becomes a moment
+  max_width_px: 1568         # a sheet is never wider than the model's long-edge limit (pixels above it are downscaled anyway)
+
+feedback:
+  path: runs/operator_feedback.jsonl   # every Accept / Reject with its note; later sessions see it as OPERATOR FEEDBACK
+  max_in_prompt: 10
+
+stats:
+  path: runs/inference_log.jsonl       # one line per VLM call: latency, reported tokens, estimated context
+  plot: runs/inference_stats.png       # redrawn after every call: inference time vs context; the window shows it under the twin
+
 streamer:                    # harness/robot/arm_stream.py, the only process that publishes on rt/arm_sdk
   host: 127.0.0.1
   port: 8790

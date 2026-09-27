@@ -17,12 +17,26 @@ and recorded demonstrations in the prompt; the streamer and `live` have not run 
   numbers are in the robot frame and use the action vocabulary's words (forward/left/up), so the
   model can map "forward 26, up 27" onto its own 4 cm steps. Demonstrations go before the live
   images in every call and the prompt says they are references, not scripts.
-- **Every proposal is vetoable.** The executor asks `confirm(text, preview)` before any motion
-  (the start pose too) and a rejection, with the operator's note, becomes a one-shot recovery note
-  and a `(rejected)` history token; a rejected action chunk is dropped. The preview dict is what
-  would be streamed, written as a sim-contract plan for the twin's ghost. The twin's held preview
-  (`hold=1`) exists because the streamer keeps the arm topic live for the whole episode, which used
-  to hide any plan preview behind the yellow SENDING ghost.
+- **Every proposal is vetoable, and every answer is kept.** The executor asks
+  `confirm(text, preview)` before any motion (the start pose too); the answer is accept or reject
+  plus an optional note. A rejection becomes a one-shot recovery note and a `(rejected)` history
+  token and drops the action chunk; an accept with a note is a one-shot note too. Both go to
+  `runs/operator_feedback.jsonl` with task, stage, action and hand height, and later sessions see
+  the file as an OPERATOR FEEDBACK block (same task first, newest first, bare accepts only
+  counted), so the operator's corrections accumulate as in-context guidance without any training.
+  The preview dict is what would be streamed, written as a sim-contract plan for the twin's ghost.
+  The twin's held preview (`hold=1`) exists because the streamer keeps the arm topic live for the
+  whole episode, which used to hide any plan preview behind the yellow SENDING ghost.
+- **Image context is budgeted.** Contact sheet columns are Douglas-Peucker samples of the
+  joint-space path (3 to 8 instead of a fixed 6), the context row is cropped to where the image
+  changed during the recording (with a full-view tile showing the box), sheets are capped at the
+  model's 1568 px long edge and all selected sheets go as one stacked image, because with
+  `claude -p` each image is a separate Read turn. Every call logs latency against an estimated
+  context size (text/4 + pixels/750) in `runs/inference_log.jsonl` and the plot
+  `runs/inference_stats.png` is redrawn after each call, so the cost of more context is visible
+  while the loop runs. Measured 2026-09-27 in dry runs: 20 to 25 s per act call and about 57 s
+  for the plan at roughly 2 to 3 k estimated tokens with `claude -p`; the reported input tokens
+  are 30 to 100 because the rest is served from cache.
 
 ## Robot facts that shaped the design
 

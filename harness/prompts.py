@@ -118,6 +118,7 @@ RECOVERY_NOTES = {
     "oscillation": "Opposite moves in a row: re-judge the images instead of hunting; prefer MV_UP or MV_DOWN.",
     "rejected": "The operator rejected your last proposal ({token}){why}. It was NOT executed: propose something different "
                 "(another direction, a smaller step, or DONE if the stage is already complete).",
+    "accepted_note": "The operator accepted your last move ({token}) and added the note: \"{note}\". Take it into account now.",
 }
 
 

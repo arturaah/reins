@@ -11,7 +11,8 @@
     python -m harness measure-table en6      print the hand tip height from rt/lowstate (subscribe-only)
 Options: --config FILE, --set key.path=value (repeatable), --arm left|right, --profile precision|coarse_fine.
 Keyboard while running: type x + Enter for the e-stop (arms freeze, episode ends); Ctrl-C releases the arms.
-At a PROPOSAL: Enter sends it, `n` rejects it, `n <note>` rejects it and passes the note to the model, x is the e-stop.
+At a PROPOSAL: Enter sends it, `y <note>` sends it and passes the note to the model, `n` rejects it, `n <note>` rejects it
+with the note, x is the e-stop. Every answer is appended to feedback.path and shown to the model in later sessions.
 """
 import argparse
 import json
@@ -23,6 +24,7 @@ import time
 from . import config as hcfg
 from .demos import load_demos
 from .executor import ArmExecutor
+from .feedback import FeedbackStore
 from .kinematics import ArmKinematics
 from .perception import Perception, height_above_table_cm
 from .recorder import Recorder, load_step
@@ -46,15 +48,17 @@ def make_confirm(gate, backend, preview_file=None):
         if preview_file and preview is not None:
             write_plan(preview_file, preview["arm"], preview["q_now"], preview["frames"], preview["dt"], preview["joints"], text)
         print(f"\nPROPOSAL: {text}")
-        print("  [Enter] send   n [note] Enter reject   x Enter e-stop > ", end="", flush=True)
+        print("  [Enter] send   y [note] Enter send with a note   n [note] Enter reject   x Enter e-stop > ", end="", flush=True)
         line = stdin_lines.get()
         print()
         if line == "x":
             gate.estop.set(); backend.freeze(); print("E-STOP set"); return False
         if line == "":
             return True
+        if line[:1] == "y":
+            return True, line[1:].strip()
         note = line[1:].strip() if line[:1] == "n" else line.strip()
-        return note or False
+        return False, note
     return confirm
 
 
@@ -130,15 +134,21 @@ def run_episode(a, cfg, mode):
         backend.engage()
     rec = Recorder(cfg, mode, a.task)
     print(f"recording to {rec.dir}")
+    from .stats import InferenceLog
+    session = rec.dir.name
+    stats = InferenceLog(cfg["stats"]["path"], cfg["stats"]["plot"], session, mode, a.task)
+    feedback = FeedbackStore(cfg["feedback"]["path"], session, cfg["feedback"]["max_in_prompt"])
     try:
         if mode != "sim" or a.start_pose:
             r = ex.go_to_joints(cfg["robot"]["start_pose_rad"][ex.arm], "start pose")
             print(f"start pose: {r.feedback}")
             if not r.ok and mode == "live":
                 return
-        ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos)
+        ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos, feedback=feedback, stats=stats)
         summary = ep.run(a.task)
         print(json.dumps(summary, indent=1, default=str))
+        if stats.count:
+            print(f"inference: {stats.count} call(s) logged to {stats.path.relative_to(stats.path.parents[1])}, plot {cfg['stats']['plot']}")
     finally:
         if mode == "live":
             backend.release()

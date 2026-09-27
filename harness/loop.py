@@ -16,12 +16,14 @@ from .prompts import PLAN_SCHEMA, RECOVERY_NOTES, controller_prompt, parse_plan,
 
 
 class Episode:
-    def __init__(self, cfg, vlm, executor, perception, recorder=None, log=print, demos=None):
+    def __init__(self, cfg, vlm, executor, perception, recorder=None, log=print, demos=None, feedback=None, stats=None):
         self.cfg, self.vlm, self.ex, self.per, self.rec, self.log = cfg, vlm, executor, perception, recorder, log
         self.arm = executor.arm
         self.demos = list(demos or [])                    # harness.demos.Demo: shown before the images in every call
         self.demo_text = demos_block(self.demos)
-        self.demo_images = demo_images(self.demos)
+        self.demo_images = demo_images(self.demos, int((cfg.get("demos") or {}).get("max_width_px", 1568)))
+        self.feedback, self.stats = feedback, stats       # harness.feedback.FeedbackStore, harness.stats.InferenceLog (optional)
+        self.fb_text = ""
         self.interp = Interpreter(cfg["frames"]["view_forward"], cfg["frames"]["view_left"])
         self.limits = {"param_max_translation_m": cfg["steps"]["param_max_translation_m"],
                        "param_max_rotation_deg": cfg["steps"]["param_max_rotation_deg"]}
@@ -30,9 +32,9 @@ class Episode:
 
     # -- planning -------------------------------------------------------------------------------
     def make_plan(self, task, packet):
-        prompt = self.with_demos(planner_prompt(task, self.cfg, self.arm))
+        prompt = self.with_context(planner_prompt(task, self.cfg, self.arm))
         images = self.demo_images + packet.images
-        resp = self.vlm.plan(prompt, images, PLAN_SCHEMA)
+        resp = self.vlm.plan(prompt, images, PLAN_SCHEMA); self.stat("plan", resp, prompt, images)
         stages, err = None, resp.error
         if not err:
             try:
@@ -40,7 +42,8 @@ class Episode:
             except (ValueError, KeyError) as e:
                 err = f"plan rejected: {e}"
         if stages is None:
-            resp2 = self.vlm.plan(prompt + f"\n\nYour previous plan was rejected: {err}. Return the JSON plan only.", images, PLAN_SCHEMA)
+            prompt2 = prompt + f"\n\nYour previous plan was rejected: {err}. Return the JSON plan only."
+            resp2 = self.vlm.plan(prompt2, images, PLAN_SCHEMA); self.stat("plan", resp2, prompt2, images)
             try:
                 stages = parse_plan(resp2.text) if not resp2.error else None
             except (ValueError, KeyError):
@@ -55,12 +58,13 @@ class Episode:
         cfg, lp = self.cfg, self.cfg["loop"]
         state = self.ex.sync()
         self.ex.gate.set_baseline(self.ex.kin.q_from_dict(state.q), self.ex.others(state.q))
+        self.fb_text = self.feedback.block(task) if self.feedback is not None else ""
         packet = self.per.capture(state.p)
         stages, presp = self.make_plan(task, packet)
         if not stages:
             return self.finish({"success": False, "reason": f"no plan: {presp.error or 'unparseable'}", "steps": 0})
         self.log(f"plan ({presp.model}, {presp.latency_s:.1f} s): " + " -> ".join(f"{s['id']}" for s in stages))
-        stage_i, history, recovery, queue, rejected = 0, [], None, [], None
+        stage_i, history, recovery, queue, op_notes = 0, [], None, [], []      # op_notes: operator notes since the last prompt
         ik_fails, last_result, failed_steps, stage_steps = 0, None, 0, 0
         q_home = np.asarray(cfg["robot"]["start_pose_rad"][self.arm], float)
         for step in range(int(lp["max_steps"])):
@@ -78,9 +82,9 @@ class Episode:
                 action = queue.pop(0); wrist = False
                 self.log(f"step {step}: chunk -> {action.raw}")
             else:
-                prompt = self.build_prompt(task, stage, state, history, " ".join(n for n in (recovery, rejected) if n) or None,
+                prompt = self.build_prompt(task, stage, state, history, " ".join(n for n in [recovery, *op_notes] if n) or None,
                                            last_result, wrist_missing)
-                rejected = None
+                op_notes = []
                 decision, resp = self.ask(prompt, packet.images)
                 if decision is None:
                     failed_steps += 1
@@ -114,9 +118,14 @@ class Episode:
                     ik_fails = 0; extra["home_step"] = hr.feedback
             elif result.ok:
                 ik_fails = 0
+            if result.asked and self.feedback is not None and not self.ex.gate.estop.is_set():   # every Accept / Reject is kept (an e-stop is not an answer)
+                self.feedback.add(task, stage["id"], action.raw.upper(), not result.declined, result.operator_note,
+                                  hand_tip=state.p, height_cm=height_above_table_cm(state.p, self.table_z), mode=self.ex.backend.name)
             if result.declined:                                     # the operator said no: tell the model, drop the chunk
                 queue = []
-                rejected = RECOVERY_NOTES["rejected"].format(token=action.raw.upper(), why=f' with the note "{result.operator_note}"' if result.operator_note else "")
+                op_notes.append(RECOVERY_NOTES["rejected"].format(token=action.raw.upper(), why=f' with the note "{result.operator_note}"' if result.operator_note else ""))
+            elif result.operator_note:                              # accepted with a note: the model reads it at its next call
+                op_notes.append(RECOVERY_NOTES["accepted_note"].format(token=action.raw.upper(), note=result.operator_note))
             if result.empty_grasp:                                  # open again (Show-Harness recovery), note, roll back
                 recovery = RECOVERY_NOTES["empty_grasp"]; queue = []
                 stage_i = self.grasp_stage(stages, stage_i)
@@ -146,14 +155,21 @@ class Episode:
                 ik = "The last target was unreachable (IK failed); the arm did not move."
         hand = "no hand" if self.cfg["hand"]["type"] == "none" else ("closed" if state.hand_closed else "open")
         pro = proprio_text(h, sigma * 100, hand, stall, clamped, ik, holding=state.hand_closed)
-        return self.with_demos(controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing))
+        return self.with_context(controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing))
 
-    def with_demos(self, prompt):
-        return (self.demo_text + "\n\n" + prompt) if self.demo_text else prompt
+    def with_context(self, prompt):
+        """Demonstrations, then earlier sessions' operator feedback, then the prompt itself."""
+        return "\n\n".join([p for p in (self.demo_text, self.fb_text) if p] + [prompt])
+
+    with_demos = with_context
+
+    def stat(self, kind, resp, prompt, images):
+        if self.stats is not None:
+            self.stats.record(kind, resp, prompt, images)
 
     def ask(self, prompt, images):
         images = self.demo_images + list(images)
-        resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA)
+        resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA); self.stat("act", resp, prompt, images)
         for attempt in range(2):
             if resp.error:
                 return None, resp
@@ -163,7 +179,7 @@ class Episode:
                 if attempt == 1 or not self.cfg["loop"]["reprompt_once"]:
                     resp.error = f"invalid answer: {e}"
                     return None, resp
-                resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA, retry_note=str(e))
+                resp = self.vlm.act(prompt, images, OUTPUT_SCHEMA, retry_note=str(e)); self.stat("act", resp, prompt, images)
         return None, resp
 
     @staticmethod

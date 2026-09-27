@@ -1,11 +1,12 @@
 """Demonstrations: key moments, text summaries, the contact sheet as an image, and their place in every prompt."""
+import io
 import json
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from harness.demos import demos_block, key_moments, load_demos
+from harness.demos import Demo, demo_images, demos_block, key_moments, load_demos, smart_moments
 from harness.executor import ArmExecutor
 from harness.kinematics import ArmKinematics
 from harness.loop import Episode
@@ -45,6 +46,34 @@ def test_key_moments_ends_and_spacing():
     assert key_moments([0, 1, 2], np.zeros((3, 2)), 6) == [0, 1, 2]
 
 
+def test_smart_moments_follow_the_path_shape():
+    t = np.arange(50) * 0.1
+    straight = np.zeros((50, 2)); straight[:, 0] = np.linspace(0, 1, 50)
+    assert smart_moments(t, straight, 0.08, 8) == [0, 25, 49]                     # ends plus the arc-length middle
+    corner = np.zeros((50, 2)); corner[:, 0] = 0.4 * np.minimum(np.arange(50), 25) / 25; corner[:, 1] = 0.4 * np.maximum(0, np.arange(50) - 25) / 24
+    assert smart_moments(t, corner, 0.08, 8) == [0, 25, 49]                       # the turn is a moment
+    zig = np.zeros((50, 2)); zig[:, 0] = np.linspace(0, 1, 50); zig[:, 1] = 0.3 * np.sin(np.arange(50) * 1.3)
+    assert len(smart_moments(t, zig, 0.08, 5)) <= 5 and smart_moments(t, zig, 0.08, 5)[-1] == 49    # capped
+    assert smart_moments(t, np.random.default_rng(0).normal(0, 0.002, (50, 2)), 0.08, 8) == [0, 24, 49]   # noise only: time spread
+    assert smart_moments([0, 1], np.zeros((2, 3))) == [0, 1]
+
+
+def test_demo_images_stacks_every_sheet_into_one(tmp_path):
+    def jpg(w, h):
+        b = io.BytesIO(); Image.new("RGB", (w, h), (5, 5, 5)).save(b, "JPEG"); return b.getvalue()
+    demos = [Demo("a", "", ("DEMO_1 contact sheet of 'a'", jpg(800, 100)), label="DEMO_1"),
+             Demo("b", "", None, label="DEMO_2"),
+             Demo("c", "", ("DEMO_3 contact sheet of 'c'", jpg(400, 100)), label="DEMO_3")]
+    out = demo_images(demos, max_w=1568)
+    assert len(out) == 1 and out[0][0].startswith("DEMOS")
+    with Image.open(io.BytesIO(out[0][1])) as im:
+        assert im.width == 800 and im.height == (20 + 100 + 4) + (20 + 200)      # the narrow sheet is scaled to the common width
+    assert demo_images([demos[1]]) == []
+    wide = demo_images([Demo("w", "", ("x", jpg(3000, 300)), label="DEMO_1")], max_w=1568)
+    with Image.open(io.BytesIO(wide[0][1])) as im:
+        assert im.width == 1568
+
+
 def test_load_demo_text_only(cfg, tmp_path):
     d = load_demos([recording(tmp_path / "reach.json")], cfg)[0]
     assert d.image is None and d.name == "reach_forward"
@@ -64,7 +93,7 @@ def test_load_demo_with_sheet(cfg, tmp_path):
     assert "Contact sheet columns: t=0.0s, t=1.0s, t=2.0s, t=4.0s; rows: context, left wrist" in d.text
     assert sum(1 for l in d.text.splitlines() if l.strip().startswith("t=")) == 4         # the sheet's own moments
     block = demos_block([d])
-    assert block.startswith("DEMONSTRATIONS: 1 motion") and "DEMO_1:" in block
+    assert block.startswith("DEMONSTRATIONS: 1 motion") and "DEMO_1:" in block and "stacked in ONE image labelled DEMOS" in block
     assert demos_block([]) == ""
 
 
@@ -90,4 +119,4 @@ def test_episode_shows_demos_in_every_call(cfg, tmp_path):
     assert len(seen) == 2
     for prompt, labels in seen:
         assert prompt.startswith("DEMONSTRATIONS") and "TASK: reach" in prompt
-        assert labels[0].startswith("DEMO_1") and labels[1] == "CONTEXT VIEW"       # the sheet comes before the live images
+        assert labels[0].startswith("DEMOS") and labels[1] == "CONTEXT VIEW"        # one stacked sheet image before the live images

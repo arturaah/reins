@@ -47,7 +47,8 @@ class ExecResult:
     duration_s: float = 0.0
     notes: list = field(default_factory=list)
     declined: bool = False             # the operator rejected the move before it was sent
-    operator_note: str = ""            # their reason, when they gave one
+    operator_note: str = ""            # the note they typed with their Accept or Reject, when they gave one
+    asked: bool = False                # an operator was asked about this move (confirm was set)
 
 
 class Backend:
@@ -105,15 +106,16 @@ class ArmExecutor:
         if bad:
             return ExecResult(False, f"REJECTED by the trajectory check: {bad}", state.p, state.p, requested, np.zeros(3),
                               state.roll, state.roll, clamped=bool(v.clamped), notes=v.clamped)
+        note, asked = "", False
         if self.confirm is not None:
             dq = v.q_target - q_now
             text = (f"{proposal.action.raw if proposal.action else proposal.kind}: hand {state.p.round(3).tolist()} -> {v.p.round(3).tolist()} m, "
                     f"roll {math.degrees(state.roll):.0f} -> {math.degrees(v.roll):.0f} deg, {v.duration_s:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(dq).max())):.0f} deg" +
                     (f"; {'; '.join(v.clamped)}" if v.clamped else ""))
-            ans = self._ask(text, q_now, frames, dt, j)
-            if ans is not True:
-                return self._declined(ans, state, requested)
+            ok, note = self._ask(text, q_now, frames, dt, j); asked = True
+            if not ok:
+                return self._declined(note, state, requested)
         t0 = time.time()
         self.backend.stream(self.arm, frames, dt)
         timeout = self._settle()
@@ -121,16 +123,24 @@ class ArmExecutor:
         achieved = after.p - state.p
         fb = self._feedback(proposal, requested, achieved, v, timeout)
         return ExecResult(True, fb, state.p, after.p, requested, achieved, state.roll, after.roll, v.q_target,
-                          self.kin.q_from_dict(after.q), False, timeout, bool(v.clamped), None, False, time.time() - t0, v.clamped)
+                          self.kin.q_from_dict(after.q), False, timeout, bool(v.clamped), None, False, time.time() - t0, v.clamped,
+                          asked=asked, operator_note=note)
 
     def _ask(self, text, q_now, frames, dt, joints):
-        return self.confirm(text, {"arm": self.arm, "q_now": q_now, "frames": frames, "dt": dt, "joints": joints})
+        """-> (accepted, note). confirm may answer True / False, a str (a rejection carrying that note) or (accepted, note)."""
+        ans = self.confirm(text, {"arm": self.arm, "q_now": q_now, "frames": frames, "dt": dt, "joints": joints})
+        if isinstance(ans, tuple):
+            ok, note = bool(ans[0]), str(ans[1] or "")
+        elif isinstance(ans, str):
+            ok, note = False, ans
+        else:
+            ok, note = bool(ans), ""
+        return ok, note.strip()
 
     @staticmethod
-    def _declined(ans, state, requested):
-        note = ans.strip() if isinstance(ans, str) else ""
+    def _declined(note, state, requested):
         return ExecResult(False, "the operator rejected this move" + (f": {note}" if note else ""), state.p, state.p, requested,
-                          np.zeros(3), state.roll, state.roll, declined=True, operator_note=note)
+                          np.zeros(3), state.roll, state.roll, declined=True, operator_note=note, asked=True)
 
     def _settle(self):
         lim = self.cfg["limits"]
@@ -187,19 +197,20 @@ class ArmExecutor:
         if bad:
             return ExecResult(False, f"{label} refused by the trajectory check: {bad}", state.p, state.p)
         p_t, _ = self.kin.fk(q_t, self.others(j))
+        note, asked = "", False
         if self.confirm is not None:
             text = (f"{label}: hand {state.p.round(3).tolist()} -> {p_t.round(3).tolist()} m over {duration:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(q_t - q_now).max())):.0f} deg")
-            ans = self._ask(text, q_now, frames, 1.0 / self.rate, j)
-            if ans is not True:
-                r = self._declined(ans, state, p_t - state.p); r.feedback = f"the operator rejected the {label}" + (f": {r.operator_note}" if r.operator_note else "")
+            ok, note = self._ask(text, q_now, frames, 1.0 / self.rate, j); asked = True
+            if not ok:
+                r = self._declined(note, state, p_t - state.p); r.feedback = f"the operator rejected the {label}" + (f": {note}" if note else "")
                 return r
         t0 = time.time()
         self.backend.stream(self.arm, frames, 1.0 / self.rate)
         timeout = self._settle()
         after = self.sync()
         return ExecResult(True, f"{label} done", state.p, after.p, p_t - state.p, after.p - state.p, state.roll, after.roll,
-                          q_t, self.kin.q_from_dict(after.q), False, timeout, duration_s=time.time() - t0)
+                          q_t, self.kin.q_from_dict(after.q), False, timeout, duration_s=time.time() - t0, asked=asked, operator_note=note)
 
     def home_step(self, state, q_home, fraction=0.3):
         """One step toward the home joint pose after repeated IK failures."""

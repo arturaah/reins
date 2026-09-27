@@ -11,3 +11,4 @@ runs/chat_inbox/
 # Generated prompt previews (runtime artifacts)
 sim/plans/prompt_*.json
 runs/ui_preview.json
+runs/inference_stats.png
