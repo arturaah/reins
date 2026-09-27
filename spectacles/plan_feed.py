@@ -338,7 +338,7 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
     from websockets.asyncio.server import serve
     validate_bind(host, live_voice_url, pairing_token or review_token)
 
-    if (review is not None or voice is not None) and not (review_token or pairing_token):
+    if (review is not None or (voice is not None and not live_voice_url)) and not (review_token or pairing_token):
         raise ValueError("Review and voice feeds require a pairing token; prefer the dashboard glasses bridge.")
 
     async def handler(websocket):
@@ -370,6 +370,8 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                     message = json.loads(payload)
                     message.update(session=session, phase="draft", review=None)
                     if review and (pending := review.pending(feed.path)):
+                        if live:
+                            await live.stop()
                         # A proposal has not been approved yet. Always show its
                         # complete path; earlier rt/arm_sdk traffic may otherwise
                         # make joint matching collapse it to a hand point.
@@ -396,7 +398,7 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                     if not isinstance(raw, str) or len(raw) > 1024:
                         continue
                     msg = json.loads(raw)
-                    if (review_token or review is not None or voice is not None) and msg.get("session") != session:
+                    if (review is not None or (voice is not None and not live_voice_url)) and msg.get("session") != session:
                         kind = "voice_ack" if msg.get("type") == "voice_command" else "review_ack"
                         await websocket.send(json.dumps({"type":kind, "id":msg.get("id"), "accepted":False,
                                                          "session":session, "error":"Connection session changed"}))
@@ -407,7 +409,8 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                             continue
                         if live:
                             if msg['type'] == 'voice_start' and msg.get('sample_rate') == 16000:
-                                await live.start(identity)
+                                if not (review and review.pending(feed.path)):
+                                    await live.start(identity)
                             elif identity == live.identity:
                                 await live.stop()
                         else:
@@ -476,7 +479,7 @@ def main():
     ap.add_argument("--review-file", type=Path,
                     help="Spectacles accept/reject mailbox written by the harness; serve the same --preview plan")
     ap.add_argument("--voice-inbox", type=Path,
-                    help="mailbox for Spectacles speech; the desktop UI consumes it as a dry-run Claude task")
+                    help="legacy offline speech mailbox; the supported dashboard uses paired speech-to-chat")
     ap.add_argument('--live-voice-url', type=local_voice_url,
                     help='GPT-Live service with R1 output, e.g. http://127.0.0.1:8770')
     ap.add_argument('--pairing-file', type=Path,
@@ -484,7 +487,7 @@ def main():
     ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
     if (a.review_file or a.voice_inbox) and not (a.review_token_file or a.pairing_file):
-        ap.error("--review-file and --voice-inbox require --review-token-file; or use the dashboard glasses bridge")
+        ap.error("--review-file and --voice-inbox require --review-token-file or --pairing-file; prefer the dashboard glasses bridge")
     if not 2 <= a.points <= MAX_POINTS:
         ap.error(f"--points must be 2..{MAX_POINTS}")
     try:

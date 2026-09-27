@@ -14,7 +14,7 @@
 <div id="status" role="status" aria-live="polite">Microphone off</div>
 <div class="buttons"><button id="start" disabled>Start conversation</button><button id="stop" disabled>Stop</button></div>
 <p>Speak naturally. Audio plays as it arrives. Barge-in is off: microphone audio is suppressed during speech playback.</p>
-<p class="small">Try “Hello, Reins”, then “Ask the robot backend how to move forward.” The backend can discuss the request; it cannot execute movement.</p>
+<p id="backendHint" class="small">Try “Hello, Reins”, then “Ask the robot backend how to move forward.” Voice cannot approve or execute movement.</p>
 <p id="mic" class="small">Microphone off</p>
 <p class="small">Enhanced microphone audio streams to OpenAI. The backend receives conversation text. Tyto runs locally and may ask for clearer audio. No separate STT or TTS call. Audio is not recorded. Delegated desktop tasks may be logged by the harness. Stop ends voice; it does not cancel an already queued desktop task.</p>
 <p id="error" role="alert"></p>

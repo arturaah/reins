@@ -54,6 +54,19 @@ executor: requested movements are discussion only. Acknowledge a wait at most on
 '''
 
 
+DASHBOARD_INSTRUCTIONS = '''You are Reins, a voice interface for the dashboard robot agent.
+Speak briefly and naturally. Handle greetings and conversation yourself.
+Delegate robot tasks, movement requests, spatial questions and corrections to the
+backend before answering. You have no camera or robot controls yourself. The
+backend submits tasks to the dashboard agent and returns submission status, not
+planning or execution results. Report only what it confirms. Do not invent what
+the agent sees or claim a motion succeeded. Draft previews may be revised freely;
+a completed proposal always needs separate operator approval in the dashboard or
+paired glasses. Spoken instructions never approve a motion. Ask the caller to
+review the dashboard/glasses after submitting. Keep quiet while the caller speaks.
+'''
+
+
 class RobotBackend(Protocol):
     """Team-owned adapter: a bounded transcript snapshot in, verified facts out."""
     model: str
@@ -218,7 +231,7 @@ class LiveSession:
         revision = self.revision
         started = time.monotonic()
         self.backend_count += 1
-        await self.emit('backend', 'started', model=self.backend.model, text='Simulation reasoning; no action executor.')
+        await self.emit('backend', 'started', model=self.backend.model, text=getattr(self.backend, 'description', 'Simulation reasoning; no action executor.'))
         try:
             result = await asyncio.wait_for(self.backend.respond(self.snapshot()), 20)
             if self.closing or self.blocked or revision != self.revision:
@@ -233,9 +246,10 @@ class LiveSession:
             await self.emit('backend', 'cancelled')
             raise
         except Exception:
-            await self.emit('backend', 'error', text='Backend request failed. No action was executed.')
-            await self.send({'type': 'session.commentary.append', 'delegation_id': identity,
-                             'content': 'The simulation backend could not complete the request. No action was executed.'})
+            failure = getattr(self.backend, 'failure_message',
+                'The simulation backend could not complete the request. No action was executed.')
+            await self.emit('backend', 'error', text=failure)
+            await self.send({'type': 'session.commentary.append', 'delegation_id': identity, 'content': failure})
 
     async def receive_upstream(self):
         async for raw in self.upstream:
@@ -371,8 +385,11 @@ def main():
     parser.add_argument('--key-file')
     parser.add_argument('--port', type=int, default=8770)
     parser.add_argument('--backend-model', default='gpt-5-mini')
-    parser.add_argument('--backend', choices=['test', 'spectacles', 'conversation'], default='test')
-    parser.add_argument('--voice-inbox', type=Path, default=ROOT / 'runs/spectacles_voice.json')
+    parser.add_argument('--backend', choices=['test', 'spectacles', 'conversation', 'dashboard'], default='test')
+    from .dashboard_backend import dashboard_url
+    parser.add_argument('--dashboard-url', type=dashboard_url, default='http://127.0.0.1:8090',
+                        help='Local Reins dashboard used by --backend dashboard')
+    parser.add_argument('--voice-inbox', type=Path, help='Retired: use --backend dashboard')
     parser.add_argument('--output', choices=['browser', 'r1'], default='browser')
     parser.add_argument('--robot-iface', help='R1 body Ethernet interface; required with --output r1')
     parser.add_argument('--robot-python', default=str(ROOT / '.venv/bin/python'),
@@ -383,6 +400,11 @@ def main():
     parser.add_argument('--voice-focus', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--tyto', action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
+    if args.voice_inbox is not None:
+        parser.error('--voice-inbox is retired; use --backend dashboard --dashboard-url URL')
+    if args.backend == 'spectacles':
+        print('--backend spectacles now uses the dashboard agent; use --backend dashboard --dashboard-url URL.', flush=True)
+        args.backend = 'dashboard'
     if not 1024 <= args.port <= 65535: parser.error('Invalid port')
     if args.output == 'r1' and not args.robot_iface:
         parser.error('--output r1 requires --robot-iface')
@@ -397,22 +419,19 @@ def main():
     @asynccontextmanager
     async def factory():
         key = os.environ['OPENAI_API_KEY']
-        from .inbox_backend import InboxBackend
+        from .dashboard_backend import DashboardBackend
         from .robot_speaker import RobotSpeaker
         if args.backend == 'conversation':
             backend = ConversationBackend()
-        elif args.backend == 'spectacles':
-            backend = InboxBackend(args.voice_inbox)
+        elif args.backend == 'dashboard':
+            backend = DashboardBackend(args.dashboard_url)
         else:
             backend = TestRobotBackend(key, args.backend_model)
         instructions = INSTRUCTIONS
         if args.backend == 'conversation':
             instructions = CONVERSATION_INSTRUCTIONS
-        if args.backend == 'spectacles':
-            instructions += ('\nThe connected backend queues requests for the desktop dry-run planner. '
-                             'It returns queue status only, not results of planning or execution. '
-                             'Say a task is queued only after the backend confirms it. '
-                             'Proposals require separate operator review. Never claim the robot moved.')
+        if args.backend == 'dashboard':
+            instructions = DASHBOARD_INSTRUCTIONS
         speaker = RobotSpeaker(args.robot_python, args.robot_iface) if args.output == 'r1' else None
         session = LiveSession(key, backend, acoustics, voice=args.voice, metallic=args.metallic,
                               speaker=speaker, instructions=instructions)
@@ -424,8 +443,8 @@ def main():
 
     app = create_app(port=args.port, provider='gpt-live', session_factory=factory,
                      session_runner=live_conversation, index_asset='live.html', public_config={
-                         'live_model': LIVE_MODEL, 'backend_model': {'test': args.backend_model, 'spectacles': 'Spectacles dry-run inbox', 'conversation': 'Conversation only'}[args.backend], 'voice': args.voice,
-                         'output': args.output,
+                         'live_model': LIVE_MODEL, 'backend_model': {'test': args.backend_model, 'dashboard': 'Reins dashboard agent', 'conversation': 'Conversation only'}[args.backend], 'voice': args.voice,
+                         'output': args.output, 'backend': args.backend,
                          'metallic': args.metallic,
                          'voice_focus': acoustics.focus, 'enhancement_level': acoustics.focus_level,
                          'tyto': acoustics.tyto, 'barge_in': False})

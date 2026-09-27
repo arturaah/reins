@@ -164,7 +164,14 @@ class ArmExecutor:
             if not v.ok:
                 note = f"{a.raw.upper()}: {v.feedback}"; break
             frames = interpolate(q, v.q_target, v.duration_s, self.rate)
-            bad = self.gate.check_trajectory(frames, dt)
+            try:
+                predicted_pose = {**j, **dict(zip(self.kin.joint_names, q))}
+                plan = trajectory.resolve(trajectory.frame_plan(self.arm, q, frames, dt, predicted_pose), self.arm, predicted_pose, self.rate)
+                frames, dt = trajectory.frames(plan, self.arm)
+                v.duration_s = plan["duration_s"]
+            except ValueError as exc:
+                note = f"{a.raw.upper()}: {exc}"; break
+            bad = self.gate.check_trajectory(frames, dt, q, others)
             if bad:
                 note = f"{a.raw.upper()}: REJECTED by the trajectory check: {bad}"; break
             legs.append({"proposal": pr, "v": v, "frames": frames, "p_from": p, "roll_from": roll, "q_from": q})

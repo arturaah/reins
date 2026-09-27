@@ -53,6 +53,7 @@ def test_scripted_agent_observes_repairs_previews_and_proposes_once(tmp_path, mo
     before = robot.joints()
     frame = np.full((48, 64, 3), [30, 90, 150], dtype=np.uint8)
     detector = Mock(available=True, open_vocabulary=True, name="fake-detector")
+    detector.name = "fake-detector"
     registry = ReinsTools(detector, {"head": lambda: (frame, time.monotonic(), "head-frame-1", None)},
                           planner, sim.show_proposal, sim.status, lambda: {"head": {"online": True}})
     registry.pipeline = pipe
@@ -105,7 +106,8 @@ def test_scripted_agent_observes_repairs_previews_and_proposes_once(tmp_path, mo
         elif stage == 4:
             rejection = json.loads(output_of(payload, "step3"))
             assert rejection["state"] == "blocked" and rejection["retryable"]
-            assert rejection["failures"] and "unreachable" in rejection["message"].lower()
+            assert rejection["failures"] and rejection["message"] == rejection["failures"][0]["error"]
+            assert rejection["failures"][0]["details"]["waypoint_number"] == 1
             assert pipe.proposal is None and robot.sent == []
             name, arguments = "plan_hand_path", {**{key: copy.deepcopy(value) for key, value in DRAFT.items() if key != "frame"},
                                                    "observation_id": observation_id}

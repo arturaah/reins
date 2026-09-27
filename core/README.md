@@ -84,6 +84,30 @@ metric clearance. Ordinary MJPEG freshness measures receipt age, not synchronize
 sensor capture time. Use `--detector` and the camera settings described by
 `tools/dashboard.py --help`.
 
+## Historical experience
+
+`core/experience.py` adapts the team's `harness/experience.py` card renderer and
+pose/path rendering to the coordinator. Each terminal proposal retains its exact
+canonical payload and review identity, the operator decision, measured outcome,
+starting pose, hand path and the selected observed image when present. Approval
+is separate from completion: failed or cancelled approved proposals never become
+success examples, and simulation is labelled explicitly.
+
+`get_robot_context` retrieves relevant examples as historical text and real image
+tool content. Images and operator notes are untrusted past data, never current
+perception or authority to execute. Stored payloads have no replay endpoint.
+Cards render lazily, so image rendering cannot delay an execution outcome.
+
+The `experience` settings in `harness/config.yaml` apply to this adapter:
+`enabled`, `dir`, `max_in_prompt` (capped at 6), and `card_width_px`. Optional
+`max_entries` defaults to 128 and `max_bytes` to 64 MiB. The adapter stores its
+private files under `experience.dir/reviewed`, apart from legacy offline cards,
+and evicts oldest records when limits are exceeded. Tests with a custom relative
+run directory keep this memory there. **Connections → Forget saved examples**
+deletes the adapter's memory and saved images. Existing conversation context and
+diagnostic session logs are separate; forgetting does not recall data already
+sent to a model. There is no motion recording or replay UI.
+
 ## Tests
 
 ```sh

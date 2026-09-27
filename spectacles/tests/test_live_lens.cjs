@@ -50,10 +50,11 @@ test('legacy ASR retains main\'s transient-error retries and permission diagnost
   assert.equal(f.c.microphoneBlocked,true);assert.equal(f.c.voiceMessage,'SPEECH PERMISSION DENIED');
 });
 
-function connectionFixture(token) {
+function connectionFixture(token, reviewToken="") {
   const f=fixture();let closed=0;
   const socket={send:value=>f.sent.push(value),close(){closed++}};
   f.c.script.pairingToken=token;
+  f.c.script.reviewToken=reviewToken;f.c.script.deviceId="device-1";
   f.c.script.websocketUrl='ws://192.168.1.5:8765';
   f.c.script.internetModule={createWebSocket:()=>socket};
   vm.runInContext(source.slice(source.indexOf('function connect() {'),source.indexOf('script.createEvent("UpdateEvent")')),f.c);
@@ -92,4 +93,28 @@ test('USB works without a token and an old unpaired feed times out when a token 
   assert.equal(usb.c.socketReady,true);assert.equal(JSON.parse(usb.sent[0]).type,'voice_start');
   const wifi=connectionFixture('test-token');wifi.time(6);wifi.c.checkPairingTimeout();
   assert.equal(wifi.closed(),1);assert.match(wifi.c.voiceMessage,/PAIRING TIMED OUT/);
+});
+
+
+test('dashboard live audio is bound to its authenticated socket session',()=>{
+  const f=connectionFixture('', 'dashboard-token');
+  assert.deepEqual(JSON.parse(f.sent[0]),{type:'authenticate',device_id:'device-1',token:'dashboard-token'});
+  f.message({type:'auth_ack',accepted:true,session:'current',live_voice:true});
+  f.c.startVoice();
+  assert.equal(JSON.parse(f.sent.at(-1)).session,'current');
+  f.message({type:'voice_event',session:'old',id:f.c.voiceCommandId,event:{type:'listening'}});
+  assert.equal(f.started(),0);
+  f.message({type:'voice_event',session:'current',id:f.c.voiceCommandId,event:{type:'listening'}});
+  assert.equal(f.started(),1);
+  f.socket.onclose({code:1000});
+  assert.equal(f.c.socketSession,'');assert.equal(f.c.pendingReview,null);assert.equal(f.stopped(),1);
+});
+
+test('dashboard without a live relay keeps the existing ASR path available',()=>{
+  const f=connectionFixture('', 'dashboard-token');
+  f.message({type:'auth_ack',accepted:true,session:'current',live_voice:false});
+  assert.equal(f.c.liveVoiceEnabled(),false);
+  f.c.startVoice();
+  assert.equal(f.sent.filter(v=>typeof v==='string' && JSON.parse(v).type==='voice_start').length,0);
+  assert.equal(f.started(),0);
 });

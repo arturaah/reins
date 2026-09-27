@@ -448,18 +448,20 @@ def main():
     prompt_planner.reviser_factory = chat.motion_reviser
     reins_tools.pipeline = pipeline
     reins_tools.show_proposal = pipeline.show_primary
-    measured_view = None
+    measured_view = measured_thread = None
     if not args.sim and not args.twin:
         def measured_state():
             with pipeline.lock:
                 return {'connected': pipeline.connected, 'state': dict(pipeline.robot_state)}
         measured_view = MeasuredRobotView(pose_source=measured_state)
         feeds['twin'] = measured_view
-        threading.Thread(target=measured_view.run, daemon=True).start()
+        measured_thread = threading.Thread(target=measured_view.run, daemon=True)
+        measured_thread.start()
     def glasses_voice(text, command_id, device_id):
         result = chat.send(text)
         return {'accepted': True, 'task_id': result['session_id'], 'message': 'Task sent to the assistant. Motions still need review.'}
-    glasses_bridge = GlassesBridge(pipeline, args.glasses_host, args.glasses_port, on_voice=glasses_voice)
+    glasses_bridge = GlassesBridge(pipeline, args.glasses_host, args.glasses_port, on_voice=glasses_voice,
+                                   live_voice_url=args.voice_url or None)
 
 
     class Handler(BaseHTTPRequestHandler):
@@ -496,6 +498,8 @@ def main():
                 return self.send(pipeline.status())
             if path == '/api/glasses':
                 return self.send({**pipeline.glasses, 'paired_devices': glasses_bridge.pairing.list_devices()})
+            if path == '/api/experience':
+                return self.send(pipeline.experience.status())
             if path == '/api/chat':
                 return self.send(chat.status())
             if path == '/api/detection':
@@ -553,6 +557,10 @@ def main():
             if self.headers.get('X-Reins-Token') != token:
                 return self.send({'error': 'Invalid local session'}, code=403)
             try:
+                if self.path == '/api/experience':
+                    if command.get('action') != 'forget':
+                        raise ValueError('Unknown experience action')
+                    return self.send(pipeline.experience.clear())
                 if self.path == '/api/glasses':
                     if command.get('action') == 'create_device':
                         return self.send({'device': glasses_bridge.pairing.create_device(command.get('label', 'Spectacles'))})
@@ -612,7 +620,8 @@ def main():
                 self.send({'error': str(exc)}, code=400)
 
     server.RequestHandlerClass = Handler
-    threading.Thread(target=sim.run, daemon=True).start()
+    simulation_thread = threading.Thread(target=sim.run, daemon=True)
+    simulation_thread.start()
     print(f'Reins Observatory → http://localhost:{args.port}', flush=True)
     if args.sim:
         print('SIMULATION ONLY: hardware connection, firmware gestures and robot feeds are disabled.', flush=True)
@@ -625,6 +634,8 @@ def main():
     finally:
         sim.close()
         if measured_view: measured_view.close()
+        simulation_thread.join(3)
+        if measured_thread: measured_thread.join(3)
         glasses_bridge.close()
         pipeline.close()
         prompt_planner.cancel()

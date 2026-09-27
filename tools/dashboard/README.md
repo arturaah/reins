@@ -119,12 +119,12 @@ The dashboard reuses these JPEG/MJPEG camera endpoints:
 - Optional existing live twin: `--twin http://127.0.0.1:8082/twin`.
 
 Override with `--head`, `--left-wrist`, `--right-wrist`, `--glasses`, or `--twin`;
-empty values disable a source. Receipt freshness is checked, but capture times
+empty values disable camera sources; an empty `--twin` selects the local measured view. Receipt freshness is checked, but capture times
 are not synchronized. The selected model receives frames when using observation
 tools. Browser window sharing is display-only and is not a server camera source.
 
 The Robot control panel exposes measured state and the last motion's measured
-end pose. The optional cockpit/twin view remains a subscribe-only visualization.
+end pose. The default Live robot twin renders cached coordinator telemetry locally, with a fixed base and no global localization. It needs no cockpit or relay process and remains unavailable until connected. `--twin URL` can select an external subscribe-only view.
 Linux rendering defaults to EGL and macOS to CGL; override `MUJOCO_GL` if needed.
 
 For the existing local voice service, pass
@@ -141,5 +141,3 @@ plays an assistant reply through the voice panel. It cannot approve motions.
 
 Tests use scripted models, fake robot state and loopback sockets. They do not
 publish on robot DDS, start Jetson services or qualify physical robot operation.
-
-The default Live robot twin is rendered from the coordinator’s cached joint telemetry. It needs no cockpit or relay process and stays unavailable until connected. It shows joint configuration with a fixed base, not localized global position. `--twin URL` remains an optional external-view override.

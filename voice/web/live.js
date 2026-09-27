@@ -150,6 +150,10 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape')stop();});
 fetch('/config').then(r=>{if(!r.ok)throw new Error('Voice configuration unavailable');return r.json();}).then(c=>{
   config=c;$('voice').textContent=`${c.live_model} · ${c.voice}${c.metallic?' · metallic':''}`;$('backend').textContent=c.backend_model;
   $('outputMode').textContent=c.output==='r1'?'R1 SPEAKER':'COMPUTER AUDIO';
+  $('backendHint').textContent=c.backend==='dashboard'
+    ? 'Robot requests go to the dashboard agent. Follow its preview there or in glasses; approve motion separately. Stop here ends voice. Dashboard Stop cancels submitted work.'
+    : c.backend==='conversation' ? 'Conversation only. Robot requests are not submitted.'
+    : 'The test backend discusses robot requests without submitting tasks or executing motion.';
   $('focus').textContent=c.voice_focus?`On · ${Math.round(c.enhancement_level*100)}%`:'Off';
   $('tyto').textContent=c.tyto?'On · nudges after 5s':'Off';controls();
 }).catch(fail);

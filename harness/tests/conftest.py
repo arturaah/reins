@@ -4,5 +4,7 @@ from harness import config as hcfg
 
 
 @pytest.fixture
-def cfg():
-    return hcfg.load()
+def cfg(tmp_path):
+    cfg = hcfg.load()
+    cfg['experience']['dir'] = str(tmp_path / 'experience')
+    return cfg

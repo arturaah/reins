@@ -30,6 +30,12 @@ or predefined trajectory. Camera images, planning failures and measured outcomes
 return to the same agent. There is no separate per-step visual fallback, replay
 library, or recording UI.
 
+The coordinator also remembers reviewed proposals as bounded local picture cards:
+the original pose/path, an observed camera image when available, the operator's
+decision and the actual outcome. Relevant examples return to the agent as
+historical context; approval, physical completion and simulation stay distinct.
+Connections shows the saved count and a **Forget saved examples** control.
+
 ## Start in simulation
 
 Use Python 3.10 or newer with a working MuJoCo renderer:
@@ -75,12 +81,13 @@ proposals bind the decision to their revision and digest. Spectacles speech
 submits a task to the same agent, never an approval. See the
 [dashboard setup guide](tools/dashboard/README.md) and [Lens guide](spectacles/README.md).
 
-The optional [voice lab](voice/README.md) is a separate simulation/conversation
-service. Install its requirements in its own Python environment and pass
-`--sim --voice-url http://127.0.0.1:8770/` to embed it. Browser voice transcripts
-are entered through the dashboard chat flow; conversation-only adapters do not
-have robot tools. Its dependencies and model setup are separate from the base
-robot dashboard.
+The optional [voice service](voice/README.md) runs in its own environment.
+Use `--backend dashboard --dashboard-url http://127.0.0.1:8090` to submit spoken
+tasks to the same agent, or retain the standalone test/conversation modes.
+Dashboard `--voice-url http://127.0.0.1:8770/` embeds the browser voice page and
+allows paired Spectacles to relay live PCM. [R1 speaker output](spectacles/VOICE.md)
+is separately opt-in with `--output r1`; speech never approves motion. ASR
+transcripts remain available without a live voice service.
 
 ## Current limits
 

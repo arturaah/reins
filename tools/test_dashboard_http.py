@@ -100,6 +100,10 @@ class DashboardHTTPTests(unittest.TestCase):
                     self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':proposal['digest'],
                                                         'decision':'decline','note':'Keep the hand lower'})[0],200)
                     until('/api/robot',lambda x:x['proposal'] is None)
+                    self.assertEqual(call('/api/experience')[1]['count'],1)
+                    self.assertEqual(call('/api/experience',{'action':'forget'},False)[0],403)
+                    self.assertEqual(call('/api/experience')[1]['count'],1)
+                    self.assertEqual(call('/api/experience',{'action':'forget'})[1]['count'],0)
                     self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':proposal['digest'],
                                                         'decision':'approve'})[0],400)
                     self.assertEqual(call('/api/glasses',{'action':'create_device','label':'Lab glasses'},False)[0],403)

@@ -64,6 +64,7 @@ var reviewText = null;
 var reviewFrame = null;
 var socketReady = false;
 var pairingDeadline = -1;
+var dashboardLiveVoice = null;
 var socketSession = "";
 var reviewExpiresAt = 0;
 var lastHeartbeatAt = -1000;
@@ -83,6 +84,10 @@ var voiceGestureLockUntil = 0;
 var microphoneBlocked = false;
 var voiceSessionId = 0;
 var voiceUpdateCount = 0;
+
+function liveVoiceEnabled() {
+    return !!script.useLiveVoice && dashboardLiveVoice !== false;
+}
 
 function handlePairingMessage(message) {
     if (message.type === "pairing_required") {
@@ -141,7 +146,7 @@ function stopLiveVoice(notify) {
     try { if (liveMic) { liveMic.stop(); } } catch (e) {}
     liveMic = liveSamples = null;
     if (notify && socketReady) {
-        socket.send(JSON.stringify({type:"voice_stop", version:1, id:voiceCommandId, session:socketSession}));
+        try { socket.send(JSON.stringify({type:"voice_stop", version:1, id:voiceCommandId, session:socketSession})); } catch (e) {}
     }
 }
 function liveVoiceEvent(event) {
@@ -176,7 +181,7 @@ function liveVoiceEvent(event) {
     }
 }
 function streamLiveMicrophone() {
-    if (!script.useLiveVoice || !voiceListening) { return; }
+    if (!liveVoiceEnabled() || !voiceListening) { return; }
     if (!liveReady) {
         if (getTime() - voiceStartedAt > 20) {
             stopLiveVoice(true); voiceNotice("LIVE VOICE CONNECTION TIMED OUT");
@@ -212,7 +217,7 @@ function voiceNotice(message) {
     print("R1 AR voice: " + message);
 }
 function stopVoice(send) {
-    if (script.useLiveVoice) {
+    if (liveVoiceEnabled()) {
         stopLiveVoice(true); voiceNotice("VOICE STOPPED"); return;
     }
     if (!voiceListening) { return; }
@@ -231,7 +236,7 @@ function stopVoice(send) {
 }
 function startVoice() {
     if (!socketReady || (script.reviewToken && !socketSession)) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
-    if (script.useLiveVoice) {
+    if (liveVoiceEnabled()) {
         if (!script.microphoneAudio) { voiceNotice("MICROPHONE ASSET MISSING - RESEND LENS"); return; }
         voiceFinal = []; voicePartial = ""; liveRole = "";
         voiceListening = true; liveReady = liveSpeaking = false; voiceStartedAt = getTime();
@@ -339,7 +344,7 @@ function voicePinch(side) {
         if (voiceListening) { stopVoice(true); } else { startVoice(); }
     } else {
         voicePinchAt = now;
-        voiceNotice(voiceListening ? (script.useLiveVoice ? "RIGHT PINCH AGAIN TO STOP" : "RIGHT PINCH AGAIN TO SEND") : "RIGHT PINCH AGAIN TO SPEAK");
+        voiceNotice(voiceListening ? (liveVoiceEnabled() ? "RIGHT PINCH AGAIN TO STOP" : "RIGHT PINCH AGAIN TO SEND") : "RIGHT PINCH AGAIN TO SPEAK");
     }
 }
 
@@ -445,8 +450,8 @@ try {
     print("R1 AR: right double-pinch speaks or accepts; left cancels or rejects");
 } catch (e) { print("R1 AR: review gesture unavailable: " + e); }
 try {
-    if (!script.useLiveVoice) { asrModule = require('LensStudio:AsrModule'); }
-    print(script.useLiveVoice ? "R1 AR: GPT-Live microphone transport ready" : "R1 AR: Spectacles speech recognition ready");
+    asrModule = require('LensStudio:AsrModule');
+    print(liveVoiceEnabled() ? "R1 AR: GPT-Live microphone transport ready" : "R1 AR: Spectacles speech recognition ready");
 } catch (e) { print("R1 AR: speech recognition unavailable: " + e); }
 
 function showStatus(found, side) {
@@ -827,6 +832,7 @@ function connect() {
                 if (trajectory.type === "auth_ack") {
                     socketReady = trajectory.accepted === true && typeof trajectory.session === "string";
                     socketSession = socketReady ? trajectory.session : "";
+                    dashboardLiveVoice = script.reviewToken ? trajectory.live_voice === true : null;
                     pairingDeadline = -1;
                     return;
                 }
@@ -903,7 +909,7 @@ script.createEvent("UpdateEvent").bind(function(){
     updateAnchor();
     checkPairingTimeout();
     streamLiveMicrophone();
-    if (!script.useLiveVoice && voiceListening && voiceSendRequestedAt >= 0) {
+    if (!liveVoiceEnabled() && voiceListening && voiceSendRequestedAt >= 0) {
         var voiceWait = getTime() - voiceSendRequestedAt;
         if (voiceWait > 1.5 && voiceText()) {
             finishVoiceSend();
@@ -943,9 +949,9 @@ script.createEvent("UpdateEvent").bind(function(){
                  !trackingState().registered || trackingState().age_s > 3 ? "SCAN BOTH TAGS AGAIN" :
                  reviewMessage || (!socketReady ? "WAITING FOR CONNECTION" :
                  "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
-                (voiceListening ? (script.useLiveVoice ? (liveSpeaking ? "R1 SPEAKING\n" : liveReady ? "GPT-LIVE LISTENING\n" : "CONNECTING\n") : voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
+                (voiceListening ? (liveVoiceEnabled() ? (liveSpeaking ? "R1 SPEAKING\n" : liveReady ? "GPT-LIVE LISTENING\n" : "CONNECTING\n") : voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
                  (voiceText() || (getTime() - voiceStartedAt > 3 ? "NO WORDS YET" : "SPEAK NOW")).slice(-55) +
-                 (script.useLiveVoice ? "\nDOUBLE PINCH TO STOP" : "\nRIGHT x2 SEND   LEFT x2 CANCEL") : getTime() < voiceMessageUntil ? voiceMessage :
+                 (liveVoiceEnabled() ? "\nDOUBLE PINCH TO STOP" : "\nRIGHT x2 SEND   LEFT x2 CANCEL") : getTime() < voiceMessageUntil ? voiceMessage :
                  "DRAFT PREVIEW\nNO MOTION SUBMITTED");
         }
     }

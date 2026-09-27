@@ -452,7 +452,7 @@ function renderPipeline() {
   const walking=p?.capabilities?.walking===true,hands=p?.capabilities?.hands||{},hand=hands[$('robotArm').value]===true;
   document.querySelectorAll('[data-walk]').forEach(b=>b.disabled=!p||busy||!walking);
   document.querySelectorAll('[data-hand]').forEach(b=>b.disabled=!p||busy||!hand);
-  $('extraControlStatus').textContent=(walking?'Walking enabled':'Walking disabled')+' · '+(hand?'Selected hand available':'Selected hand unavailable');
+  $('extraControlStatus').textContent=(walking?'Walking enabled':'Walking disabled')+' · '+(hand?'Selected hand available':'Selected hand unavailable')+(p?.capabilities?.walking_note?' · '+p.capabilities.walking_note:'');
   $('robotStop').disabled=!p;
   if(p?.table_z_m!=null&&document.activeElement!==$('tableHeight'))$('tableHeight').value=p.table_z_m;
   const robot=p?.robot_state;
@@ -571,4 +571,30 @@ window.addEventListener('message',event=>{
 $('speakPrompt').onclick=()=>{
   const reply=[...(state?.chat?.messages||[])].reverse().find(message=>message.role==='assistant');
   if(!window.ReinsVoice.speak(displayMessage(reply)||$('pipelineMessage').textContent))toast('Connect voice and wait for playback to finish. Replies must be under 1,000 characters.');
+};
+
+// Historical examples inform planning; they are never a replay library.
+async function loadExperience() {
+  try {
+    const response=await fetch('/api/experience');
+    if(!response.ok)throw new Error('Experience status unavailable');
+    renderExperience(await response.json());
+  } catch(error) {$('experienceStatus').textContent=error.message;}
+}
+function renderExperience(memory) {
+  $('experienceStatus').textContent=memory.enabled?
+    `${memory.count} saved proposal${memory.count===1?'':'s'} · up to ${memory.max_entries} retained. `+
+    'Historical cards and selected camera images accompany planning context.' : 'Historical experience is disabled.';
+  if(memory.error)$('experienceStatus').textContent+=' Storage issue: '+memory.error;
+  $('forgetExperience').disabled=!memory.count;
+}
+$('connections').addEventListener('toggle',()=>{if($('connections').open)loadExperience();});
+$('forgetExperience').onclick=async()=>{
+  $('forgetExperience').disabled=true;
+  try {
+    const response=await fetch('/api/experience',{method:'POST',headers:{'Content-Type':'application/json','X-Reins-Token':token},
+      body:JSON.stringify({action:'forget'})});
+    const result=await response.json();if(!response.ok)throw new Error(result.error||'Could not forget experience');
+    renderExperience(result);toast('Historical proposal memory cleared. New completed reviews can create new examples.');
+  } catch(error) {toast(error.message);loadExperience();}
 };

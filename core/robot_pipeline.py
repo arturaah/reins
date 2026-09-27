@@ -22,6 +22,7 @@ import numpy as np
 from contract.runtime import digest, validate_motion, validate_approval
 from core import trajectory
 from core.generated_motion import compile_trajectory, validate_trajectory
+from core.experience import ExperienceMemory
 from core.ik import ArmIK
 from core.motion_policy import base_path, check_waypoints, table_obstacles, walking_payload
 from harness.config import load
@@ -62,6 +63,8 @@ class RobotPipeline:
         self.cancelled, self.closed = threading.Event(), threading.Event()
         self.generation, self.revision = 0, 0
         self.session_id = uuid.uuid4().hex
+        self.experience = ExperienceMemory(self.cfg, root=Path(run_dir) if run_dir else ROOT)
+        self.experience_snapshot = None
         self.worker = self.streamer = self.streamer_log = self.pending_backend = None
         self.hand_server = self.hand_log = None
         self.backend_factory = backend_factory
@@ -129,6 +132,7 @@ class RobotPipeline:
     def capabilities(self):
         hands = self.cfg["hand"]["type"] in ("revo2", "virtual")
         return {"walking": bool(self.cfg.get("locomotion", {}).get("enabled")),
+                "walking_note": self.cfg.get("locomotion", {}).get("note", ""),
                 "hands": {"left": hands, "right": hands}, "hardware_allowed": not self.simulation_only,
                 "hand_type": self.cfg["hand"]["type"], "arm_motion": True,
                 "depth": False, "contact_planning": False, "dual_arm": False}
@@ -140,7 +144,8 @@ class RobotPipeline:
                 "draft": self.draft, "proposal": self.proposal, "last_result": self.last_result,
                 "robot_state": self.robot_state, "capabilities": self.capabilities(),
                 "events": self.events[-20:], "iface": self.iface, "table_z_m": self.cfg["workspace"]["table_z_m"],
-                "glasses": self.glasses, "run_id": self.session_id, "session_id": self.session_id})
+                "glasses": self.glasses, "experience": self.experience.status(),
+                "run_id": self.session_id, "session_id": self.session_id})
 
     def event(self, stage, message):
         with self.lock:
@@ -347,7 +352,7 @@ class RobotPipeline:
             raise ValueError("Draft is no longer available")
         return self.preview_plan(self.draft["id"])
 
-    def propose_motion(self, plan_id, request_id=None):
+    def propose_motion(self, plan_id, request_id=None, *, task=None):
         request_id = request_id or plan_id
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
             raise ValueError("Use a bounded request_id")
@@ -372,6 +377,11 @@ class RobotPipeline:
             self.requests[request_id] = {"plan_id": plan_id, "proposal_id": ident}
             item["submitted"] = ident
             self._display(item, ident)
+            try:
+                self.experience_snapshot = self.experience.capture(task, p, self.plan, item["pose"], self.paths, item["observation"])
+            except Exception as exc:
+                self.experience_snapshot = None
+                self.experience.error = str(exc)[:180]
             self.event("review", "Review the complete motion. Approve once or decline in the dashboard or glasses.")
             self._log({"type": "proposal", "proposal": p, "payload": self.plan})
             return self.motion_result(ident)
@@ -442,8 +452,18 @@ class RobotPipeline:
                     measured_end_pose=after, tracking_error=tracking, feedback=result)
         except Exception as exc:
             if mode == "live":
-                try: backend.freeze(); backend.release()
+                try:
+                    try: backend.freeze()
+                    finally: backend.release()
                 except (OSError, RuntimeError): pass
+                finally:
+                    try: backend.close()
+                    except (OSError, RuntimeError): pass
+                    finally:
+                        with self.lock:
+                            if self.backend is backend:
+                                self.connected, self.mode = False, "sim"
+                                self.backend = PreviewBackend(self.robot_state.get("joints", self._simulation_pose()))
             if not self.cancelled.is_set(): self._finish("failed", str(exc))
 
     def _finish(self, outcome, message, **feedback):
@@ -456,6 +476,12 @@ class RobotPipeline:
                 "decision": copy.deepcopy(self.decision), **feedback}
             self.results[p["id"]] = result
             self.last_result = result
+            try:
+                self.experience.record(self.experience_snapshot, result)
+            except Exception as exc:
+                # Diagnostic storage must not change an approval or motion outcome.
+                self.experience.error = str(exc)[:180]
+            self.experience_snapshot = None
             self.proposal = self.plan = self.paths = self.draft = None
             self._log({"type": "outcome", **result})
             self.event("completed" if outcome == "executed" else outcome, message)

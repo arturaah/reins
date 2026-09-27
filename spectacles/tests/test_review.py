@@ -90,7 +90,7 @@ class WebSocketReviewTests(unittest.IsolatedAsyncioTestCase):
                           "q": {"right_shoulder_pitch_joint": 0.2},
                           "cmd": {"weight": 1}})
             server = asyncio.create_task(serve_feed(feed, "127.0.0.1", port, 0.05,
-                                                    state=state, review=mailbox, review_token="test-pairing-token"))
+                                                    state=state, review=mailbox, review_token="test-pairing-token-0123456789abcdefghijkl"))
             try:
                 for attempt in range(50):
                     try:
@@ -101,7 +101,7 @@ class WebSocketReviewTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     self.fail("feed did not start")
                 async with client as websocket:
-                    await websocket.send(json.dumps({"type":"authenticate", "token":"test-pairing-token"}))
+                    await websocket.send(json.dumps({"type":"authenticate", "token":"test-pairing-token-0123456789abcdefghijkl"}))
                     auth = json.loads(await websocket.recv())
                     self.assertEqual(auth["type"], "auth_ack")
                     first = json.loads(await asyncio.wait_for(websocket.recv(), 2))

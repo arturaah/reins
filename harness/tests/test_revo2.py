@@ -39,19 +39,26 @@ class FakeDds:
 def server(cfg, tmp_path):
     token = tmp_path/"hand.token"; token.write_text("private-hand-controller-capability"*2); token.chmod(0o600)
     cfg["streamer"]["control_token_file"] = str(token)
+    servers, workers = [], []
     def start(dds):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]
         cfg["hand"]["type"] = "revo2"
         cfg["hand"]["revo2"].update(port=port, settle_s=0.5)
-        threading.Thread(target=revo2.HandServer(dds, cfg, log=lambda *a: None).serve, args=("127.0.0.1", port), daemon=True).start()
+        bridge = revo2.HandServer(dds, cfg, log=lambda *a: None)
+        worker = threading.Thread(target=bridge.serve, args=("127.0.0.1", port), daemon=True)
+        servers.append(bridge); workers.append(worker); worker.start()
         for _ in range(50):
             try:
                 socket.create_connection(("127.0.0.1", port)).close(); break
             except OSError:
                 time.sleep(0.02)
         return cfg
-    return start
+    start.instances = servers
+    yield start
+    for bridge in servers: bridge.close()
+    for worker in workers: worker.join(2)
+    assert not any(worker.is_alive() for worker in workers)
 
 
 def approved_hand(client, arm, closed):
@@ -72,7 +79,7 @@ def test_close_on_nothing_is_an_empty_grasp(server):
 def test_close_on_an_object(server):
     c = Revo2Client(server(FakeDds(block_at=0.5)), log=lambda *a: None)
     fb = approved_hand(c, "left", True)
-    assert fb.startswith("hand closed on an object") and "51%" in fb
+    assert fb.startswith("fingers stopped before full closure") and "51%" in fb and "contact unverified" in fb
 
 
 def test_no_state_means_no_command(server):
@@ -185,3 +192,80 @@ def test_hand_nonfinite_configuration_never_publishes(server):
         approved_hand(client, "right", True)
     assert not dds.sets
     client.close()
+
+
+def test_hand_freeze_cannot_be_cleared_by_a_later_approval(server):
+    dds = FakeDds(); client = Revo2Client(server(dds), log=lambda *a: None)
+    try:
+        client.freeze()
+        with pytest.raises(RuntimeError, match="reconnect"):
+            approved_hand(client, "right", True)
+        assert not dds.sets
+    finally:
+        client.close()
+
+
+def test_hand_stop_during_validation_prevents_submission(server, monkeypatch):
+    from contract import runtime
+    dds = FakeDds(); client = Revo2Client(server(dds), log=lambda *a: None)
+    ready, resume, failures = threading.Event(), threading.Event(), []
+    validate = runtime.validate_approval
+    def pause_validation(*args):
+        validate(*args); ready.set(); assert resume.wait(2)
+    monkeypatch.setattr(runtime, "validate_approval", pause_validation)
+    def move():
+        try: approved_hand(client, "right", True)
+        except RuntimeError as exc: failures.append(str(exc))
+    worker = threading.Thread(target=move); worker.start()
+    try:
+        assert ready.wait(2)
+        client.freeze(); resume.set(); worker.join(2)
+        assert not worker.is_alive() and failures == ["Hand motion stopped before submission"]
+        assert not dds.sets
+    finally:
+        resume.set(); client.close()
+
+
+def test_external_hand_cancellation_stays_latched(server):
+    dds = FakeDds(); client = Revo2Client(server(dds), log=lambda *a: None)
+    payload = {"kind": "hand", "arm": "right", "closed": True}
+    approval = {"proposal_id": uuid.uuid4().hex, "revision": 1, "digest": digest(payload), "expires_at": time.time()+60}
+    cancelled = threading.Event(); cancelled.set()
+    try:
+        with pytest.raises(RuntimeError, match="reconnect"):
+            client.execute_motion(payload, approval, cancelled=cancelled)
+        with pytest.raises(RuntimeError, match="reconnect"):
+            client.execute_motion(payload, approval, cancelled=threading.Event())
+        assert not dds.sets
+    finally:
+        client.close()
+
+
+def test_hand_server_stop_latches_until_new_controller_connection(server):
+    dds = FakeDds(); cfg = server(dds); bridge = server.instances[-1]
+    client = Revo2Client(cfg, log=lambda *a: None)
+    payload = {"kind": "hand", "arm": "right", "closed": True}
+    approval = {"proposal_id": uuid.uuid4().hex, "revision": 1, "digest": digest(payload), "expires_at": time.time()+60}
+    # Bypass client safeguards deliberately: the bridge must enforce its own latch.
+    assert client.call({"cmd": "freeze"})["ok"]
+    assert client.call({"cmd": "authenticate", "token": client.control_token})["ok"]
+    response = client.call({"cmd": "execute_motion", "payload": payload, "approval": approval})
+    assert not response["ok"] and "stopped" in response["error"] and not dds.sets
+    client.close()
+    for _ in range(100):
+        if bridge.owner is None: break
+        time.sleep(.01)
+    assert bridge.owner is None
+    client = Revo2Client(cfg, log=lambda *a: None)
+    try:
+        assert approved_hand(client, "right", True).startswith("EMPTY")
+        assert len(dds.sets) == 1
+        bridge.close()
+        assert bridge.stop.is_set() and bridge.cancelled.is_set()
+        assert dds.sets[-1][1] == dds.q["right"]  # shutdown holds measured fingers
+        before = len(dds.sets)
+        approval["proposal_id"] = uuid.uuid4().hex
+        assert not bridge.dispatch({"cmd": "execute_motion", "payload": payload, "approval": approval}, authorized=True)["ok"]
+        assert len(dds.sets) == before
+    finally:
+        client.close()

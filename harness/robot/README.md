@@ -34,11 +34,17 @@ joint limits, acceleration, speed, and robot geometry before holding the current
 pose and streaming the reviewed samples. No head movement or approach path is
 inserted. Walking also checks fresh robot telemetry, the configured FSM, velocity,
 duration, distance, turn limits, and cumulative controller-session budget.
-Interrupted or uncertain walks conservatively consume their reserved budget.
+Interrupted or uncertain walks conservatively consume their reserved budget. Before
+walking, the bridge releases arm weight and waits for an allowed balance-controller
+FSM. It leaves the arms released afterwards; taking arm control again requires a
+separately approved arm motion.
 
 `freeze`, `release`, disconnect, missed controller heartbeats, and process shutdown
 cancel active arm and base motion. Walking remains interruptible even if the arms
-were never engaged. SIGTERM follows the same release path as Ctrl-C.
+were never engaged. SIGTERM follows the same release path as Ctrl-C. Stop stays
+latched in both client and bridge until a new controller connection is authenticated;
+re-authenticating the existing socket does not clear it. Successful motions can be
+followed by another approved motion on the same connection.
 
 ## Revo2 hands
 

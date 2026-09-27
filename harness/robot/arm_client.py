@@ -11,7 +11,7 @@ from .control_auth import read_token
 class ArmClientBackend:
     name = "arm_sdk"
     dry_run = False
-    hands = None                   # hand_client.Revo2Client when hand.type is revo2 (set by harness.__main__.build)
+    hands = None                   # private Revo2Client when configured by RobotPipeline
 
     def __init__(self, cfg, log=print):
         s = cfg["streamer"]
@@ -114,32 +114,39 @@ class ArmClientBackend:
 
     def release(self):
         self.motion_cancel.set()
-        result = self.call({"cmd": "release"}, timeout=15) if self.authenticated else self.snapshot()
-        if self.hands:
-            self.hands.freeze()
-        return result
+        try:
+            return self.call({"cmd": "release"}, timeout=15) if self.authenticated else self.snapshot()
+        finally:
+            if self.hands:
+                self.hands.freeze()
 
     def freeze(self):
         self.motion_cancel.set()
-        result = self.call({"cmd": "freeze"}, timeout=3) if self.authenticated else self.snapshot()
-        if self.hands:
-            self.hands.freeze()
-        return result
+        try:
+            return self.call({"cmd": "freeze"}, timeout=3) if self.authenticated else self.snapshot()
+        finally:
+            if self.hands:
+                self.hands.freeze()
 
     def close(self):
         self.motion_cancel.set()
         self.alive = False
-        if self.hands:
-            self.hands.close()
-        try: self.sock.shutdown(socket.SHUT_RDWR)
-        except OSError: pass
-        self.sock.close()
+        try:
+            if self.hands:
+                self.hands.close()
+        finally:
+            try: self.sock.shutdown(socket.SHUT_RDWR)
+            except OSError: pass
+            self.sock.close()
 
     def stream(self, arm, frames, dt):
         raise RuntimeError("Raw frames are retired; propose a complete motion through RobotPipeline")
 
     def execute_motion(self, payload, approval):
-        self.motion_cancel.clear()
+        # Stop stays latched for this connection. Clearing it here could erase a
+        # stop that arrived after the coordinator's final check, before dispatch.
+        if self.motion_cancel.is_set():
+            raise RuntimeError("Motion stopped; reconnect before submitting another motion")
         from contract.runtime import digest, validate_approval, validate_motion
         validate_motion(payload)
         validate_approval(approval, digest(payload))

@@ -29,7 +29,7 @@ are retired. Offline datasets/evaluations remain useful.
   `plan_base_motion`/`plan_hand_action`, `preview_plan`, `propose_motion`, and
   `get_motion_result`. Bounded tool/revision budgets; no approval tool. Actual
   images travel as image content, not only detection summaries.
-- `core/dashboard_chat.py`, `codex_chat.py`, `claude_chat.py`: provider lifecycle,
+- `core/dashboard_chat.py`, `codex_chat.py`, `claude_chat.py`, `openai_chat.py`: provider lifecycle,
   cancellable chat and tool execution. Preserve provider independence and actual
   outcome feedback. Untrusted camera text and operator notes are data, not tool
   instructions. CLI transports run in isolated workspaces.
@@ -59,6 +59,7 @@ are retired. Offline datasets/evaluations remain useful.
   uses the same approval boundary over its private channel. `odometry.py`
   reports measured base displacement. `poseview.py` renders a labelled
   synthetic view of robot joints, never a camera view of real objects.
+- `core/experience.py` retains bounded historical proposal cards and exact outcome evidence. Its images are historical context, never current perception or authorization. Approval and successful execution remain separate; Connections can forget this memory.
 - `harness/loop.py`, kinematics/executor/safety and legacy `vlm/` modules remain
   offline evaluation utilities, not the live camera fallback. Preserve useful
   prompts, feedback, demonstration/episode exports and regression tests.

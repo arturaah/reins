@@ -427,7 +427,13 @@ class Streamer:
                     if cmd == "authenticate":
                         with self.owner_lock:
                             valid = matches(self.control_token, req.get("token"))
-                            if valid and self.control_owner in (None, conn):
+                            # A disconnected worker may still be leaving validation.
+                            # Keep stop latched until it has completely retired.
+                            available = (self.control_owner is conn or
+                                         self.control_owner is None and not self.active_motion.locked())
+                            if valid and available and not self.stop.is_set():
+                                if self.control_owner is None:
+                                    self.motion_cancel.clear()
                                 self.control_owner = conn
                                 authenticated = True
                                 self.last_client = time.time()
@@ -443,7 +449,6 @@ class Streamer:
                         if not self.active_motion.acquire(blocking=False):
                             answer(req, {"ok": False, "error": "motion command already active"})
                         else:
-                            self.motion_cancel.clear()
                             self.serving = True
                             worker = threading.Thread(target=run, args=(req,), daemon=True)
                             worker.start()

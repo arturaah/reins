@@ -169,3 +169,91 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             await second.send(json.dumps({**command, "session":new_session, "text":"something different"}))
             self.assertFalse((await self.response(second, "voice_ack"))["accepted"])
         self.assertEqual(self.voices, [("wave please", "voice-1", self.device["device_id"])])
+
+class LiveVoiceBridgeTests(unittest.IsolatedAsyncioTestCase):
+    paired = BridgeTests.paired
+    response = BridgeTests.response
+    asyncTearDown = BridgeTests.asyncTearDown
+
+    async def asyncSetUp(self):
+        await BridgeTests.asyncSetUp(self)
+        await asyncio.to_thread(self.bridge.close)
+        self.relays = []
+        relays = self.relays
+
+        class Relay:
+            def __init__(self, lens, url):
+                self.lens, self.url = lens, url
+                self.identity = ''
+                self.task = None
+                self.audio_frames = []
+                self.starts = []
+                self.stops = 0
+                relays.append(self)
+
+            async def start(self, identity):
+                self.identity = identity
+                self.starts.append(identity)
+                self.task = asyncio.create_task(asyncio.sleep(100))
+                await self.lens.send(json.dumps({'type':'voice_event', 'version':1, 'id':identity,
+                                                'event':{'type':'listening'}}))
+
+            async def audio(self, pcm):
+                if self.task and not self.task.done(): self.audio_frames.append(pcm)
+
+            async def stop(self):
+                if self.task:
+                    self.stops += 1
+                    self.task.cancel()
+                    await asyncio.gather(self.task, return_exceptions=True)
+                    self.task = None
+
+        self.bridge = GlassesBridge(self.pipeline, '127.0.0.1', 0, pairing=self.store,
+            on_voice=lambda *args: {'accepted':True}, live_voice_url='http://127.0.0.1:8770', relay_factory=Relay)
+        self.assertTrue(await asyncio.to_thread(self.bridge.ready.wait, 3))
+        self.url = 'ws://127.0.0.1:'+str(self.pipeline.glasses['port'])
+
+    async def test_live_audio_is_session_bound_and_review_stops_it(self):
+        review = copy.deepcopy(self.pipeline.message['review'])
+        self.pipeline.message.update(phase='draft', review=None)
+        socket, session = await self.paired()
+        start = {'type':'voice_start', 'version':1, 'id':'live-1', 'sample_rate':16000}
+        async with socket:
+            await socket.send(json.dumps({**start, 'session':'old'}))
+            error = await self.response(socket, 'voice_event')
+            self.assertEqual(error['event']['type'], 'error')
+            self.assertEqual(self.relays[0].starts, [])
+            await socket.send(b'\x01\x02'*320)
+            await socket.send(json.dumps({**start, 'session':session}))
+            event = await self.response(socket, 'voice_event')
+            self.assertEqual(event['session'], session)
+            self.assertEqual(event['event']['type'], 'listening')
+            await socket.send(b'\x01\x02'*320)
+            for _ in range(100):
+                if self.relays[0].audio_frames: break
+                await asyncio.sleep(.01)
+            self.assertEqual(self.relays[0].audio_frames, [b'\x01\x02'*320])
+            self.pipeline.message.update(phase='review', review=review)
+            for _ in range(100):
+                if self.relays[0].stops: break
+                await asyncio.sleep(.01)
+            self.assertEqual(self.relays[0].stops, 1)
+            await socket.send(json.dumps({**start, 'session':session}))
+            self.assertEqual((await self.response(socket, 'voice_event'))['event']['type'], 'error')
+            self.assertEqual(self.relays[0].starts, ['live-1'])
+        self.assertEqual(self.pipeline.decisions, [])
+
+    async def test_revoked_device_stops_live_audio_and_cannot_reopen_it(self):
+        self.pipeline.message.update(phase='draft', review=None)
+        socket, session = await self.paired()
+        async with socket:
+            await socket.send(json.dumps({'type':'voice_start', 'version':1, 'id':'live-1',
+                'sample_rate':16000, 'session':session}))
+            await self.response(socket, 'voice_event')
+            self.store.revoke_device(self.device['device_id'])
+            with self.assertRaises(ConnectionClosed):
+                while True: await asyncio.wait_for(socket.recv(), 2)
+        for _ in range(100):
+            if self.relays[0].stops: break
+            await asyncio.sleep(.01)
+        self.assertEqual(self.relays[0].stops, 1)

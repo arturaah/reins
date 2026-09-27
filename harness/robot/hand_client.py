@@ -2,9 +2,9 @@
 import here.
 
 GRASP sends hand.revo2.close, RELEASE sends hand.revo2.open, then waits until the fingers stop (at most settle_s) and
-reads them back. A close whose fingers (index..pinky) got within empty_reach of the close pose had nothing to stop
-them: that is reported as "EMPTY grasp", which the loop already answers by opening and rolling back to the GRASP
-stage. A dry run reads the hands but never sends a set; it pretends the command happened so an episode walks through.
+reads them back. Near-full finger closure is classified as "EMPTY grasp" for the offline loop's retry behavior.
+Partial closure is reported as measured finger position; contact and grasp success are not inferred from position.
+A dry run reads the hands but never sends a set; it pretends the command happened so an episode walks through.
 """
 import json
 import socket
@@ -82,13 +82,18 @@ class Revo2Client:
                 + ("" if st else f" (and it would fail: no {arm} hand state)"))
 
     def execute_motion(self, payload, approval, cancelled=None):
+        # A stopped connection cannot be reused. Normal completion does not set
+        # either latch, so another reviewed motion remains possible.
+        if (self.cancelled.is_set() or self.external_cancel is not None and self.external_cancel.is_set()
+                or cancelled is not None and cancelled.is_set()):
+            self.cancelled.set()
+            raise RuntimeError("Hand motion stopped; reconnect before submitting another motion")
         self.external_cancel = cancelled
         from contract.runtime import digest, validate_approval, validate_motion
         validate_motion(payload)
         validate_approval(approval, digest(payload))
         if payload["kind"] != "hand" or self.dry_run or not self.authenticated:
             raise RuntimeError("Reviewed hand execution needs a private live hand connection")
-        self.cancelled.clear()
         arm, closed = payload["arm"], payload["closed"]
         response = self.call({"cmd": "execute_motion", "payload": payload, "approval": approval})
         if not response.get("ok"):
@@ -104,9 +109,9 @@ class Revo2Client:
         if not closed:
             feedback = "hand opened" if max(q[FINGERS]) < .2 else f"hand opening, fingers still at {max(q[FINGERS]):.0%} closed"
         elif reach >= float(self.h["empty_reach"]):
-            feedback = f"EMPTY grasp: the hand closed fully ({reach:.0%} of the close pose), nothing between the fingers"
+            feedback = f"EMPTY grasp: fingers reached {reach:.0%} of the close pose; object contact unverified"
         else:
-            feedback = f"hand closed on an object: the fingers stopped at {reach:.0%} of the close pose"
+            feedback = f"fingers stopped before full closure at {reach:.0%} of the close pose; object contact unverified"
         return {"ok": True, "hand_feedback": feedback, "hands": self.call({"cmd": "state"})["hands"]}
 
     def freeze(self):

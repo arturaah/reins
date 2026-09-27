@@ -112,6 +112,19 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(digest(robot.sent[0]),p["digest"])
         self.assertEqual(self.pipe.last_result["tracking_error"],0.)
 
+    def test_execution_failure_releases_and_disconnects_before_retry(self):
+        robot = self.live()
+        robot.execute_motion = Mock(side_effect=RuntimeError('Transport interrupted'))
+        robot.close = Mock()
+        p = self.ready()
+        state = self.approve(p)
+        self.assertEqual(state['last_result']['outcome'],'failed')
+        self.assertEqual(state['last_result']['mode'],'live')
+        self.assertFalse(state['connected'])
+        self.assertEqual(state['mode'],'sim')
+        self.assertTrue(robot.frozen)
+        robot.close.assert_called_once()
+
     def test_planning_pose_reports_measured_joints_not_held_targets(self):
         state=self.pipe.backend.snapshot()
         joint='right_elbow_joint'

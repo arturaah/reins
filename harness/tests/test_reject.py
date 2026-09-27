@@ -50,18 +50,21 @@ def test_reject_with_note_reaches_the_model_and_drops_the_chunk(rig, tmp_path):
     p0 = backend.tip("right").copy()
     s = Episode(cfg, vlm, ex, per, None, log=lambda *_: None, feedback=fb, stats=stats).run("x")
     assert s["success"]
-    assert len(asked) == 2 and asked[0][0].startswith("TRAJECTORY of 2 moves (MV_LEFT, MV_LEFT)") and asked[1][0].startswith("MV_UP")
-    assert "the plan's move 3 (MV_LEFT) was dropped: MV_LEFT: COLLISION" in asked[0][0]      # planned from the predicted pose: the third would touch
+    assert len(asked) == 2 and asked[0][0].startswith("TRAJECTORY of 1 moves (MV_LEFT)") and asked[1][0].startswith("MV_UP")
+    # Core's swept torso envelope rejects the second crossing before the older
+    # endpoint-only gate would reject the third. Do not weaken it for this fixture.
+    assert "the plan's move 2 (MV_LEFT) was dropped" in asked[0][0]
+    assert "Self-collision: torso envelope" in asked[0][0]
     entries = fb.entries()
-    assert [(e["action"], e["accepted"], e["note"]) for e in entries] == [("MV_LEFT, MV_LEFT", False, "too far left"), ("MV_UP", True, "keep this height")]
+    assert [(e["action"], e["accepted"], e["note"]) for e in entries] == [("MV_LEFT", False, "too far left"), ("MV_UP", True, "keep this height")]
     assert entries[0]["stage"] == "hover_block" and entries[0]["height_cm"] is not None
     assert stats.count == 4 and [r["kind"] for r in InferenceLog.load(stats.path)] == ["plan", "act", "act", "act"]
     assert (tmp_path / "plot.png").exists()
     pv = asked[0][1]
-    assert pv["arm"] == "right" and len(pv["frames"]) >= 40 and len(pv["frames"][0]) == 5 and "left_elbow_joint" in pv["joints"]   # both moves
+    assert pv["arm"] == "right" and len(pv["frames"]) >= 40 and len(pv["frames"][0]) == 5 and "left_elbow_joint" in pv["joints"]
     prompts = [c[1] for c in vlm.calls if c[0] == "act"]
-    assert "rejected your last proposal (MV_LEFT, MV_LEFT)" in prompts[1] and 'note "too far left"' in prompts[1]
-    assert "Recent moves, newest first: MV_LEFT, MV_LEFT(rejected)" in prompts[1]
+    assert "rejected your last proposal (MV_LEFT)" in prompts[1] and 'note "too far left"' in prompts[1]
+    assert "Recent moves, newest first: MV_LEFT(rejected)" in prompts[1]
     assert "rejected your last proposal" not in prompts[2]                        # the note is shown once; the history token stays
     assert 'accepted your last move (MV_UP) and added the note: "keep this height"' in prompts[2]
     tip = backend.tip("right")
@@ -80,6 +83,7 @@ def test_start_pose_rejection_is_reported(rig):
 
 def run_cli(args, stdin, tmp_path):
     cmd = [sys.executable, "-m", "harness", "--set", f"recorder.root={tmp_path}", "--set", f"stats.path={tmp_path}/log.jsonl",
+           "--set", f"experience.dir={tmp_path}/experience",
            "--set", f"stats.plot={tmp_path}/plot.png", "--set", f"feedback.path={tmp_path}/fb.jsonl",
            "--set", f"recorder.export_dir={tmp_path}/recordings", *args]
     return subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=180, cwd=ROOT,

@@ -22,10 +22,17 @@ def require_tracking(value):
 
 
 class GlassesBridge:
-    def __init__(self, pipeline, host="0.0.0.0", port=8765, pairing=None, on_voice=None):
+    def __init__(self, pipeline, host="0.0.0.0", port=8765, pairing=None, on_voice=None,
+                 live_voice_url=None, relay_factory=None):
         self.pipeline, self.host, self.port = pipeline, host, port
         self.pairing = pairing if pairing is not None else PairingStore()
         self.on_voice = on_voice
+        if live_voice_url:
+            from spectacles.live_voice import LiveVoiceRelay, local_voice_url
+            self.live_voice_url = local_voice_url(live_voice_url)
+            self.relay_factory = relay_factory or LiveVoiceRelay
+        else:
+            self.live_voice_url, self.relay_factory = None, None
         self.loop = None
         self.stop_event = None
         self.ready = threading.Event()
@@ -47,7 +54,7 @@ class GlassesBridge:
         from websockets.asyncio.server import serve
         self.loop = asyncio.get_running_loop()
         self.stop_event = asyncio.Event()
-        async with serve(self.handler, self.host, self.port, max_size=4096) as server:
+        async with serve(self.handler, self.host, self.port, max_size=4096, max_queue=8) as server:
             self.pipeline.glasses["port"] = server.sockets[0].getsockname()[1]
             self.ready.set()
             await self.stop_event.wait()
@@ -104,10 +111,20 @@ class GlassesBridge:
             return
         session = secrets.token_urlsafe(24)
         await websocket.send(json.dumps({"type": "auth_ack", "accepted": True, "session": session,
-                                         "run_id": getattr(self.pipeline, "session_id", None)}))
+                                         "run_id": getattr(self.pipeline, "session_id", None), "live_voice": bool(self.live_voice_url)}))
         self.connections[session] = device_id
         self._connected()
         self.pipeline.operator_seen()
+
+        class SessionLens:
+            async def send(_, raw):
+                if not self.pairing.active(device_id, fingerprint):
+                    return
+                message = json.loads(raw)
+                message["session"] = session
+                await websocket.send(json.dumps(message))
+
+        live = self.relay_factory(SessionLens(), self.live_voice_url) if self.relay_factory else None
 
         async def send():
             while True:
@@ -117,6 +134,8 @@ class GlassesBridge:
                 message = copy.deepcopy(self.pipeline.glasses_message())
                 message["session"] = session
                 if message.get("review"):
+                    if live:
+                        await live.stop()
                     message["review"]["session"] = session
                     expiry = message["review"].get("expires_at")
                     if expiry is not None:
@@ -128,12 +147,16 @@ class GlassesBridge:
             async for raw in websocket:
                 msg = None
                 try:
-                    msg = json.loads(raw)
-                    if not isinstance(msg, dict):
-                        raise ValueError("Expected a message object")
                     if not self.pairing.active(device_id, fingerprint):
                         await websocket.close(code=1008, reason="Device pairing revoked")
                         return
+                    if isinstance(raw, bytes):
+                        if live and not self.pipeline.glasses_message().get("review"):
+                            await live.audio(raw)
+                        continue
+                    msg = json.loads(raw)
+                    if not isinstance(msg, dict):
+                        raise ValueError("Expected a message object")
                     if msg.get("session") != session:
                         raise ValueError("Connection session changed; reconnect and review again")
                     if msg.get("type") == "heartbeat":
@@ -141,7 +164,23 @@ class GlassesBridge:
                         continue
                     if msg.get("version") != 1:
                         raise ValueError("Unsupported glasses message version")
-                    if msg.get("type") == "voice_command":
+                    if msg.get("type") in ("voice_start", "voice_stop"):
+                        identity = msg.get("id")
+                        if not isinstance(identity, str) or not 1 <= len(identity) <= 80:
+                            raise ValueError("Invalid voice session ID")
+                        if not live:
+                            raise ValueError("Live voice is not configured; use ASR or start the dashboard with --voice-url")
+                        if msg["type"] == "voice_start":
+                            if self.pipeline.glasses_message().get("review"):
+                                raise ValueError("Finish reviewing the current motion before starting voice")
+                            if msg.get("sample_rate") != 16000:
+                                raise ValueError("Live voice requires 16 kHz mono PCM16")
+                            await live.start(identity)
+                        elif identity == live.identity:
+                            await live.stop()
+                    elif msg.get("type") == "voice_command":
+                        if live and live.task and not live.task.done():
+                            raise ValueError("Stop live voice before sending a separate transcript")
                         result = await self._voice(device_id, msg)
                         await websocket.send(json.dumps({**result, "type": "voice_ack", "version": 1,
                                                          "id": msg.get("id"), "session": session}))
@@ -157,6 +196,10 @@ class GlassesBridge:
                         await websocket.send(json.dumps({"type": "review_ack", "version": 1, "id": msg.get("id"),
                                                          "accepted": True, "session": session}))
                 except (ValueError, TypeError, AttributeError) as exc:
+                    if isinstance(msg, dict) and msg.get("type") in ("voice_start", "voice_stop"):
+                        await websocket.send(json.dumps({"type":"voice_event", "version":1, "id":msg.get("id"),
+                            "session":session, "event":{"type":"error", "text":str(exc)[:300]}}))
+                        continue
                     kind = "voice_ack" if isinstance(msg, dict) and msg.get("type") == "voice_command" else "review_ack"
                     await websocket.send(json.dumps({"type": kind, "version": 1,
                                                       "id": msg.get("id") if isinstance(msg, dict) else None,
@@ -173,6 +216,8 @@ class GlassesBridge:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            if live:
+                await live.stop()
             self.connections.pop(session, None)
             self._connected()
 

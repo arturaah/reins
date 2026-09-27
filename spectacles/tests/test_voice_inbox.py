@@ -44,7 +44,7 @@ class VoiceWebSocketTest(unittest.IsolatedAsyncioTestCase):
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
             feed = Feed(mujoco.MjModel.from_xml_path(str(MJCF)), plan, 20)
-            server = asyncio.create_task(serve_feed(feed, "127.0.0.1", port, 0.05, voice=inbox, review_token="test-voice-token"))
+            server = asyncio.create_task(serve_feed(feed, "127.0.0.1", port, 0.05, voice=inbox, review_token="test-voice-token-0123456789abcdefghijkl"))
             try:
                 for _ in range(50):
                     try:
@@ -55,7 +55,7 @@ class VoiceWebSocketTest(unittest.IsolatedAsyncioTestCase):
                 else:
                     self.fail("feed did not start")
                 async with client as websocket:
-                    await websocket.send(json.dumps({"type":"authenticate", "token":"test-voice-token"}))
+                    await websocket.send(json.dumps({"type":"authenticate", "token":"test-voice-token-0123456789abcdefghijkl"}))
                     auth = json.loads(await websocket.recv())
                     self.assertEqual(auth["type"], "auth_ack")
                     for command_id, expected in (("one", True), ("two", False)):

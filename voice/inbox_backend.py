@@ -1,4 +1,4 @@
-"""Delegate to the existing Spectacles dry-run inbox, retaining human review."""
+"""Legacy offline file-mailbox adapter; the supported UI uses DashboardBackend."""
 from uuid import uuid4
 
 from spectacles.voice_inbox import VoiceInbox
@@ -20,8 +20,9 @@ class InboxBackend:
         if not self.inbox.enqueue('live-' + uuid4().hex, text):
             return 'The robot task inbox is busy. Ask the caller to wait. Nothing additional was queued.'
         self.last_request = text
-        return ('The request was queued for the desktop dry-run planner. The desktop UI must be running. '
-                'No movement was executed. The operator still reviews proposals separately.')
+        return ('The request was queued in the legacy offline file inbox. '
+                'The supported dashboard does not consume this file. '
+                'No movement was executed; use the dashboard backend for integrated planning.')
 
     async def close(self):
         pass

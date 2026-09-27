@@ -253,3 +253,111 @@ def test_multiplexed_client_stops_without_waiting_for_motion(streamer, monkeypat
     began = time.monotonic(); backend.freeze(); mover.join(1)
     assert time.monotonic()-began < .5 and not mover.is_alive() and failures
     backend.close(); worker.join(2)
+
+
+@pytest.mark.parametrize("stop_method", ["freeze", "release"])
+def test_client_stop_latches_before_approved_dispatch(streamer, monkeypatch, stop_method):
+    """A stop between the coordinator check and client entry must not be erased."""
+    from harness.robot.arm_client import ArmClientBackend
+    st = streamer
+    server, client = socket.socketpair()
+    worker = threading.Thread(target=st.handle, args=(server,), daemon=True); worker.start()
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **kw: client)
+    backend = ArmClientBackend(st.cfg, log=lambda *a: None)
+    try:
+        getattr(backend, stop_method)()
+        payload = arm_payload(st)
+        with pytest.raises(RuntimeError, match="reconnect"):
+            backend.execute_motion(payload, receipt(payload))
+        assert not st.sent and not st.engaged
+    finally:
+        backend.close(); worker.join(2)
+
+
+def test_client_stop_after_validation_prevents_socket_submission(streamer, monkeypatch):
+    from harness.robot.arm_client import ArmClientBackend
+    st = streamer
+    server, client = socket.socketpair()
+    worker = threading.Thread(target=st.handle, args=(server,), daemon=True); worker.start()
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **kw: client)
+    backend = ArmClientBackend(st.cfg, log=lambda *a: None)
+    ready, resume, failures = threading.Event(), threading.Event(), []
+    call = backend.call
+    def pause_submission(req, timeout=5):
+        if req.get("cmd") == "execute_motion":
+            ready.set(); assert resume.wait(2)
+        return call(req, timeout)
+    monkeypatch.setattr(backend, "call", pause_submission)
+    payload = arm_payload(st)
+    def move():
+        try: backend.execute_motion(payload, receipt(payload))
+        except RuntimeError as exc: failures.append(str(exc))
+    mover = threading.Thread(target=move); mover.start()
+    try:
+        assert ready.wait(2)
+        backend.freeze(); resume.set(); mover.join(2)
+        assert not mover.is_alive() and failures == ["Motion stopped before submission"]
+        assert not st.sent and not st.engaged
+    finally:
+        resume.set(); backend.close(); worker.join(2)
+
+
+def test_successful_client_motions_do_not_require_reconnect(streamer, monkeypatch):
+    from harness.robot.arm_client import ArmClientBackend
+    st = streamer; calls = []
+    st.loco.update(enabled=True, settle_s=0)
+    class Loco:
+        def SetVelocity(self, *args): calls.append("velocity")
+        def StopMove(self): calls.append("stop")
+    monkeypatch.setattr(am, "_loco", Loco)
+    server, client = socket.socketpair()
+    worker = threading.Thread(target=st.handle, args=(server,), daemon=True); worker.start()
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **kw: client)
+    backend = ArmClientBackend(st.cfg, log=lambda *a: None)
+    payload = {"kind": "walk", "vx": .1, "vy": 0., "vyaw": 0., "duration_s": .05}
+    try:
+        assert backend.execute_motion(payload, receipt(payload))["ok"]
+        assert backend.execute_motion(payload, receipt(payload))["ok"]
+        assert calls == ["velocity", "stop", "velocity", "stop"]
+        assert not backend.motion_cancel.is_set()
+    finally:
+        backend.close(); worker.join(2)
+
+
+def test_streamer_stop_latches_until_a_new_controller_connection(streamer, monkeypatch):
+    st = streamer; calls = []
+    st.loco.update(enabled=True, settle_s=0)
+    class Loco:
+        def SetVelocity(self, *args): calls.append("velocity")
+        def StopMove(self): calls.append("stop")
+    monkeypatch.setattr(am, "_loco", Loco)
+    payload = {"kind": "walk", "vx": .1, "vy": 0., "vyaw": 0., "duration_s": .05}
+    client, file, worker = connect(st)
+    send(client, {"cmd": "freeze"}); assert json.loads(file.readline())["ok"]
+    # Re-authenticating the existing socket cannot clear the stop latch.
+    send(client, {"cmd": "authenticate", "token": st.control_token}); assert json.loads(file.readline())["ok"]
+    send(client, {"cmd": "execute_motion", "payload": payload, "approval": receipt(payload)})
+    result = json.loads(file.readline())
+    assert not result["ok"] and "stopped" in result["error"] and not calls
+    file.close(); client.close(); worker.join(2)
+    client, file, worker = connect(st)
+    send(client, {"cmd": "execute_motion", "payload": payload, "approval": receipt(payload)})
+    assert json.loads(file.readline())["ok"] and calls == ["velocity", "stop"]
+    file.close(); client.close(); worker.join(2)
+
+
+def test_new_controller_cannot_clear_stop_while_prior_worker_is_retiring(streamer):
+    st = streamer
+    st.motion_cancel.set()
+    st.active_motion.acquire()
+    client, file, worker = connect(st, auth=False)
+    try:
+        send(client, {"cmd": "authenticate", "token": st.control_token})
+        assert not json.loads(file.readline())["ok"] and st.motion_cancel.is_set()
+        st.active_motion.release()
+        send(client, {"cmd": "authenticate", "token": st.control_token})
+        assert json.loads(file.readline())["ok"] and not st.motion_cancel.is_set()
+        assert not st.sent
+    finally:
+        if st.active_motion.locked(): st.active_motion.release()
+        file.close(); client.close(); worker.join(2)

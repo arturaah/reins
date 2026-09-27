@@ -97,6 +97,8 @@ class HandServer:
         self.command_lock = threading.Lock()
         self.owner = None
         self.active = set()
+        self.cancelled = threading.Event()
+        self.stop = threading.Event()
         self.last_client = 0.
         self.watchdog_s = float(cfg.get("streamer", {}).get("watchdog_s", .5))
 
@@ -106,6 +108,7 @@ class HandServer:
 
     def freeze(self):
         """Hold measured finger positions, where telemetry is fresh enough to do so."""
+        self.cancelled.set()
         errors = []
         with self.command_lock:
             for side in list(self.active):
@@ -146,6 +149,8 @@ class HandServer:
         if not math.isfinite(speed) or not 0 < speed <= 1:
             raise ValueError("Invalid configured hand speed")
         with self.command_lock:
+            if self.cancelled.is_set() or self.stop.is_set():
+                return {"ok": False, "error": "Hand motion stopped; reconnect before submitting another motion"}
             st = self.dds.state(side)
             max_age = float(self.cfg["state_max_age_s"])
             if st is None or st["age"] > max_age:
@@ -156,22 +161,30 @@ class HandServer:
         self.log(f"reviewed {side} hand {'close' if payload['closed'] else 'open'}")
         return {"ok": True, **self.snapshot()}
 
+    def close(self):
+        """Latch shutdown before holding fingers; no connection may rearm the server."""
+        self.stop.set()
+        self.freeze()
+
     def serve(self, host, port):
         if host not in ("127.0.0.1", "localhost", "::1"):
             raise ValueError("Hand control must bind to loopback")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            srv.bind((host, port)); srv.listen(4)
+            srv.bind((host, port)); srv.listen(4); srv.settimeout(.2)
             self.log(f"Revo2 hand bridge on {host}:{port}; commands require the private controller and human review")
-            while True:
-                conn, _ = srv.accept()
+            while not self.stop.is_set():
+                try:
+                    conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
                 threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
 
     def handle(self, conn):
         conn.settimeout(.1)
         buf, authenticated = b"", False
         try:
-            while True:
+            while not self.stop.is_set():
                 try:
                     chunk = conn.recv(16384)
                 except socket.timeout:
@@ -193,7 +206,10 @@ class HandServer:
                             raise ValueError("Invalid hand command")
                         if req.get("cmd") == "authenticate":
                             with self.owner_lock:
-                                if matches(self.control_token, req.get("token")) and self.owner in (None, conn):
+                                if (matches(self.control_token, req.get("token")) and self.owner in (None, conn)
+                                        and not self.stop.is_set()):
+                                    if self.owner is None:
+                                        self.cancelled.clear()
                                     self.owner, authenticated = conn, True
                                     self.last_client = time.time()
                                     resp = {"ok": True, "control_protocol": 2}
@@ -283,7 +299,7 @@ def main():
             print("hand server stopped")
             return
         finally:
-            server.freeze()
+            server.close()
             dds.close()
     time.sleep(1.0)
     while True:
