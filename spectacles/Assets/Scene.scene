@@ -237,8 +237,6 @@
       internetModule: !<reference.InternetModule> ef002928-c3bf-4003-9394-437f7e070c1a
       leftMaterial: !<reference.Material> b1850ea7-d143-4b78-9df3-dd796e618450
       rightMaterial: !<reference.Material> dd81105d-72ff-48d3-999d-768f27c9cada
-      useLiveVoice: true
-      microphoneAudio: !<reference.AudioTrackAsset> 852c31e0-1571-40fd-aeb8-12c90b1c9fbb
       tagDetectedSound: !<reference.AudioTrackAsset> f6435e94-fe70-4fbe-a51a-6e2a6063e486
       cameraObject: !<reference.SceneObject> 00000000-0000-0065-0000-000000000064
       leftMarker: !<reference.MarkerTrackingComponent> 05966156-1950-40d5-a44e-0e7acb1fb60f

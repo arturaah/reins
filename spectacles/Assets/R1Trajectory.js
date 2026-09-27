@@ -4,8 +4,6 @@
 // @input Asset.InternetModule internetModule
 // @input Asset.Material leftMaterial
 // @input Asset.Material rightMaterial
-// @input Asset.AudioTrackAsset microphoneAudio
-// @input bool useLiveVoice = true
 // @input Asset.AudioTrackAsset tagDetectedSound
 // @input SceneObject cameraObject
 // @input Component.MarkerTrackingComponent leftMarker
@@ -61,23 +59,6 @@ var reviewText = null;
 var reviewFrame = null;
 var socketReady = false;
 var pairingDeadline = -1;
-var asrModule = null;
-var voiceListening = false;
-var voiceFinal = [];
-var voicePartial = "";
-var voiceSendRequestedAt = -1;
-var voiceStartedAt = -1;
-var voiceMessage = "";
-var voiceMessageUntil = 0;
-var voicePinchAt = -1000;
-var voiceCancelPinchAt = -1000;
-var voiceCommandId = "";
-var voiceSequence = 0;
-var voiceGestureLockUntil = 0;
-var microphoneBlocked = false;
-var voiceSessionId = 0;
-var voiceUpdateCount = 0;
-
 function handlePairingMessage(message) {
     if (message.type === "pairing_required") {
         socketReady = false;
@@ -90,11 +71,10 @@ function handlePairingMessage(message) {
         socketReady = message.version === 1 && message.accepted === true;
         if (socketReady) {
             lastNetworkError = "";
-            voiceNotice("PAIRED WITH MAC - DOUBLE RIGHT PINCH TO TALK");
+            print("R1 AR: paired with Mac");
         } else {
             lastNetworkError = "pairing";
-            voiceNotice((script.pairingToken || "").trim() ?
-                "PAIRING FAILED - CHECK TOKEN" : "SET PAIRING TOKEN IN LENS STUDIO");
+            print("R1 AR: pairing failed; check token in Lens Studio");
             socket.close();
         }
         return true;
@@ -104,236 +84,8 @@ function handlePairingMessage(message) {
 function checkPairingTimeout() {
     if (pairingDeadline >= 0 && !socketReady && getTime() > pairingDeadline) {
         pairingDeadline = -1;
-        voiceNotice("PAIRING TIMED OUT - CHECK MAC FEED");
+        print("R1 AR: pairing timed out; check Mac feed");
         if (socket) { socket.close(); }
-    }
-}
-
-function speechInternetAvailable() {
-    try {
-        if (global.deviceInfoSystem && global.deviceInfoSystem.isInternetAvailable) {
-            return global.deviceInfoSystem.isInternetAvailable();
-        }
-    } catch (e) { print("R1 AR voice internet check: " + e); }
-    return null;
-}
-function noSpeechNotice() {
-    var internet = speechInternetAvailable();
-    if (internet === false) { voiceNotice("NO INTERNET FOR SPEECH"); }
-    else if (voiceUpdateCount === 0) { voiceNotice("SPEECH SERVICE RETURNED NO WORDS"); }
-    else { voiceNotice("SPEECH RESULT EMPTY"); }
-}
-
-var liveReady = false;
-var liveSpeaking = false;
-var liveRole = "";
-var liveMic = null;
-var liveSamples = null;
-
-function stopLiveVoice(notify) {
-    voiceListening = liveReady = liveSpeaking = false;
-    try { if (liveMic) { liveMic.stop(); } } catch (e) {}
-    liveMic = liveSamples = null;
-    if (notify && socketReady) {
-        socket.send(JSON.stringify({type:"voice_stop", version:1, id:voiceCommandId}));
-    }
-}
-function liveVoiceEvent(event) {
-    if (event.type === "error") {
-        stopLiveVoice(true);
-        voiceNotice(event.text || "LIVE VOICE ERROR");
-    } else if (event.type === "stopped") {
-        var wasListening = voiceListening;
-        stopLiveVoice(false);
-        if (wasListening) { voiceNotice("VOICE STOPPED"); }
-    } else if (event.type === "listening" && voiceListening) {
-        try {
-            liveMic = script.microphoneAudio.control;
-            liveMic.sampleRate = 16000;
-            liveSamples = new Int16Array(liveMic.maxFrameSize);
-            liveMic.start();
-            if (liveMic.sampleRate !== 16000) { throw new Error("16 kHz microphone required"); }
-            liveReady = true;
-            voiceNotice("GPT-LIVE CONNECTED · R1 SPEAKER");
-        } catch (e) {
-            stopLiveVoice(true);
-            voiceNotice("MICROPHONE UNAVAILABLE - CHECK PERMISSION");
-        }
-    } else if (event.type === "transcript_delta" && voiceListening) {
-        if (liveRole !== event.role) { voicePartial = ""; liveRole = event.role; }
-        voicePartial = (voicePartial + event.text).slice(-500);
-    } else if (event.type === "log") {
-        if (event.stage === "playback") { liveSpeaking = event.status === "started"; }
-        if (event.stage === "backend" || event.stage === "tyto" && event.status === "nudge") {
-            voiceNotice(event.text || (event.stage + " " + event.status));
-        }
-    }
-}
-function streamLiveMicrophone() {
-    if (!script.useLiveVoice || !voiceListening) { return; }
-    if (!liveReady) {
-        if (getTime() - voiceStartedAt > 20) {
-            stopLiveVoice(true); voiceNotice("LIVE VOICE CONNECTION TIMED OUT");
-        }
-        return;
-    }
-    try {
-        var shape = liveMic.getAudioFramePCM16(liveSamples);
-        if (!shape.x) { return; }
-        if (shape.y > 1 || shape.z > 1 || shape.x > liveSamples.length) {
-            throw new Error("Expected mono microphone audio");
-        }
-        for (var offset = 0; offset < shape.x; offset += 320) {
-            var count = Math.min(320, shape.x - offset);
-            var bytes = new Uint8Array(count * 2);
-            for (var i = 0; i < count; i++) {
-                var sample = liveSpeaking ? 0 : liveSamples[offset + i];
-                bytes[i*2] = sample & 255; bytes[i*2+1] = (sample >> 8) & 255;
-            }
-            socket.send(bytes);
-        }
-    } catch (e) {
-        stopLiveVoice(true); voiceNotice("MICROPHONE STREAM FAILED - RECONNECT");
-    }
-}
-
-function voiceText() {
-    return (voiceFinal.join(" ") + " " + voicePartial).trim();
-}
-function voiceNotice(message) {
-    voiceMessage = message;
-    voiceMessageUntil = getTime() + 5;
-    print("R1 AR voice: " + message);
-}
-function stopVoice(send) {
-    if (script.useLiveVoice) {
-        stopLiveVoice(true); voiceNotice("VOICE STOPPED"); return;
-    }
-    if (!voiceListening) { return; }
-    if (send) {
-        // Keep the recognizer alive long enough to receive its final update.
-        // An interim update may be the only usable result on a slow network.
-        if (voiceSendRequestedAt < 0) { voiceSendRequestedAt = getTime(); }
-        voiceNotice("FINISHING SPEECH");
-        return;
-    }
-    voiceListening = false;
-    voiceSessionId++;
-    voiceSendRequestedAt = -1;
-    try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
-    voiceNotice("VOICE CANCELLED");
-}
-function startVoice() {
-    if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
-    if (script.useLiveVoice) {
-        if (!script.microphoneAudio) { voiceNotice("MICROPHONE ASSET MISSING - RESEND LENS"); return; }
-        voiceFinal = []; voicePartial = ""; liveRole = "";
-        voiceListening = true; liveReady = liveSpeaking = false; voiceStartedAt = getTime();
-        voiceCommandId = "live-" + Date.now() + "-" + (++voiceSequence);
-        socket.send(JSON.stringify({type:"voice_start", version:1, sample_rate:16000, id:voiceCommandId}));
-        voiceNotice("CONNECTING GPT-LIVE"); return;
-    }
-    if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
-    if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
-    if (speechInternetAvailable() === false) { voiceNotice("NO INTERNET FOR SPEECH"); return; }
-    voiceFinal = []; voicePartial = ""; voiceSendRequestedAt = -1; voiceUpdateCount = 0;
-    var sessionId = ++voiceSessionId;
-    try {
-        var options = AsrModule.AsrTranscriptionOptions.create();
-        options.mode = AsrModule.AsrMode.HighAccuracy;
-        options.silenceUntilTerminationMs = 1200;
-        options.onTranscriptionUpdateEvent.add(function(update) {
-            if (!voiceListening || sessionId !== voiceSessionId) { return; }
-            voiceUpdateCount++;
-            print("R1 AR voice: ASR update final=" + !!update.isFinal +
-                  " chars=" + String(update.text || "").length);
-            if (update.isFinal) {
-                if (update.text) {
-                    voiceFinal.push(update.text);
-                    voicePartial = "";
-                }
-            } else if (update.text) {
-                // Empty interim updates are common between recognition passes.
-                // They must not erase the only phrase we have heard.
-                voicePartial = update.text;
-            }
-            if (voiceSendRequestedAt >= 0 && update.isFinal && voiceText()) {
-                finishVoiceSend();
-            }
-        });
-        options.onTranscriptionErrorEvent.add(function(code) {
-            if (sessionId !== voiceSessionId) { return; }
-            voiceListening = false;
-            voiceSessionId++;
-            if (code === AsrModule.AsrStatusCode.Unauthenticated) {
-                microphoneBlocked = true;
-                voiceNotice("SPEECH PERMISSION DENIED");
-            } else if (code === AsrModule.AsrStatusCode.NoInternet) {
-                voiceNotice("NO INTERNET FOR SPEECH");
-            } else {
-                voiceNotice("SPEECH SERVICE ERROR " + code);
-            }
-            print("R1 AR voice: ASR error=" + code + " internet=" + speechInternetAvailable());
-        });
-        voiceListening = true;
-        voiceStartedAt = getTime();
-        asrModule.startTranscribing(options);
-        voiceNotice("LISTENING");
-        print("R1 AR voice: session=" + sessionId + " internet=" + speechInternetAvailable());
-    } catch (e) {
-        voiceListening = false;
-        voiceSessionId++;
-        voiceNotice("SPEECH START FAILED");
-        print("R1 AR voice start failed: " + e);
-    }
-}
-function finishVoiceSend() {
-    if (!voiceListening) { return; }
-    voiceListening = false;
-    voiceSessionId++;
-    voiceSendRequestedAt = -1;
-    var phrase = voiceText().slice(0, 500);
-    try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
-    if (!phrase) { noSpeechNotice(); return; }
-    if (!socketReady) { voiceNotice("NO NETWORK"); return; }
-    voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
-    try {
-        socket.send(JSON.stringify({type:"voice_command", version:1,
-                                    id:voiceCommandId, text:phrase}));
-        voiceNotice("SENDING: " + phrase.slice(0, 44));
-    } catch (e) { voiceNotice("VOICE SEND FAILED"); }
-}
-function voicePinch(side) {
-    if (pendingReview) {
-        if (voiceListening) { stopVoice(false); }
-        reviewPinch(side === "right" ? "approve" : "decline");
-        return;
-    }
-    if (side === "left") {
-        if (!voiceListening) { return; }
-        var leftNow = getTime();
-        var leftGap = leftNow - voiceCancelPinchAt;
-        if (leftGap >= 0.08 && leftGap < 2) {
-            voiceCancelPinchAt = -1000;
-            stopVoice(false);
-        } else if (leftGap >= 0.08) {
-            voiceCancelPinchAt = leftNow;
-            voiceNotice("LEFT AGAIN TO CANCEL");
-        }
-        return;
-    }
-    var now = getTime();
-    if (now < voiceGestureLockUntil) { return; }
-    var rightGap = now - voicePinchAt;
-    if (rightGap < 0.08) { return; }
-    if (rightGap < 2) {
-        voicePinchAt = -1000;
-        voiceCancelPinchAt = -1000;
-        voiceGestureLockUntil = now + 1.5;
-        if (voiceListening) { stopVoice(true); } else { startVoice(); }
-    } else {
-        voicePinchAt = now;
-        voiceNotice(voiceListening ? (script.useLiveVoice ? "RIGHT PINCH AGAIN TO STOP" : "RIGHT PINCH AGAIN TO SEND") : "RIGHT PINCH AGAIN TO SPEAK");
     }
 }
 
@@ -423,15 +175,10 @@ function reviewPinch(choice) {
 
 try {
     var gestureModule = require('LensStudio:GestureModule');
-    gestureModule.getPinchDownEvent(GestureModule.HandType.Right).add(function() { voicePinch("right"); });
-    gestureModule.getPinchDownEvent(GestureModule.HandType.Left).add(function() { voicePinch("left"); });
-    print("R1 AR: right double-pinch speaks or accepts; left cancels or rejects");
+    gestureModule.getPinchDownEvent(GestureModule.HandType.Right).add(function() { reviewPinch("approve"); });
+    gestureModule.getPinchDownEvent(GestureModule.HandType.Left).add(function() { reviewPinch("decline"); });
+    print("R1 AR: right double-pinch accepts; left double-pinch rejects");
 } catch (e) { print("R1 AR: review gesture unavailable: " + e); }
-try {
-    if (!script.useLiveVoice) { asrModule = require('LensStudio:AsrModule'); }
-    print(script.useLiveVoice ? "R1 AR: GPT-Live microphone transport ready" : "R1 AR: Spectacles speech recognition ready");
-} catch (e) { print("R1 AR: speech recognition unavailable: " + e); }
-
 function showStatus(found, side) {
     if (!statusVisual) { return; }
     statusVisual.mainMaterial = found ? script.leftMaterial : script.rightMaterial;
@@ -740,16 +487,11 @@ function applyTrajectory(message) {
         (incoming.mode === "live" || incoming.mode === "dry-run" || incoming.mode === "sim")) {
         if (!pendingReview || pendingReview.id !== incoming.id) {
             // A new proposal takes the gesture and HUD priority immediately.
-            if (voiceListening) { stopVoice(false); }
-            voicePinchAt = -1000;
-            voiceCancelPinchAt = -1000;
-            voiceGestureLockUntil = 0;
             reviewChoice = ""; reviewSent = false; reviewMessage = "";
             print("R1 AR: proposal ready: " + incoming.text);
         }
         pendingReview = incoming;
     } else {
-        if (pendingReview) { voicePinchAt = -1000; voiceCancelPinchAt = -1000; }
         pendingReview = null; reviewChoice = ""; reviewSent = false; reviewMessage = "";
     }
     latestTrajectory = message;
@@ -800,20 +542,10 @@ function connect() {
             try {
                 var trajectory = JSON.parse(event.data);
                 if (handlePairingMessage(trajectory) || !socketReady) { return; }
-                if (trajectory.type === "voice_event") {
-                    if (trajectory.id === voiceCommandId) { liveVoiceEvent(trajectory.event); }
-                    return;
-                }
                 if (trajectory.type === "review_ack") {
                     if (pendingReview && trajectory.id === pendingReview.id) {
                         reviewMessage = trajectory.accepted ? "DECISION RECEIVED" : "PROPOSAL EXPIRED";
                         if (!trajectory.accepted) { reviewSent = false; reviewChoice = ""; }
-                    }
-                    return;
-                }
-                if (trajectory.type === "voice_ack") {
-                    if (trajectory.id === voiceCommandId) {
-                        voiceNotice(trajectory.accepted ? "COMMAND QUEUED FOR CLAUDE" : "ARTUR BUSY; TRY AGAIN");
                     }
                     return;
                 }
@@ -844,7 +576,6 @@ function connect() {
         };
         socket.onclose=function(event){
             socketReady=false;pairingDeadline=-1;socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
-            if (voiceListening) { stopVoice(false); }
             if (event && event.code && event.code!==1000 && !lastNetworkError) {
                 print("R1 AR: WebSocket closed with code "+event.code);
                 lastNetworkError="closed";
@@ -864,16 +595,6 @@ function connect() {
 script.createEvent("UpdateEvent").bind(function(){
     updateAnchor();
     checkPairingTimeout();
-    streamLiveMicrophone();
-    if (!script.useLiveVoice && voiceListening && voiceSendRequestedAt >= 0) {
-        var voiceWait = getTime() - voiceSendRequestedAt;
-        if (voiceWait > 1.5 && voiceText()) {
-            finishVoiceSend();
-        } else if (voiceWait > 6) {
-            stopVoice(false);
-            noSpeechNotice();
-        }
-    }
     if (statusObject && script.cameraObject && statusPosition) {
         var head = script.cameraObject.getTransform();
         var label = statusObject.getTransform();
@@ -887,7 +608,7 @@ script.createEvent("UpdateEvent").bind(function(){
         if (statusTextObject) { statusTextObject.enabled = false; }
     }
     if (reviewObject && script.cameraObject) {
-        reviewObject.enabled = !!pendingReview || voiceListening || getTime() < voiceMessageUntil;
+        reviewObject.enabled = !!pendingReview;
         if (reviewObject.enabled) {
             var cameraTransform = script.cameraObject.getTransform();
             var panel = reviewObject.getTransform();
@@ -897,15 +618,11 @@ script.createEvent("UpdateEvent").bind(function(){
             if (reviewChoice && !reviewSent && getTime() - reviewChoiceAt >= 4) {
                 reviewChoice = ""; reviewMessage = "";
             }
-            reviewText.text = pendingReview ?
-                "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
+            reviewText.text = "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
                 String(pendingReview.text || "NEW PATH").slice(0, 38) + "\n" +
                 (reviewMessage || (!tagAnchored ? "SCAN BOTH TAGS FIRST" :
                  !socketReady ? "WAITING FOR CONNECTION" :
-                 "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
-                (voiceListening ? (script.useLiveVoice ? (liveSpeaking ? "R1 SPEAKING\n" : liveReady ? "GPT-LIVE LISTENING\n" : "CONNECTING\n") : voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
-                 (voiceText() || (getTime() - voiceStartedAt > 3 ? "NO WORDS YET" : "SPEAK NOW")).slice(-55) +
-                 (script.useLiveVoice ? "\nDOUBLE PINCH TO STOP" : "\nRIGHT x2 SEND   LEFT x2 CANCEL") : voiceMessage);
+                 "RIGHT x2 ACCEPT   LEFT x2 REJECT"));
         }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }

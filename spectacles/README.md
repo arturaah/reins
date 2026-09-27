@@ -110,26 +110,13 @@ The path starts at the reported hand, not the tag. The tag-to-robot offsets are 
 
 The desktop AI pane already asks Accept/Reject at each `PROPOSAL` before the harness can send an arm move. The Lens now shows that same pending proposal with its hand path. Spectacles' built-in Gesture Module supports pinches; it does not provide a built-in thumbs-up/down classifier. **Pinch the right hand twice within four seconds to Accept, or the left hand twice to Reject.** The first pinch only selects the choice; the second sends it. The card appears only while a proposal is pending. Scan both shoulder tags first so the path is calibrated; the gestures are ignored otherwise. A lost network connection also disables glasses decisions. The desktop buttons and `x` e-stop remain available.
 
-The default voice route now uses **GPT-Live-1** with the glasses' raw microphone
-and the **R1 speaker**. Follow [VOICE.md](VOICE.md) for the two local services,
-project `.env` keys, paired Wi-Fi or USB connection, and updated Lens. Double right pinch starts a
-continuous conversation; double right or double left stops it. A pending proposal
-stops voice and takes priority for the existing accept/reject gestures. Speech
-works without tag calibration; reviewing a trajectory still requires calibration.
-
-Setting `useLiveVoice` false in the Lens retains the older Snap ASR dictation
-route. In that mode double right pinch sends the transcript directly to the
-Claude dry-run inbox, without GPT-Live or spoken replies. The feed command below
-is for that legacy text route; use the relay command in VOICE.md for live audio.
-
-The Claude harness now includes guarded walking when the task text contains “walk.” Spoken requests are passed verbatim, so “walk one metre forward” reaches that route in dry-run mode. Walking has no arm-path proposal to review in the glasses yet; the trajectory review card continues to apply to arm proposals.
+The Spectacles Lens now handles only tag calibration, hand trajectories, and proposal review. It does not capture audio or show listening controls. Speech input is handled on Artur's computer. The optional voice relay code and [VOICE.md](VOICE.md) describe an older Lens build and are not used by this Lens.
 
 On **Artur's Mac**, update this repo and start the feed from the very same preview file that his UI/harness writes:
 
 ```sh
 .venv/bin/python spectacles/plan_feed.py runs/ui_preview.json --robot-iface en8 \
-  --review-file runs/spectacles_review.json \
-  --voice-inbox runs/spectacles_voice.json
+  --review-file runs/spectacles_review.json
 .venv/bin/python tools/reins_ui.py --iface en8
 ```
 

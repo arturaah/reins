@@ -1,5 +1,7 @@
 # Spectacles → GPT-Live → R1 speaker
 
+This document describes a retired Lens voice path. The current Spectacles Lens does not capture audio or show voice controls; listening is handled on Artur's computer. Do not use these Lens setup steps with the current build.
+
 The Lens sends raw 16 kHz mono PCM from its microphone through the plan feed to
 the local GPT-Live service. Voice Focus enhances it and Tyto analyzes the original
 input. GPT-Live's generated audio, including the metallic effect, streams to the
