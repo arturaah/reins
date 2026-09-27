@@ -153,12 +153,20 @@ class Streamer:
         if not self.engaged:
             return "not engaged"
         names = ARM_JOINTS[arm]; slots = [JOINT_TO_SLOT[n] for n in names]
-        with self.lock:
-            prev = np.array([self.targets[s] for s in slots])
+        frames = [np.asarray(f, float) for f in frames]
         for i, f in enumerate(frames):
-            f = np.asarray(f, float)
             if f.shape != (5,) or not np.all(np.isfinite(f)):
                 return f"frame {i}: expected 5 finite joint values"
+        with self.lock:
+            prev = np.array([self.targets[s] for s in slots])
+        # The client plans from the measured joints; the hold target differs from them by the gravity droop (about
+        # 0.01 rad), which at 50 Hz would be a 0.5 rad/s jump on the first frame. Approach the first frame from the
+        # current target at the cap first, then play the frames.
+        step = self.vmax * 0.8 * dt
+        jump = float(np.abs(frames[0] - prev).max())
+        k = int(np.ceil(jump / step)) - 1 if jump > step else 0
+        frames = [prev + (frames[0] - prev) * (i + 1) / (k + 1) for i in range(k)] + frames
+        for i, f in enumerate(frames):
             v = float(np.abs(f - prev).max() / dt)
             if v > self.vmax * 1.05:
                 return f"frame {i}: {v:.2f} rad/s over the {self.vmax} rad/s cap; refused before sending"
@@ -244,10 +252,12 @@ class Streamer:
             return self.state()
         if cmd == "engage":
             err = self.engage()
-            return {"ok": not err, "error": err, **self.state()}
+            return {**self.state(), "ok": not err, "error": err}       # the flag last: state() carries its own ok
         if cmd == "frames":
+            n = len(req.get("frames") or []); t0 = time.time()
             err = self.stream_frames(req["arm"], req["frames"], float(req["dt"]))
-            return {"ok": not err, "error": err, **self.state()}
+            self.log(f"frames: {req.get('arm')} arm, {n} frames over {n * float(req['dt']):.2f} s -> " + (f"REFUSED: {err}" if err else f"streamed in {time.time() - t0:.2f} s"))
+            return {**self.state(), "ok": not err, "error": err}
         if cmd == "freeze":
             with self.lock:
                 self.targets = self.measured() if not self.engaged else dict(self.targets)
