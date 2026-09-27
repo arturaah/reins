@@ -72,6 +72,22 @@ var voiceSequence = 0;
 var voiceGestureLockUntil = 0;
 var microphoneBlocked = false;
 var voiceSessionId = 0;
+var voiceUpdateCount = 0;
+
+function speechInternetAvailable() {
+    try {
+        if (global.deviceInfoSystem && global.deviceInfoSystem.isInternetAvailable) {
+            return global.deviceInfoSystem.isInternetAvailable();
+        }
+    } catch (e) { print("R1 AR voice internet check: " + e); }
+    return null;
+}
+function noSpeechNotice() {
+    var internet = speechInternetAvailable();
+    if (internet === false) { voiceNotice("NO INTERNET FOR SPEECH"); }
+    else if (voiceUpdateCount === 0) { voiceNotice("SPEECH SERVICE RETURNED NO WORDS"); }
+    else { voiceNotice("SPEECH RESULT EMPTY"); }
+}
 
 function voiceText() {
     return (voiceFinal.join(" ") + " " + voicePartial).trim();
@@ -100,7 +116,8 @@ function startVoice() {
     if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
     if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
     if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
-    voiceFinal = []; voicePartial = ""; voiceSendRequestedAt = -1;
+    if (speechInternetAvailable() === false) { voiceNotice("NO INTERNET FOR SPEECH"); return; }
+    voiceFinal = []; voicePartial = ""; voiceSendRequestedAt = -1; voiceUpdateCount = 0;
     var sessionId = ++voiceSessionId;
     try {
         var options = AsrModule.AsrTranscriptionOptions.create();
@@ -108,6 +125,7 @@ function startVoice() {
         options.silenceUntilTerminationMs = 1200;
         options.onTranscriptionUpdateEvent.add(function(update) {
             if (!voiceListening || sessionId !== voiceSessionId) { return; }
+            voiceUpdateCount++;
             print("R1 AR voice: ASR update final=" + !!update.isFinal +
                   " chars=" + String(update.text || "").length);
             if (update.isFinal) {
@@ -128,18 +146,25 @@ function startVoice() {
             if (sessionId !== voiceSessionId) { return; }
             voiceListening = false;
             voiceSessionId++;
-            microphoneBlocked = true;
-            voiceNotice("SPEECH ERROR " + code);
+            if (code === AsrModule.AsrStatusCode.Unauthenticated) {
+                microphoneBlocked = true;
+                voiceNotice("SPEECH PERMISSION DENIED");
+            } else if (code === AsrModule.AsrStatusCode.NoInternet) {
+                voiceNotice("NO INTERNET FOR SPEECH");
+            } else {
+                voiceNotice("SPEECH SERVICE ERROR " + code);
+            }
+            print("R1 AR voice: ASR error=" + code + " internet=" + speechInternetAvailable());
         });
         voiceListening = true;
         voiceStartedAt = getTime();
         asrModule.startTranscribing(options);
         voiceNotice("LISTENING");
+        print("R1 AR voice: session=" + sessionId + " internet=" + speechInternetAvailable());
     } catch (e) {
         voiceListening = false;
         voiceSessionId++;
-        microphoneBlocked = true;
-        voiceNotice("MICROPHONE PERMISSION DENIED");
+        voiceNotice("SPEECH START FAILED");
         print("R1 AR voice start failed: " + e);
     }
 }
@@ -150,7 +175,7 @@ function finishVoiceSend() {
     voiceSendRequestedAt = -1;
     var phrase = voiceText().slice(0, 500);
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
-    if (!phrase) { voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET"); return; }
+    if (!phrase) { noSpeechNotice(); return; }
     if (!socketReady) { voiceNotice("NO NETWORK"); return; }
     voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
     try {
@@ -715,7 +740,7 @@ script.createEvent("UpdateEvent").bind(function(){
             finishVoiceSend();
         } else if (voiceWait > 6) {
             stopVoice(false);
-            voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET");
+            noSpeechNotice();
         }
     }
     if (statusObject && script.cameraObject && statusPosition) {
