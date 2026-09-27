@@ -83,6 +83,14 @@ the sim contract first (moving arm at 50 Hz, other arm and waist held), which th
 as ghost arms: `GET /preview?file=runs/ui_preview.json&hold=1` keeps it on top until
 `/preview/stop`, even while the streamer holds the arms with weight 1.
 
+The same proposal can be reviewed from Spectacles when the harness is started with
+`--preview runs/ui_preview.json --spectacles-review runs/spectacles_review.json` and
+`spectacles/plan_feed.py` serves that preview with `--review-file runs/spectacles_review.json`.
+The desktop AI pane supplies these harness flags automatically. A double right-hand
+pinch accepts and a double left-hand pinch rejects on the glasses; the harness still
+consumes the decision through this confirmation callback and runs all existing checks.
+See `spectacles/README.md` for the setup and network limits.
+
 ## Every session becomes a recording
 
 When an episode ends (any mode), its accepted, executed moves are exported to

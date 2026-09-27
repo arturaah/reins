@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a Reins arm plan to the Spectacles Lens as robot_base hand paths.
+"""Serve a Reins plan to Spectacles as robot-base or room-fixed hand paths.
 
 Reads a plan file (schema_version 1, keyframes of MuJoCo joint names in
 radians: sim/plans, tools/plans, recordings/, or the resolved plan that
@@ -33,10 +33,35 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+try:
+    from .review import ReviewMailbox
+except ImportError:  # also runnable as `python spectacles/plan_feed.py`
+    from review import ReviewMailbox
 
 ROOT = Path(__file__).resolve().parents[1]
 MJCF = ROOT / "sim/models/r1/R1_fixed_base.xml"
 MAX_POINTS = 512   # the Lens rejects longer paths
+
+
+def base_path(plan, times):
+    """Optional planar base poses in a map whose origin is the initial robot base."""
+    frames = plan.get("base_keyframes")
+    if frames is None:
+        return None
+    if not isinstance(frames, list) or len(frames) < 2:
+        raise ValueError("base_keyframes needs at least two poses")
+    values = np.asarray([[float(f[k]) for k in ("time_s", "x_m", "y_m", "yaw_rad")]
+                         for f in frames], dtype=float)
+    if not np.all(np.isfinite(values)) or values[0, 0] != 0 or np.any(np.diff(values[:, 0]) <= 0):
+        raise ValueError("base_keyframes must be finite, start at 0, and increase in time")
+    if np.any(np.abs(values[0, 1:]) > 1e-6):
+        raise ValueError("the map origin must be the initial robot base pose [0, 0, 0]")
+    if values[-1, 0] < times[-1] - 1e-6:
+        raise ValueError("base_keyframes must cover the full plan duration")
+    yaw = np.unwrap(values[:, 3])
+    return np.column_stack((np.interp(times, values[:, 0], values[:, 1]),
+                            np.interp(times, values[:, 0], values[:, 2]),
+                            np.interp(times, values[:, 0], yaw)))
 
 
 def sample_plan(model, plan, points):
@@ -56,9 +81,11 @@ def sample_plan(model, plan, points):
     data = mujoco.MjData(model)
     hands = {"left": [], "right": []}
     joint_samples = []
+    sample_times = np.linspace(times[0], times[-1], points)
+    bases = base_path(plan, sample_times)
     # Sample evenly in time: joint-space interpolation traces the same path
     # whether arm_lift eases the segments or not.
-    for t in np.linspace(times[0], times[-1], points):
+    for index, t in enumerate(sample_times):
         data.qpos[:] = 0.0
         for n, v in held.items():
             data.qpos[adr[n]] = v
@@ -67,7 +94,12 @@ def sample_plan(model, plan, points):
         joint_samples.append([float(data.qpos[adr[n]]) for n in names])
         mujoco.mj_kinematics(model, data)
         for side, site in sites.items():
-            hands[side].append([round(float(v), 4) for v in data.site_xpos[site]])
+            p = data.site_xpos[site]
+            if bases is not None:
+                x, y, yaw = bases[index]
+                c, s = np.cos(yaw), np.sin(yaw)
+                p = (x + c*p[0] - s*p[1], y + s*p[0] + c*p[1], p[2])
+            hands[side].append([round(float(v), 4) for v in p])
     return hands, names, np.asarray(joint_samples)
 
 
@@ -83,7 +115,7 @@ def message(model, path, points):
         "type": "trajectory",
         "version": 1,
         "id": f"{plan.get('name', path.stem)}@{int(path.stat().st_mtime)}",
-        "frame": "robot_base",
+        "frame": "map" if "base_keyframes" in plan else "robot_base",
         "units": "m",
         "duration_s": float(plan.get("duration_s", plan["keyframes"][-1]["time_s"])),
         "hands": hand_paths(model, plan, points),
@@ -94,7 +126,7 @@ class Feed:
     def __init__(self, model, path, points):
         self.model, self.path, self.points = model, path, points
         self.mtime, self.text, self.live_text = None, None, None
-        self.message, self.names, self.joints = None, None, None
+        self.message, self.names, self.joints, self.bases = None, None, None, None
         self.progress = None
         self.site = {side: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, f"{side}_hand_preview")
                      for side in ("left", "right")}
@@ -102,8 +134,12 @@ class Feed:
                            if (name := mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, i))}
         self.live_data = mujoco.MjData(model)
 
-    def remaining(self, state):
+    def remaining(self, state, base_pose=None):
         """Use measured robot joints to advance a plan; never infer progress from AR."""
+        map_plan = self.message is not None and self.message["frame"] == "map"
+        if map_plan and base_pose is None:
+            # rt/lowstate provides arm joints, not the robot's measured map pose.
+            return self.text
         if not state or not state.fresh() or self.message is None:
             return self.live_text or self.text
         q = state.q
@@ -122,7 +158,16 @@ class Feed:
         mujoco.mj_kinematics(self.model, self.live_data)
         current_hands = {side: [round(float(v), 4) for v in self.live_data.site_xpos[self.site[side]]]
                          for side in ("left", "right")}
-        if self.progress is None and not state.commanding:
+        if map_plan:
+            x, y, yaw = (base_pose[k] for k in ("x_m", "y_m", "yaw_rad"))
+            c, s = np.cos(yaw), np.sin(yaw)
+            current_hands = {side: [round(x+c*p[0]-s*p[1], 4),
+                                    round(y+s*p[0]+c*p[1], 4), p[2]]
+                             for side, p in current_hands.items()}
+        base_moved = (map_plan and
+                      (np.hypot(base_pose["x_m"], base_pose["y_m"]) > 0.03 or
+                       abs(base_pose["yaw_rad"]) > 0.05))
+        if self.progress is None and not state.commanding and not base_moved:
             # Show the proposed path before execution, but draw an idle hand
             # as its measured position rather than a zero-length polyline.
             hands = {}
@@ -137,6 +182,12 @@ class Feed:
         # Search only at or after the last measured position. Progress never
         # moves backwards, and a viewer can join during an ongoing execution.
         errors = np.sqrt(np.mean((self.joints[start:] - measured) ** 2, axis=1))
+        if map_plan:
+            delta = self.bases[start:] - np.array([base_pose[k] for k in
+                                                    ("x_m", "y_m", "yaw_rad")])
+            delta[:, 2] = (delta[:, 2] + np.pi) % (2*np.pi) - np.pi
+            errors = np.sqrt(errors**2 + np.sum(delta[:, :2]**2, axis=1) +
+                             (0.2*delta[:, 2])**2)
         best_error = float(np.min(errors))
         if best_error > 0.25:
             # A command unrelated to this plan must not leave an old path
@@ -166,7 +217,7 @@ class Feed:
                                      "progress_source": "measured_joints"})
         return self.live_text
 
-    def current(self, state=None):
+    def current(self, state=None, base_pose=None):
         """The latest message, re-reading the plan when its file changes."""
         try:
             mtime = self.path.stat().st_mtime_ns
@@ -175,12 +226,16 @@ class Feed:
                 if plan.get("schema_version") != 1 or len(plan.get("keyframes", [])) < 2:
                     raise ValueError("plan needs schema_version 1 and at least two keyframes")
                 hands, names, joints = sample_plan(self.model, plan, self.points)
+                frames = sorted(plan["keyframes"], key=lambda f: f["time_s"])
+                bases = base_path(plan, np.linspace(float(frames[0]["time_s"]),
+                                                     float(frames[-1]["time_s"]), self.points))
                 msg = {"type": "trajectory", "version": 1,
                        "id": f"{plan.get('name', self.path.stem)}@{mtime}",
-                       "frame": "robot_base", "units": "m",
+                       "frame": "map" if "base_keyframes" in plan else "robot_base", "units": "m",
                        "duration_s": float(plan.get("duration_s", plan["keyframes"][-1]["time_s"])),
                        "hands": hands}
-                self.message, self.names, self.joints, self.progress, self.live_text = msg, names, joints, None, None
+                self.message, self.names, self.joints, self.bases = msg, names, joints, bases
+                self.progress, self.live_text = None, None
                 self.text = json.dumps(msg)
                 self.mtime = mtime
                 span = {s: np.ptp(np.array(p), axis=0).round(3).tolist() for s, p in msg["hands"].items()}
@@ -188,7 +243,7 @@ class Feed:
                       f"{self.points} points per hand, extent (m) {span}", file=sys.stderr, flush=True)
         except (OSError, ValueError, KeyError) as exc:
             print(f"cannot use {self.path}: {exc}; keeping the previous path", file=sys.stderr, flush=True)
-        return self.remaining(state) if state else self.text
+        return self.remaining(state, base_pose) if state else self.text
 
 
 class RelayState:
@@ -237,6 +292,24 @@ class DirectRobotState:
         return self.robot.q is not None and time.time() - self.robot.t < 0.5
 
 
+class BasePoseFile:
+    """Read a measured planar pose supplied by the robot-side controller."""
+    def __init__(self, path):
+        self.path = path
+
+    def read(self):
+        try:
+            if time.time() - self.path.stat().st_mtime > 1.0:
+                return None
+            pose = json.loads(self.path.read_text())
+            if pose.get("frame") != "map":
+                return None
+            values = {key: float(pose[key]) for key in ("x_m", "y_m", "yaw_rad")}
+            return values if all(np.isfinite(v) for v in values.values()) else None
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+
+
 async def listen_relay(state, url):
     from websockets.asyncio.client import connect
     while True:
@@ -250,17 +323,43 @@ async def listen_relay(state, url):
         await asyncio.sleep(2)
 
 
-async def serve_feed(feed, host, port, period, state=None):
+async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None):
     from websockets.asyncio.server import serve
 
     async def handler(websocket):
         print(f"Lens connected: {websocket.remote_address}", file=sys.stderr, flush=True)
-        try:
+        async def send_paths():
             while True:
-                text = feed.current(state)
-                if text:
-                    await websocket.send(text)
+                payload = feed.current(state, base_pose_source.read() if base_pose_source else None)
+                if payload:
+                    if review and (pending := review.pending(feed.path)):
+                        message = json.loads(payload)
+                        message["review"] = pending
+                        payload = json.dumps(message)
+                    await websocket.send(payload)
                 await asyncio.sleep(period)
+
+        async def receive_decisions():
+            async for raw in websocket:
+                try:
+                    if not isinstance(raw, str) or len(raw) > 1024:
+                        continue
+                    msg = json.loads(raw)
+                    if msg.get("type") != "review_decision" or msg.get("version") != 1:
+                        continue
+                    accepted = bool(review and review.decide(feed.path, msg.get("id"), msg.get("decision")))
+                    await websocket.send(json.dumps({"type": "review_ack", "version": 1,
+                                                     "id": msg.get("id"), "accepted": accepted}))
+                except (ValueError, TypeError, AttributeError, OSError) as exc:
+                    print(f"bad Spectacles review decision: {exc}", file=sys.stderr, flush=True)
+        try:
+            sender = asyncio.create_task(send_paths())
+            receiver = asyncio.create_task(receive_decisions())
+            done, pending_tasks = await asyncio.wait((sender, receiver), return_when=asyncio.FIRST_COMPLETED)
+            for task in pending_tasks:
+                task.cancel()
+            for task in done:
+                task.result()
         except Exception as exc:
             print(f"Lens disconnected: {exc}", file=sys.stderr, flush=True)
 
@@ -280,10 +379,16 @@ def main():
     state_source = ap.add_mutually_exclusive_group()
     state_source.add_argument("--state-url", help="read-only relay, e.g. ws://ARTUR_MAC:8766")
     state_source.add_argument("--robot-iface", help="subscribe to R1 DDS directly on this Mac, e.g. en6")
+    ap.add_argument("--base-pose-file", type=Path,
+                    help="fresh measured map pose JSON from the walking controller; never inferred from glasses")
+    ap.add_argument("--review-file", type=Path,
+                    help="Spectacles accept/reject mailbox written by the harness; serve the same --preview plan")
     ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
     if not 2 <= a.points <= MAX_POINTS:
         ap.error(f"--points must be 2..{MAX_POINTS}")
+    if a.base_pose_file and not (a.state_url or a.robot_iface):
+        ap.error("--base-pose-file also needs measured joints via --robot-iface or --state-url")
     feed = Feed(mujoco.MjModel.from_xml_path(str(MJCF)), a.plan.resolve(), a.points)
     if a.print:
         text = feed.current()
@@ -295,7 +400,9 @@ def main():
         state = DirectRobotState(a.robot_iface, a.domain) if a.robot_iface else (RelayState() if a.state_url else None)
         if a.state_url:
             asyncio.create_task(listen_relay(state, a.state_url))
-        await serve_feed(feed, a.host, a.port, a.period, state)
+        await serve_feed(feed, a.host, a.port, a.period, state,
+                         BasePoseFile(a.base_pose_file) if a.base_pose_file else None,
+                         ReviewMailbox(a.review_file.resolve()) if a.review_file else None)
     asyncio.run(run())
 
 
