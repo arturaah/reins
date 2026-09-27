@@ -5,9 +5,11 @@ questions to an independent text backend only when needed. The supplied GPT-5-mi
 adapter is a local test stand-in; the team's harness, model selection and action
 execution stay behind the `RobotBackend` interface.
 
-This package uses the computer microphone and speaker. It has no robot SDK or
-motion executor, and does not read simulator state or implement R1 microphone
-capture. Voice conversations cannot execute a movement.
+By default this package uses the computer microphone and speaker. The optional
+[Spectacles/R1 setup](../spectacles/VOICE.md) streams the glasses' microphone to
+GPT-Live and its generated PCM to the robot speaker through an isolated SDK
+worker. There is no motion executor, simulator-state reader or R1 microphone
+capture. Voice cannot approve or execute a movement.
 
 ```text
 Microphone, 16 kHz PCM16
@@ -25,11 +27,13 @@ Use Python 3.12 and a separate environment when sharing the repository:
 ```sh
 python3 -m venv .venv-voice
 .venv-voice/bin/python -m pip install -r voice/requirements-aic.txt
-.venv-voice/bin/python -m voice.live --key-file .env.voice
+.venv-voice/bin/python -m voice.live
 ```
 
-The local key file needs `OPENAI_API_KEY` and `AIC_SDK_LICENSE`. Existing environment
-variables take precedence. Keys remain server-side. `.env*`, virtual environments
+The repository's `.env` is loaded automatically: use `OPENAI_KEY` and `AIC_KEY`.
+`OPENAI_API_KEY` and `AIC_SDK_LICENSE` remain supported. `--key-file .env.voice`
+selects another file. Environment values (including aliases) take precedence.
+Keys remain server-side. `.env*`, virtual environments
 and downloaded models are gitignored. Gemini and Cartesia are not used by live mode.
 
 Open **http://127.0.0.1:8770/**, check the heading **Live voice · GPT-Live-1**, and
@@ -49,6 +53,9 @@ Useful options:
 | --- | --- |
 | `--port 8770` | Loopback browser port; 8770 is the default. |
 | `--backend-model gpt-5-mini` | Test backend model; the voice model stays GPT-Live-1. |
+| `--backend spectacles` | Queue robot requests for the existing desktop dry-run planner. |
+| `--output r1 --robot-iface IFACE` | Stream generated speech to the R1 speaker. |
+| `--robot-python .venv/bin/python` | Existing Python with the Unitree SDK for the audio worker. |
 | `--voice cedar` | Supported GPT-Live voice, chosen at session startup. |
 | `--no-metallic` | Compare the natural voice without the local effect. |
 | `--no-voice-focus` | Disable microphone enhancement. |
@@ -163,7 +170,9 @@ clarification with no backend request, then analysis resumed. These small tests
 are not representative latency or room-acoustics benchmarks. No R1 hardware test
 or live Cartesia test is claimed.
 
-Both HTTP and WebSocket access are restricted to loopback hosts. WebSockets also
+Voice HTTP and WebSocket access are restricted to loopback hosts. The optional
+Spectacles relay uses a loopback ADB tunnel as well. Delegated dry-run tasks are
+written to the existing desktop inbox, whose harness may log task text. WebSockets also
 require the page origin and a process token. Audio and captions stay in memory
 locally; enhanced audio and conversation text are sent to OpenAI, and ai-coustics
 uses license/usage telemetry. The application does not record microphone audio.

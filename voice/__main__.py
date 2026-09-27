@@ -3,16 +3,9 @@ import argparse
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
-from dotenv import dotenv_values
 import uvicorn
 from .server import create_app
-
-
-def load_keys(path):
-    values = dotenv_values(path) if path else {}
-    for name in ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'AIC_SDK_LICENSE', 'CARTESIA_API_KEY', 'CARTESIA_VOICE_ID'):
-        if not os.environ.get(name) and values.get(name):
-            os.environ[name] = values[name]
+from .config import load_keys
 
 
 def local_origin(value):

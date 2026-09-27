@@ -1,5 +1,7 @@
 """Public, bounded speech diagnostics. Never expose provider payloads or credentials."""
 MESSAGES = {
+    'speaker_unavailable': 'The R1 speaker is unavailable. Check its interface, SDK environment and connection.',
+    'speaker_backlog': 'R1 playback fell behind. The session stopped to avoid delayed speech.',
     'empty_transcript': 'STT returned no speech. Check the microphone input and speak closer, then click Talk again.',
     'transcript_too_long': 'The transcript exceeded 1,000 characters. Try a shorter phrase.',
     'invalid_response': 'STT returned an unexpected response format.',

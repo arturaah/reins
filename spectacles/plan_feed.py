@@ -36,9 +36,11 @@ import numpy as np
 try:
     from .review import ReviewMailbox
     from .voice_inbox import VoiceInbox
+    from .live_voice import LiveVoiceRelay, local_voice_url
 except ImportError:  # also runnable as `python spectacles/plan_feed.py`
     from review import ReviewMailbox
     from voice_inbox import VoiceInbox
+    from live_voice import LiveVoiceRelay, local_voice_url
 
 ROOT = Path(__file__).resolve().parents[1]
 MJCF = ROOT / "sim/models/r1/R1_fixed_base.xml"
@@ -325,12 +327,14 @@ async def listen_relay(state, url):
         await asyncio.sleep(2)
 
 
-async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None, voice=None):
+async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None, voice=None,
+                     live_voice_url=None):
     from websockets.asyncio.server import serve
 
     async def handler(websocket):
         print(f"Lens connected: {websocket.remote_address}", file=sys.stderr, flush=True)
         last_review_id = None
+        live = LiveVoiceRelay(websocket, live_voice_url) if live_voice_url else None
         async def send_paths():
             nonlocal last_review_id
             while True:
@@ -356,11 +360,27 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
         async def receive_decisions():
             async for raw in websocket:
                 try:
+                    if isinstance(raw, bytes):
+                        if live: await live.audio(raw)
+                        continue
                     if not isinstance(raw, str) or len(raw) > 1024:
                         continue
                     msg = json.loads(raw)
+                    if msg.get('type') in ('voice_start', 'voice_stop') and msg.get('version') == 1:
+                        identity = msg.get('id')
+                        if not isinstance(identity, str) or not 1 <= len(identity) <= 80:
+                            continue
+                        if live:
+                            if msg['type'] == 'voice_start' and msg.get('sample_rate') == 16000:
+                                await live.start(identity)
+                            elif identity == live.identity:
+                                await live.stop()
+                        else:
+                            await websocket.send(json.dumps({'type': 'voice_event', 'version': 1, 'id': identity,
+                                'event': {'type': 'error', 'text': 'Start the plan feed with --live-voice-url.'}}))
+                        continue
                     if msg.get("type") == "voice_command" and msg.get("version") == 1:
-                        accepted = bool(voice and voice.enqueue(msg.get("id"), msg.get("text")))
+                        accepted = bool(not live and voice and voice.enqueue(msg.get("id"), msg.get("text")))
                         print(f"Spectacles voice command: {'queued' if accepted else 'ignored'}: "
                               f"{str(msg.get('text', ''))[:100]}", file=sys.stderr, flush=True)
                         await websocket.send(json.dumps({"type": "voice_ack", "version": 1,
@@ -386,8 +406,12 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                 task.result()
         except Exception as exc:
             print(f"Lens disconnected: {exc}", file=sys.stderr, flush=True)
+        finally:
+            for task in (sender, receiver): task.cancel()
+            await asyncio.gather(sender, receiver, return_exceptions=True)
+            if live: await live.stop()
 
-    async with serve(handler, host, port):
+    async with serve(handler, host, port, max_size=16384, max_queue=8):
         print(f"Plan feed for {feed.path}: ws://{host}:{port}", file=sys.stderr, flush=True)
         await asyncio.Future()
 
@@ -409,10 +433,14 @@ def main():
                     help="Spectacles accept/reject mailbox written by the harness; serve the same --preview plan")
     ap.add_argument("--voice-inbox", type=Path, default=Path("runs/spectacles_voice.json"),
                     help="mailbox for Spectacles speech; the desktop UI consumes it as a dry-run Claude task")
+    ap.add_argument('--live-voice-url', type=local_voice_url,
+                    help='GPT-Live service with R1 output, e.g. http://127.0.0.1:8770')
     ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
     if not 2 <= a.points <= MAX_POINTS:
         ap.error(f"--points must be 2..{MAX_POINTS}")
+    if a.live_voice_url and a.host not in ('127.0.0.1', 'localhost'):
+        ap.error('Live voice requires --host 127.0.0.1 and an ADB reverse tunnel')
     if a.base_pose_file and not (a.state_url or a.robot_iface):
         ap.error("--base-pose-file also needs measured joints via --robot-iface or --state-url")
     feed = Feed(mujoco.MjModel.from_xml_path(str(MJCF)), a.plan.resolve(), a.points)
@@ -431,7 +459,7 @@ def main():
         await serve_feed(feed, a.host, a.port, a.period, state,
                          BasePoseFile(a.base_pose_file) if a.base_pose_file else None,
                          ReviewMailbox(a.review_file.resolve()) if a.review_file else None,
-                         VoiceInbox(a.voice_inbox.resolve()))
+                         VoiceInbox(a.voice_inbox.resolve()), live_voice_url=a.live_voice_url)
     asyncio.run(run())
 
 
