@@ -1,6 +1,6 @@
 # R1 hand trajectories on Spectacles
 
-This Lens draws two planned hand paths in AR. It reads trajectories in the R1 `robot_base` frame, detects printed shoulder markers, and converts the paths into the Spectacles world-tracked space. The robot can be powered off: both the included WebSocket server and the Lens have animated mock trajectories. The paths are **visual plans only**; nothing here sends motion commands to the R1.
+This Lens draws two planned hand paths in AR. It reads trajectories in the R1 `robot_base` frame or an initial-pose `map` frame, detects printed shoulder markers, and converts the paths into the Spectacles world-tracked space. The robot can be powered off: both the included WebSocket server and the Lens have animated mock trajectories. The paths are **visual plans only**; nothing here sends motion commands to the R1.
 
 Open `R1 Hand Path Preview.esproj` in Lens Studio 5.15.4. The scene, script, Internet Module, marker assets, World-tracked camera, and cyan/orange materials are already wired. No manual scene setup is needed.
 
@@ -105,6 +105,30 @@ Use the same approved plan file for the feed and the command sender. If the feed
 When the relay reports active `rt/arm_sdk` commands, the feed matches **measured** joint angles against the plan's joint samples, advances monotonically, computes the current hand locations by forward kinematics, and sends only the remaining hand paths. A completed or stationary hand is shown as a point at its measured position; before execution, moving hands show their full proposed paths. New plan files reset progress. If state or the network goes stale, the last path and hand points are held; they are not advanced using elapsed time or anything seen by Spectacles. Joint-space matching can be ambiguous when a plan revisits the same pose, so an explicit execution progress signal would be needed for those plans.
 
 The path starts at the reported hand, not the tag. The tag-to-robot offsets are still estimates until the papers are measured on the robot; set `tagForwardM`, `tagSideM`, and `tagHeightM` to those measurements before evaluating physical alignment.
+
+### Planned walk followed by an arm action
+
+`sim/preview.py` pins the pelvis and previews arm motion only. For an AR demonstration that includes walking, add `base_keyframes` to a resolved arm plan. These are planned planar robot-base poses in metres and radians. `map` has the same axes as `robot_base` at the **initial** pose: +x forward, +y left, +z up. The feed applies each planned base pose to the MuJoCo hand-tip positions and sends a room-fixed `frame: "map"` trajectory. For a straight 0.7 m walk followed by the dry-run arm action:
+
+```sh
+.venv/bin/python spectacles/make_walk_plan.py sim/plans/arm_lift_dryrun.json \
+  --distance-m 0.7 --walk-s 4 --output sim/plans/walk_then_arm.json
+.venv/bin/python spectacles/preview_walk.py sim/plans/walk_then_arm.json \
+  --output outputs/walk-plan.png
+.venv/bin/python spectacles/plan_feed.py sim/plans/walk_then_arm.json --robot-iface en8
+```
+
+The preview PNG plots the same kinematic hand paths that the feed sends, from above and from the side. It is not a balanced MuJoCo walking simulation. The generator does not command locomotion. Replace 0.7 m and 4 s with Artur's actual planned displacement and duration; arbitrary turns can be described by editing the plan's `base_keyframes` (`time_s`, `x_m`, `y_m`, `yaw_rad`). The final base keyframe must cover the full combined plan. Serve a new plan file whenever the walking or arm plan changes.
+
+Resend the updated Lens once from Jonathan's Mac, which has Lens Studio. With the glasses and Artur's Mac on the same hotspot, the existing Inspector URL `ws://172.20.10.7:8765` points to Artur's feed as long as his hotspot address stays the same. Scan **both tags while the robot is at the plan's starting pose, before it walks**. The Lens then holds the `map` anchor in the room while the robot moves; shoulder tags can still trigger their labels and sound, but a moving shoulder does not pull the future path along. Switching between `robot_base` and `map` plans requires scanning both tags again. The glasses do not estimate robot progress from camera motion.
+
+The current `rt/lowstate` joint feed does not include a measured room pose for the base. Without one, the complete walk-and-arm path stays visible even as the robot moves. To shorten it from **measured** walking and arm motion, Artur's controller can atomically update a JSON file at least once per second:
+
+```json
+{"frame":"map","x_m":0.35,"y_m":0.0,"yaw_rad":0.0}
+```
+
+The values must be measured relative to the robot's initial base pose, in the same map axes as the plan. Pass its path to `plan_feed.py` with `--base-pose-file /path/to/base_pose.json --robot-iface en8`. The feed also requires the measured joints; it rejects stale base files and never advances from elapsed time. If no measured base pose is available, omit that option and use the full planned path for the visual demo. This does not add walking control or odometry to the robot.
 
 Each hand accepts 1–512 finite `[x,y,z]` points: one point draws a hand marker, two or more draw a path, and an empty array hides it. A real R1 planner can send the same schema; the Lens does not need the robot online to test alignment. Reins' `contract/` uses `plan_proposed` messages, so a bridge must extract hand paths and convert them to the robot frame before using the production core.
 

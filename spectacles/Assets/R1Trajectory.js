@@ -1,4 +1,4 @@
-// R1 hand paths in robot_base metres, anchored by shoulder image markers.
+// R1 hand paths in robot_base or initial-pose map metres, anchored by shoulder image markers.
 // Robot: x forward, y left, z up. Shoulder tags lie flat, facing upward.
 // Seeing both shoulders establishes yaw regardless of each paper's rotation.
 // @input Asset.InternetModule internetModule
@@ -204,6 +204,9 @@ function updateAnchor() {
     var left=observeMarker(script.leftMarker,"left");
     var right=observeMarker(script.rightMarker,"right");
     if (left || right) {
+        // A map path is fixed to the room at the initial robot pose. Moving
+        // shoulder tags must not drag the future path along with the robot.
+        if (tagAnchored && latestTrajectory && latestTrajectory.frame === "map") { return; }
         if (!calibrateFromBothTags() && tagAnchored) {
             // A single visible shoulder can update translation after a pair
             // established orientation. Rescan both after the robot turns.
@@ -316,10 +319,18 @@ function drawPoint(point, visual) {
 
 function applyTrajectory(message) {
     if (!message || message.type !== "trajectory" || message.version !== 1 ||
-        message.frame !== "robot_base" || message.units !== "m" ||
+        (message.frame !== "robot_base" && message.frame !== "map") ||
+        message.units !== "m" ||
         !message.hands || !isTrajectoryPath(message.hands.left) ||
         !isTrajectoryPath(message.hands.right)) {
         print("R1 AR: rejected incompatible trajectory"); return;
+    }
+    if (latestTrajectory && latestTrajectory.frame !== message.frame) {
+        // A new frame needs a new scan. In particular, a map plan must be
+        // anchored at the robot's starting location before it walks.
+        tagAnchored = false;
+        observedTags = {left:null, right:null};
+        print("R1 AR: coordinate frame changed; rescan both shoulder tags");
     }
     latestTrajectory = message;
     function drawHand(points, visual) {
@@ -366,7 +377,8 @@ function connect() {
                 applyTrajectory(trajectory);
                 lastReceivedAt=getTime();
                 if (trajectory && trajectory.type === "trajectory" &&
-                    trajectory.frame === "robot_base" && trajectory.hands &&
+                    (trajectory.frame === "robot_base" || trajectory.frame === "map") &&
+                    trajectory.hands &&
                     isTrajectoryPath(trajectory.hands.left) &&
                     isTrajectoryPath(trajectory.hands.right)) {
                     hasReceivedTrajectory = true;

@@ -46,3 +46,5 @@ The export has timed `samples` with `joint_targets_rad`, `hands_xyz_m`, and `cub
 The checked-in model is copied from Unitree's `unitree_mujoco` R1 files; its license is in `sim/models/r1/LICENSE`. `scene_fixed_base.xml` anchors the pelvis so arm tests do not require a balance controller. The original `scene.xml` and robot XML are retained for future free-standing work. The MuJoCo model has 29 actuators; the R1 EDU A5 hardware map described by the vendored SDK has 26 motors. Do not map joint indices directly between them.
 
 This is a deterministic trajectory preview and simulation check, not a balance policy, grasp planner, collision validator, or hardware command path.
+
+For a **planned walking path** overlaid with the arm action in room coordinates, see `spectacles/make_walk_plan.py` and `spectacles/preview_walk.py`. That preview transforms hand forward kinematics through a planned planar base path; it does not simulate balanced locomotion or validate that the R1 can walk it.
