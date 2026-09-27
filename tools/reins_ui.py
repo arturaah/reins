@@ -7,6 +7,14 @@ confirmation: both arms go soft and follow your hands) or logs one passively
 (tools/record.py, subscribe-only). Finish & save ends a recording early; the
 tool writes recordings/NAME.json, the list refreshes with the new file selected,
 and Dry run / Execute replay it.
+Under the cameras, the AI pane: type a task, pick dry run or live, the arm and
+the step size, select recordings as context (their contact sheets and hand paths
+go to the model as demonstrations) and press Run. The harness (python -m harness,
+VLM = claude -p on this Mac's Claude login) plans, then proposes one move at a
+time: the twin pane plays it as ghost arms and the pane shows Accept / Reject
+(with an optional note the model reads). In live mode the window starts the
+arm_sdk streamer if needed and asks once before the arms are engaged; Stop
+releases them. Dry run uses the real joints and cameras and sends nothing.
 The window only views the streams the servers already serve and runs the tools
 as subprocesses, so the same gates apply: dry run first, execute on a go,
 Abort sends the tool its interrupt, which ramps the arm weight down.
@@ -14,7 +22,7 @@ Abort sends the tool its interrupt, which ramps the arm weight down.
     tools/start_all.sh            # starts the stream servers, then this window
     .venv/bin/python tools/reins_ui.py [--iface en8]   # default: auto-detected
 """
-import argparse, io, os, queue, re, signal, subprocess, sys, threading, time, urllib.request
+import argparse, io, os, queue, re, signal, socket, subprocess, sys, threading, time, urllib.request
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
@@ -88,6 +96,29 @@ _, head_lbl = tile(cams, "head", "Head camera (controller)"); _.pack()
 row = ttk.Frame(cams); row.pack()
 _, wl_lbl = tile(row, "wrist_l", "Left wrist"); _.pack(side="left")
 _, wr_lbl = tile(row, "wrist_r", "Right wrist"); _.pack(side="left")
+
+# ---- AI pane (under the cameras): a VLM drives one arm through the harness, one accepted move at a time ------
+PREVIEW = "runs/ui_preview.json"                      # each proposal, as a plan file the twin previews (hold=1)
+ai = {"p": None, "pending": False, "streamer": None}
+aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
+ttk.Label(aif, text="AI control  (VLM: claude -p on this Mac's Claude login, claude-fable-5-1)").pack(anchor="w")
+ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
+arow = ttk.Frame(aif); arow.pack(fill="x")
+ai_mode = tk.StringVar(value="dry run"); ttk.Combobox(arow, textvariable=ai_mode, values=("dry run", "live"), state="readonly", width=7).pack(side="left")
+ai_arm = tk.StringVar(value="left"); ttk.Combobox(arow, textvariable=ai_arm, values=("left", "right"), state="readonly", width=5).pack(side="left", padx=3)
+ai_stepp = tk.StringVar(value="coarse_fine"); ttk.Combobox(arow, textvariable=ai_stepp, values=("coarse_fine", "precision"), state="readonly", width=10).pack(side="left")
+ttk.Label(arow, text="floor z").pack(side="left", padx=(6, 2)); ai_floor = tk.StringVar(value="0.50"); ttk.Entry(arow, textvariable=ai_floor, width=5).pack(side="left")
+abtns = ttk.Frame(arow); abtns.pack(side="right")
+ttk.Label(aif, text="Context: recordings the model sees as demonstrations (✓ = with a camera contact sheet; select several)",
+          wraplength=SIZES["head"][0]).pack(anchor="w", pady=(6, 0))
+demo_files = []
+demo_lb = tk.Listbox(aif, height=5, selectmode="extended", bg="#161c23", fg="#c9d1d9", selectbackground="#0f766e", exportselection=False)
+demo_lb.pack(fill="x", pady=2)
+ai_prop = tk.Label(aif, text="", bg="#0f1419", fg="#ffd166", wraplength=SIZES["head"][0], justify="left", anchor="w"); ai_prop.pack(fill="x", pady=(4, 0))
+prow = ttk.Frame(aif); prow.pack(fill="x", pady=2)
+ai_note = tk.StringVar()
+ai_out = tk.Text(aif, height=9, width=40, bg="#0b0f14", fg="#c9d1d9", font=("Menlo", 10)); ai_out.pack(fill="both", expand=True, pady=(2, 0))
+
 twin = ttk.Frame(panes); panes.add(twin, weight=1)
 _, twin_lbl = tile(twin, "twin", "Live twin (MuJoCo from rt/lowstate)"); _.pack(fill="both", expand=True)
 srow = ttk.Frame(twin); srow.pack(fill="x", padx=6, pady=(0, 6))
@@ -117,6 +148,12 @@ def reload_files(select=None):
     for f in files: lb.insert("end", f)
     if select in files:
         i = files.index(select); lb.selection_set(i); lb.see(i); lb.activate(i)
+    keep = {demo_files[i] for i in demo_lb.curselection()} if demo_files else set()       # the AI pane's context list
+    demo_files[:] = [f for f in files if f.startswith("recordings/")]
+    demo_lb.delete(0, "end")
+    for i, f in enumerate(demo_files):
+        demo_lb.insert("end", ("✓ " if os.path.exists(os.path.join(ROOT, f[:-5] + ".sheet.jpg")) else "    ") + os.path.basename(f))
+        if f in keep: demo_lb.selection_set(i)
 ttk.Button(hdr, text="Refresh", width=7, command=reload_files).pack(side="right")
 def delete_selected():
     """Delete the selected trajectory file after a confirmation. Plans and recordings are plain files; git has the committed ones."""
@@ -196,6 +233,8 @@ def log(s):
 def busy():
     if proc["p"] and proc["p"].poll() is None:
         log(f"\n(a {proc['kind']} is still running; stop it first)\n"); return True
+    if ai_running():
+        log("\n(an AI session is running; Stop it first)\n"); return True
     return False
 
 def launch(cmd, kind, title, result=None, secs=0.0):
@@ -281,6 +320,104 @@ def finished(code):
         log("no recording saved\n")
     proc["result"] = None
 
+# ---- AI session: python -m harness as a subprocess. It prints PROPOSAL lines; the answers go to its stdin:
+# Enter = send, "n <note>" = reject (the model reads the note), Ctrl-C = release the arms and end.
+ANSWER_PROMPT = re.compile(r"^\s*\[Enter\] send.*?> |^\s*Enter to continue.*?> ")
+def ai_log(s):
+    ai_out.insert("end", s); ai_out.see("end")
+
+def ai_running():
+    return ai["p"] is not None and ai["p"].poll() is None
+
+def port_open(port):
+    with socket.socket() as s:
+        s.settimeout(0.3); return s.connect_ex(("127.0.0.1", port)) == 0
+
+def ai_run():
+    if busy(): return
+    task = ai_task.get().strip()
+    if not task: ai_log("\ntype a task first\n"); return
+    try:
+        floor = float(ai_floor.get())
+    except ValueError:
+        ai_log("\nfloor z must be a number (metres in the robot frame: the hand tip never goes below it)\n"); return
+    live = ai_mode.get() == "live"
+    demos = [demo_files[i] for i in demo_lb.curselection()]
+    cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}",
+           "live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW]
+    if demos: cmd += ["--demos", *demos]
+    if live:
+        if not messagebox.askokcancel("AI control on the robot",
+                "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session.\n"
+                f"First proposal: the {ai_arm.get()} arm's start pose (forearm forward). Every move is shown in the twin first and "
+                "sent only when you press Accept; Reject asks the model for something else; Stop releases the arms.\n\n"
+                "Robot standing in FSM 4 or 811, arms clear, remote in hand."):
+            return
+        if not port_open(8790):
+            ai_log("starting the arm_sdk streamer (harness.robot.arm_stream, log /tmp/harness_stream.log); it publishes nothing until the session engages\n")
+            try:
+                ai["streamer"] = subprocess.Popen([PY, "-m", "harness.robot.arm_stream", a.iface], cwd=ROOT, stdout=open("/tmp/harness_stream.log", "ab"),
+                                                  stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+            except Exception as ex:
+                ai_log(f"streamer failed to start: {ex}\n"); return
+            wait_streamer(cmd, task, time.time() + 15.0); return
+    ai_launch(cmd, task)
+
+def wait_streamer(cmd, task, deadline):
+    if port_open(8790): ai_launch(cmd, task); return
+    st = ai["streamer"]
+    if st and st.poll() is not None: ai_log(f"streamer exited with code {st.returncode}: see /tmp/harness_stream.log\n"); return
+    if time.time() > deadline: ai_log("streamer did not open port 8790 within 15 s: see /tmp/harness_stream.log\n"); return
+    root.after(300, lambda: wait_streamer(cmd, task, deadline))
+
+def ai_launch(cmd, task):
+    if ai_out.get("1.0", "end").strip(): ai_log("\n")
+    ai_log(f"▶ {ai_mode.get()} · {ai_arm.get()} arm: {task}   {time.strftime('%H:%M:%S')}\n")
+    p = subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                         env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    ai.update(p=p, pending=False); ai_prop.configure(text="thinking…")
+    def pump():
+        for line in p.stdout:
+            if "take sample error" in line: continue
+            line = ANSWER_PROMPT.sub("", line)
+            if line.startswith("PROPOSAL:"): events.put(("ai_proposal", line[9:].strip()))
+            elif line.startswith("ENGAGE:"): ai_write("")                      # the dialog before Run was the yes
+            if line.strip(): events.put(("ai_log", line))
+        events.put(("ai_done", p.wait()))
+    threading.Thread(target=pump, daemon=True).start()
+
+def ai_write(s):
+    try:
+        ai["p"].stdin.write(s + "\n"); ai["p"].stdin.flush()
+    except Exception as ex:
+        events.put(("ai_log", f"could not answer the session: {ex}\n"))
+
+def ai_answer(accept):
+    if not ai["pending"] or not ai_running(): return
+    ai["pending"] = False; accept_btn.state(["disabled"]); reject_btn.state(["disabled"])
+    cockpit("/preview/stop")                                     # the yellow SENDING ghost then shows the real motion
+    if accept:
+        ai_prop.configure(text="accepted: sending, then thinking…"); ai_write("")
+    else:
+        note = ai_note.get().strip(); ai_note.set("")
+        ai_prop.configure(text="rejected" + (f" ({note})" if note else "") + ": the model plans again…"); ai_write("n " + note)
+
+def ai_stop():
+    if not ai_running(): ai_log("\n(no AI session running)\n"); return
+    ai["p"].send_signal(signal.SIGINT); ai_log("\n[stop sent: the session releases the arms (weight ramps down)]\n")
+
+def ai_finished(code):
+    ai["pending"] = False; accept_btn.state(["disabled"]); reject_btn.state(["disabled"]); ai_prop.configure(text="")
+    cockpit("/preview/stop")
+    ai_log("■ " + {0: "session ended", 130: "stopped on request", -2: "stopped on request"}.get(code, f"session ended with code {code}") + "\n")
+
+ttk.Button(abtns, text="Run", style="Go.TButton", width=4, command=ai_run).pack(side="left")
+ttk.Button(abtns, text="Stop", style="Danger.TButton", width=4, command=ai_stop).pack(side="left", padx=(4, 0))
+ai_task_entry.bind("<Return>", lambda _e: ai_run())
+accept_btn = ttk.Button(prow, text="Accept", style="Go.TButton", width=7, command=lambda: ai_answer(True)); accept_btn.pack(side="left"); accept_btn.state(["disabled"])
+reject_btn = ttk.Button(prow, text="Reject", style="Danger.TButton", width=7, command=lambda: ai_answer(False)); reject_btn.pack(side="left", padx=4); reject_btn.state(["disabled"])
+ttk.Label(prow, text="why:").pack(side="left"); ttk.Entry(prow, textvariable=ai_note).pack(side="left", fill="x", expand=True, padx=(2, 0))
+
 ttk.Button(btns, text="Dry run + preview", command=lambda: run(False)).pack(side="left")
 ttk.Button(btns, text="Execute…", command=lambda: run(True)).pack(side="left", padx=6)
 ttk.Button(btns, text="Abort", style="Danger.TButton", command=interrupt).pack(side="left")
@@ -326,6 +463,12 @@ def drain():
                 cockpit("/preview?file=sim/plans/arm_lift_dryrun.json")
                 log("the twin pane shows the planned hand paths and, in yellow, the pose being sent right now\n")
             elif kind == "done": finished(val)
+            elif kind == "ai_log": ai_log(val)
+            elif kind == "ai_proposal":
+                ai["pending"] = True; ai_prop.configure(text="PROPOSAL  " + val)
+                accept_btn.state(["!disabled"]); reject_btn.state(["!disabled"])
+                cockpit(f"/preview?file={PREVIEW}&hold=1")
+            elif kind == "ai_done": ai_finished(val)
     except queue.Empty:
         pass
     if proc["t0"]:
@@ -342,11 +485,15 @@ def place_sashes():
         w = root.winfo_width(); panes.sashpos(0, int(w * 0.27)); panes.sashpos(1, int(w * 0.27) + int(w * 0.45))
     except Exception: pass
 def on_close(deadline=None):
-    """Interrupt a running tool and keep reading its output until it has released and saved (up to 6 s), then quit."""
-    p = proc["p"]
-    if p and p.poll() is None:
+    """Interrupt whatever runs (trajectory tool, AI session, streamer) and keep reading until it has released and saved
+    (up to 6 s), then quit."""
+    running = [p for p in (proc["p"], ai["p"], ai["streamer"]) if p and p.poll() is None]
+    if running:
         if deadline is None:
-            interrupt(); deadline = time.time() + 6.0
+            interrupt()
+            if ai_running(): ai_stop()
+            if ai["streamer"] and ai["streamer"].poll() is None: ai["streamer"].send_signal(signal.SIGINT)
+            deadline = time.time() + 6.0
         if time.time() < deadline:
             root.after(200, lambda: on_close(deadline)); return
     root.destroy()
