@@ -61,6 +61,8 @@ var asrModule = null;
 var voiceListening = false;
 var voiceFinal = [];
 var voicePartial = "";
+var voiceSendRequestedAt = -1;
+var voiceStartedAt = -1;
 var voiceMessage = "";
 var voiceMessageUntil = 0;
 var voicePinchAt = -1000;
@@ -79,11 +81,19 @@ function voiceNotice(message) {
 }
 function stopVoice(send) {
     if (!voiceListening) { return; }
+    if (send && !voiceText()) {
+        // ASR updates are asynchronous. Stopping here discards the pending
+        // result and makes a successful utterance look like silence.
+        voiceSendRequestedAt = getTime();
+        voiceNotice("WAITING FOR SPEECH RESULT");
+        return;
+    }
     voiceListening = false;
+    voiceSendRequestedAt = -1;
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
     if (!send) { voiceNotice("VOICE CANCELLED"); return; }
     var phrase = voiceText().slice(0, 500);
-    if (!phrase) { voiceNotice("NO SPEECH HEARD"); return; }
+    if (!phrase) { voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET"); return; }
     if (!socketReady) { voiceNotice("NO NETWORK"); return; }
     voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
     try {
@@ -97,24 +107,28 @@ function startVoice() {
     if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
     if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
     if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
-    voiceFinal = []; voicePartial = "";
+    voiceFinal = []; voicePartial = ""; voiceSendRequestedAt = -1;
     try {
         var options = AsrModule.AsrTranscriptionOptions.create();
         options.mode = AsrModule.AsrMode.HighAccuracy;
-        options.silenceUntilTerminationMs = 5000;
+        options.silenceUntilTerminationMs = 1200;
         options.onTranscriptionUpdateEvent.add(function(update) {
             if (!voiceListening) { return; }
+            print("R1 AR voice: ASR update final=" + !!update.isFinal +
+                  " chars=" + String(update.text || "").length);
             if (update.isFinal) {
                 if (update.text) { voiceFinal.push(update.text); }
                 voicePartial = "";
             } else { voicePartial = update.text || ""; }
+            if (voiceSendRequestedAt >= 0 && voiceText()) { stopVoice(true); }
         });
         options.onTranscriptionErrorEvent.add(function(code) {
             voiceListening = false;
             microphoneBlocked = true;
-            voiceNotice("MICROPHONE UNAVAILABLE " + code);
+            voiceNotice("SPEECH ERROR " + code);
         });
         voiceListening = true;
+        voiceStartedAt = getTime();
         asrModule.startTranscribing(options);
         voiceNotice("LISTENING");
     } catch (e) {
@@ -661,6 +675,12 @@ function connect() {
 }
 script.createEvent("UpdateEvent").bind(function(){
     updateAnchor();
+    if (voiceListening && voiceSendRequestedAt >= 0 &&
+        getTime() - voiceSendRequestedAt > 6) {
+        voiceSendRequestedAt = -1;
+        stopVoice(false);
+        voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET");
+    }
     if (statusObject && script.cameraObject && statusPosition) {
         var head = script.cameraObject.getTransform();
         var label = statusObject.getTransform();
@@ -690,7 +710,8 @@ script.createEvent("UpdateEvent").bind(function(){
                 (reviewMessage || (!tagAnchored ? "SCAN BOTH TAGS FIRST" :
                  !socketReady ? "WAITING FOR CONNECTION" :
                  "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
-                (voiceListening ? "LISTENING\n" + voiceText().slice(-55) +
+                (voiceListening ? (voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
+                 (voiceText() || (getTime() - voiceStartedAt > 3 ? "NO WORDS YET" : "SPEAK NOW")).slice(-55) +
                  "\nRIGHT x2 SEND   LEFT CANCEL" : voiceMessage);
         }
     }
