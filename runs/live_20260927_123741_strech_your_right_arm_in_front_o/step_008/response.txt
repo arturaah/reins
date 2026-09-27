@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the right arm rises from the bottom edge at F6 with its tip near E4, still short of and a little right of the open space in front of the black chair at D3, so it should push farther forward.", "decision": "MV_FWD", "plan": ["MV_FWD", "MV_LEFT", "MV_FWD"]}

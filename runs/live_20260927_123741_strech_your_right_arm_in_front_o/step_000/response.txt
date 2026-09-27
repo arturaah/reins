@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO. The right hand is still resting at the bottom-right of the context view (around E5-F6), below and to the right of the target space in front of the chest, so it needs to go forward first, then up and toward the centre.", "decision": "MV_FWD", "plan": ["MV_FWD", "MV_UP", "MV_LEFT"]}

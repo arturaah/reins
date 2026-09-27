@@ -1,0 +1,25 @@
+{
+ "stages": [
+  {
+   "id": "raise_right_hand_to_shoulder_height",
+   "target": "open space beside the robot's right shoulder, above the robot's own white sneaker visible at the bottom of the view (cells E5-F6)",
+   "affordance": "empty air in the lower-right part of the view (cells F4-G5), between the robot's white sneaker and the white desk on the right, clear of the desk and the seated person",
+   "motion": "RAISE",
+   "description": "From the rest position at the right hip (about 58 cm above the floor, hand outside the camera view) lift the right hand straight up, keeping the elbow bent and the hand close to the body so it stays right of the seated person and short of the desk edge. Do not move forward yet: rise first, as the operator rejected forward motion from a low hand. Stop when the hand tip reaches shoulder height, roughly 95-100 cm above the floor, which is level with the seated person's shoulders in the view.",
+   "completion": "The robot's right hand tip is visible in the lower-right area of the camera view (around cells F4-G4), held at about the same image height as the seated person's laptop and shoulders, with the elbow still bent and the hand still near the robot's body, not over the white desk and not touching anything."
+  },
+  {
+   "id": "extend_right_arm_straight_forward",
+   "target": "empty space straight ahead of the robot at shoulder height, in the direction of the seated person in the dark blue T-shirt (cells D1-F4), stopping well short of that person",
+   "affordance": "empty air in front of the seated person's laptop and knees (cells E3-F3), at least an arm's length before the person's body",
+   "motion": "REACH",
+   "description": "Straighten the elbow and push the hand tip forward horizontally, keeping it at shoulder height and slightly right of the robot's centreline (about 45-55 cm forward of the shoulder, roughly 15-20 cm to the right of centre). Keep the hand well away from the seated person's head, laptop and knees, and away from the white desk and the standing person in jeans on the left. Finish with the arm fully straight and pointing forward, and then hold still.",
+   "completion": "The robot's right arm appears fully straight in the camera view with no visible elbow bend, the hand tip sits in the centre-right of the frame (around cells E3-F3) at the image height of the seated person's chest, the hand is clearly in the open air in front of the seated person's laptop with visible gap to the person, the laptop and the desk, and the arm remains stationary in this pose."
+  }
+ ],
+ "model": "claude-fable-5-1",
+ "latency_s": 45.33967304229736,
+ "input_tokens": 34,
+ "output_tokens": 2477,
+ "error": ""
+}

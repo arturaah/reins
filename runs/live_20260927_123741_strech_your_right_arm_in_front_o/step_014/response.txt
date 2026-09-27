@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the right hand tip sits low near E5 at the bottom of the context view, well below the D3-E4 shoulder-height target in front of the black chair, so it needs to rise before extending further.", "decision": "MV_UP", "plan": ["MV_UP", "MV_UP", "MV_FWD"]}

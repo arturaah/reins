@@ -1,0 +1,65 @@
+{
+ "step": 18,
+ "t": 1790505910.886573,
+ "stage": "extend_right_arm_forward",
+ "action": "MV_UP",
+ "hand_tip_before": [
+  0.33714,
+  -0.08537,
+  0.73964
+ ],
+ "roll_before": -0.0008174502872861922,
+ "joints_before": {
+  "waist_roll_joint": 0.008592689409852028,
+  "waist_yaw_joint": 0.008982176892459393,
+  "left_shoulder_pitch_joint": 0.2254772037267685,
+  "left_shoulder_roll_joint": 0.1709909290075302,
+  "left_shoulder_yaw_joint": 0.020511947572231293,
+  "left_elbow_joint": 0.8489069938659668,
+  "left_wrist_roll_joint": -0.0036482505965977907,
+  "right_shoulder_pitch_joint": -0.27751272916793823,
+  "right_shoulder_roll_joint": -0.020600883290171623,
+  "right_shoulder_yaw_joint": 0.16394419968128204,
+  "right_elbow_joint": 0.43745699524879456,
+  "right_wrist_roll_joint": -0.0008174502872861922
+ },
+ "images_missing": [
+  "RIGHT WRIST VIEW"
+ ],
+ "ok": true,
+ "feedback": "moved 2.2 of 4.0 cm (the arm sags under its own weight at these gains; the rest may come with one more step)",
+ "hand_tip_after": [
+  0.3302,
+  -0.08714,
+  0.76123
+ ],
+ "requested_dp": [
+  0.0,
+  0.0,
+  0.04
+ ],
+ "achieved_dp": [
+  -0.00694,
+  -0.00177,
+  0.02158
+ ],
+ "q_target": [
+  -0.25346,
+  -0.0301,
+  0.16511,
+  0.2416,
+  -0.00082
+ ],
+ "q_after": [
+  -0.22038,
+  -0.02646,
+  0.16565,
+  0.27624,
+  -0.00082
+ ],
+ "ik_fail": false,
+ "timeout": false,
+ "clamped": false,
+ "notes": [],
+ "duration_s": 0.4962010383605957
+}

@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the head camera shows the seated person with the laptop directly ahead at chest level while the right hand hangs unseen by the hip, so the target is well above the hand tip and it must lift first before any forward reach.", "decision": "MV_UP", "plan": ["MV_UP", "MV_UP", "MV_FWD"]}

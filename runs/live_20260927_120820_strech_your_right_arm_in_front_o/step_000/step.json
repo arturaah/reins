@@ -1,0 +1,70 @@
+{
+ "step": 0,
+ "t": 1790503797.449982,
+ "stage": "raise_right_hand_to_chest",
+ "action": "MV_UP",
+ "hand_tip_before": [
+  0.28724,
+  -0.14755,
+  0.75723
+ ],
+ "roll_before": -0.00012110374518670142,
+ "joints_before": {
+  "waist_roll_joint": -0.0028282771818339825,
+  "waist_yaw_joint": -0.0008329036645591259,
+  "left_shoulder_pitch_joint": 0.21769344806671143,
+  "left_shoulder_roll_joint": 0.15689748525619507,
+  "left_shoulder_yaw_joint": 0.02343357540667057,
+  "left_elbow_joint": 0.8403086066246033,
+  "left_wrist_roll_joint": -0.004450562875717878,
+  "right_shoulder_pitch_joint": -0.0016418389277532697,
+  "right_shoulder_roll_joint": -0.2069915384054184,
+  "right_shoulder_yaw_joint": 0.14043493568897247,
+  "right_elbow_joint": 0.049168121069669724,
+  "right_wrist_roll_joint": -0.00012110374518670142
+ },
+ "images_missing": [
+  "RIGHT WRIST VIEW"
+ ],
+ "ok": true,
+ "feedback": "moved 1.6 of 4.0 cm -> blocked or in contact, do NOT repeat this move",
+ "hand_tip_after": [
+  0.27823,
+  -0.14473,
+  0.77353
+ ],
+ "requested_dp": [
+  0.0,
+  0.0,
+  0.04
+ ],
+ "achieved_dp": [
+  -0.009,
+  0.00282,
+  0.0163
+ ],
+ "q_target": [
+  0.00388,
+  -0.22416,
+  0.11982,
+  -0.11939,
+  -0.00012
+ ],
+ "q_after": [
+  0.04556,
+  -0.20624,
+  0.13891,
+  -0.06768,
+  -0.00023
+ ],
+ "ik_fail": false,
+ "timeout": false,
+ "clamped": false,
+ "notes": [],
+ "duration_s": 0.5393688678741455,
+ "model": "claude-fable-5-1",
+ "latency_s": 20.219,
+ "input_tokens": 34,
+ "output_tokens": 476,
+ "vlm_error": ""
+}

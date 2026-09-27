@@ -1,0 +1,25 @@
+{
+ "stages": [
+  {
+   "id": "raise_right_hand_to_chest",
+   "target": "open space directly in front of the robot's chest",
+   "affordance": "empty air in front of the robot's torso, below the seated person's face and above the laptop",
+   "motion": "RAISE",
+   "description": "From the hanging start pose (hand beside the right hip, wrist camera looking down at the red rug and the robot's own leg), pitch the right shoulder forward and bend the elbow so the hand lifts up and forward to chest height in front of the torso. Keep the hand on the robot's right side at roughly shoulder width; do not swing it across the body or out to the side. Go up first before any large forward motion, since forward moves from a low hand were rejected earlier.",
+   "completion": "Right hand is in front of the robot's chest at roughly chest height, elbow still bent; the right wrist camera now shows the seated person and the room ahead instead of the rug and robot leg below."
+  },
+  {
+   "id": "extend_right_arm_straight_forward",
+   "target": "open space straight ahead of the robot's right shoulder",
+   "affordance": "empty air between the robot and the seated person's upper body, at shoulder height",
+   "motion": "REACH",
+   "description": "Straighten the elbow while continuing to pitch the shoulder forward until the whole right arm is horizontal and fully extended straight ahead at shoulder height, hand tip pointing at the seated person's chest. Keep the same lateral offset as the shoulder so the arm is parallel to the robot's forward direction. Stop short of the seated person so the hand does not touch them or the laptop, then hold the pose still.",
+   "completion": "Right arm is straight with no visible elbow bend and horizontal at shoulder height, reaching directly forward, with a clear gap between the hand tip and the seated person; the right wrist camera shows the seated person centered ahead and the arm stays still in that pose."
+  }
+ ],
+ "model": "claude-fable-5-1",
+ "latency_s": 51.56898522377014,
+ "input_tokens": 34,
+ "output_tokens": 2735,
+ "error": ""
+}

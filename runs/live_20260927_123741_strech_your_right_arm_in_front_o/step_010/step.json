@@ -1,0 +1,53 @@
+{
+ "step": 10,
+ "t": 1790505770.583596,
+ "stage": "extend_right_arm_forward",
+ "action": "MV_FWD",
+ "hand_tip_before": [
+  0.34669,
+  -0.07293,
+  0.67824
+ ],
+ "roll_before": -0.0008174502872861922,
+ "joints_before": {
+  "waist_roll_joint": 0.008928247727453709,
+  "waist_yaw_joint": 0.011810454539954662,
+  "left_shoulder_pitch_joint": 0.2248779982328415,
+  "left_shoulder_roll_joint": 0.17094898223876953,
+  "left_shoulder_yaw_joint": 0.020405981689691544,
+  "left_elbow_joint": 0.8483620285987854,
+  "left_wrist_roll_joint": -0.0036482505965977907,
+  "right_shoulder_pitch_joint": -0.5420764684677124,
+  "right_shoulder_roll_joint": 0.020055601373314857,
+  "right_shoulder_yaw_joint": 0.1889369934797287,
+  "right_elbow_joint": 1.0845295190811157,
+  "right_wrist_roll_joint": -0.0008174502872861922
+ },
+ "images_missing": [
+  "RIGHT WRIST VIEW"
+ ],
+ "ok": false,
+ "feedback": "IK_FAIL: IK stopped 2.0 cm short of the target",
+ "hand_tip_after": [
+  0.34669,
+  -0.07293,
+  0.67824
+ ],
+ "requested_dp": [
+  0.04,
+  0.0,
+  0.0
+ ],
+ "achieved_dp": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "q_target": null,
+ "q_after": null,
+ "ik_fail": true,
+ "timeout": false,
+ "clamped": false,
+ "notes": [],
+ "duration_s": 0.0
+}

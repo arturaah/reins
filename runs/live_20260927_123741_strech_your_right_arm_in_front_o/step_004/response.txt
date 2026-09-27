@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the right hand sits low at the bottom centre (around E5), still close to the body, and the space in front of the black chair is higher in the image, so the arm needs to push forward and rise.", "decision": "MV_FWD", "plan": ["MV_FWD", "MV_UP", "MV_FWD"]}

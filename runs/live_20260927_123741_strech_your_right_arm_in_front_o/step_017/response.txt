@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the right arm reaches out from the bottom edge with its hand tip low near D4-E5 over the rug, below the shoulder-height target ahead, and the last forward move was out of reach, so raise the hand.", "decision": "MV_UP", "plan": ["MV_UP", "MV_UP", "MV_UP"]}

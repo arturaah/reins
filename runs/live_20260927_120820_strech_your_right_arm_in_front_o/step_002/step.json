@@ -1,0 +1,63 @@
+{
+ "step": 2,
+ "t": 1790503802.8947031,
+ "stage": "raise_right_hand_to_chest",
+ "action": "MV_FWD",
+ "hand_tip_before": [
+  0.27066,
+  -0.14226,
+  0.78946
+ ],
+ "roll_before": -0.00024220749037340283,
+ "joints_before": {
+  "waist_roll_joint": -0.0029241510201245546,
+  "waist_yaw_joint": -0.0006111955153755844,
+  "left_shoulder_pitch_joint": 0.21776536107063293,
+  "left_shoulder_roll_joint": 0.15688548982143402,
+  "left_shoulder_yaw_joint": 0.02369092032313347,
+  "left_elbow_joint": 0.840338945388794,
+  "left_wrist_roll_joint": -0.004435424692928791,
+  "right_shoulder_pitch_joint": 0.08029431104660034,
+  "right_shoulder_roll_joint": -0.2061646282672882,
+  "right_shoulder_yaw_joint": 0.1382853388786316,
+  "right_elbow_joint": -0.1687278002500534,
+  "right_wrist_roll_joint": -0.00024220749037340283
+ },
+ "images_missing": [],
+ "ok": true,
+ "feedback": "moved 2.9 of 4.0 cm",
+ "hand_tip_after": [
+  0.2999,
+  -0.14114,
+  0.76506
+ ],
+ "requested_dp": [
+  0.04,
+  0.0,
+  0.0
+ ],
+ "achieved_dp": [
+  0.02924,
+  0.00112,
+  -0.0244
+ ],
+ "q_target": [
+  -0.10174,
+  -0.19612,
+  0.11935,
+  0.02566,
+  -0.00024
+ ],
+ "q_after": [
+  -0.05656,
+  -0.18672,
+  0.13676,
+  0.07486,
+  -0.0003
+ ],
+ "ik_fail": false,
+ "timeout": false,
+ "clamped": false,
+ "notes": [],
+ "duration_s": 0.6334631443023682
+}

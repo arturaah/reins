@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the right hand is now raised clear of the bottom edge, with its tip at about E4-E5 near the image centre and the forearm reaching forward over the rug, so the DONE WHEN condition is met.", "decision": "DONE"}

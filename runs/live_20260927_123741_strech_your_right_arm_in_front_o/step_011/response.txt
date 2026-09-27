@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO. The right arm comes up from the bottom edge of the context view, with its hand tip low around E5 near the floor, while the target is in open space at shoulder height near D3-E4; the last forward move was out of reach, so raise the hand first.", "decision": "MV_UP", "plan": ["MV_UP", "MV_UP", "MV_FWD"]}
