@@ -115,7 +115,13 @@ SPECTACLES_REVIEW = "runs/spectacles_review.json"
 AI_LOG = "/tmp/harness_ui.log"                        # every line of every AI session (the pane's log is not kept otherwise)
 ai = {"p": None, "pending": False, "streamer": None}
 aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
-ttk.Label(aif, text="AI control  (VLM: claude -p on this Mac's Claude login, claude-fable-5-1; every Accept / Reject and its feedback is kept for later sessions)",
+def vlm_model():
+    try:
+        import yaml
+        with open(os.path.join(ROOT, "harness/config.yaml")) as f: return str(yaml.safe_load(f)["vlm"]["model"])
+    except Exception:
+        return "see harness/config.yaml"
+ttk.Label(aif, text=f"AI control  (VLM: claude -p on this Mac's Claude login, model {vlm_model()}; every Accept / Reject and its feedback is kept for later sessions)",
           wraplength=SIZES["head"][0]).pack(anchor="w")
 ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
 arow = ttk.Frame(aif); arow.pack(fill="x")
