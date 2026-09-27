@@ -116,6 +116,8 @@ RECOVERY_NOTES = {
                "come back toward the robot, lower or raise the hand, or try another direction.",
     "home_step": "After repeated unreachable targets the arm was moved part of the way toward its home pose.",
     "oscillation": "Opposite moves in a row: re-judge the images instead of hunting; prefer MV_UP or MV_DOWN.",
+    "rejected": "The operator rejected your last proposal ({token}){why}. It was NOT executed: propose something different "
+                "(another direction, a smaller step, or DONE if the stage is already complete).",
 }
 
 

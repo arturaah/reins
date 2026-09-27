@@ -1,9 +1,28 @@
 # DESIGN: assumptions and deviations
 
 Semantic end-effector-delta harness after Show-Harness (arXiv 2609.10522) and RoboDawn
-(arXiv 2609.22966), built on this repo's `rt/arm_sdk` streaming path. Status 2026-09-26: sim and
-tests pass; `dry-run en6` verified against the robot in FSM 0 (real joints, real head camera, nothing
-published); the streamer and `live` have not run on the robot yet.
+(arXiv 2609.22966), built on this repo's `rt/arm_sdk` streaming path. Status 2026-09-27: sim and
+tests pass; `dry-run` verified against the robot in FSM 0 and 811 (real joints, real head camera,
+nothing published), including the window's PROPOSAL / Accept / Reject protocol with `claude -p`
+and recorded demonstrations in the prompt; the streamer and `live` have not run on the robot yet.
+
+## Demonstrations and the operator veto (2026-09-27)
+
+- **Recorded motions as in-context demonstrations.** Show-Harness and RoboDawn are zero-shot; here
+  the operator can select recordings (`tools/teach.py`, `tools/record.py`) and the model sees each
+  as a contact sheet of the cameras at the motion's key moments plus the hand-tip path in cm from
+  forward kinematics of the recorded joints (`harness/demos.py`). Key moments are equal fractions
+  of joint-space arc length, so a fast reach and a slow settle get the same number of frames; a
+  near-still recording (under 0.05 rad of total motion) falls back to equal time spacing. The
+  numbers are in the robot frame and use the action vocabulary's words (forward/left/up), so the
+  model can map "forward 26, up 27" onto its own 4 cm steps. Demonstrations go before the live
+  images in every call and the prompt says they are references, not scripts.
+- **Every proposal is vetoable.** The executor asks `confirm(text, preview)` before any motion
+  (the start pose too) and a rejection, with the operator's note, becomes a one-shot recovery note
+  and a `(rejected)` history token; a rejected action chunk is dropped. The preview dict is what
+  would be streamed, written as a sim-contract plan for the twin's ghost. The twin's held preview
+  (`hold=1`) exists because the streamer keeps the arm topic live for the whole episode, which used
+  to hide any plan preview behind the yellow SENDING ghost.
 
 ## Robot facts that shaped the design
 
@@ -85,6 +104,7 @@ the Cartesian clamp. The streamer process re-checks joint speed a third time, in
 
 ## Not done yet
 
-Real cameras seen by this package (the dry run will show it), table measurement, the start-pose
-move on the robot, calibrated hand marker, dual-arm mode (parser and prompts support it, the loop
-drives one arm), OpenAI adapter untested, `sim` renders need `MUJOCO_GL=cgl` on macOS.
+Table measurement, the start-pose move on the robot, calibrated hand marker, dual-arm mode
+(parser and prompts support it, the loop drives one arm), OpenAI adapter untested, `sim` renders
+need `MUJOCO_GL=cgl` on macOS. Contact sheets exist only for recordings made after 2026-09-27
+(older ones are text-only demonstrations); wrist rows appear only while the Jetson stream is up.

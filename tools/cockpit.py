@@ -8,7 +8,11 @@ cameras (tools/camstream.py on the Jetson, forwarded to port 8080). Read-only.
 Trajectory preview: GET /preview?file=sim/plans/arm_lift_dryrun.json loads the
 resolved plan (what arm_lift streams, lead-in and return included) and draws both
 hands' full paths as lines; a translucent ghost of the arms plays the plan in a
-loop with a progress caption. GET /preview/stop ends it.
+loop with a progress caption. GET /preview/stop ends it. With &hold=1 the preview
+loops until stopped and stays on top even while the arm topic is live: that is
+how the window's AI pane shows a proposed move while the harness streamer holds
+the arms, until the operator presses Accept (the window then stops the preview,
+so the yellow SENDING ghost shows the real motion) or Reject.
 Whenever anything publishes on rt/arm_sdk with weight > 0 (arm_lift --execute,
 teach.py, teleop), the ghost switches to the commanded joint targets read off
 that topic, in yellow, captioned SENDING: the twin then shows exactly what is
@@ -92,7 +96,7 @@ CMD_RGBA = (1.0, 0.9, 0.2, 0.55)                                    # commanded 
 CMD_STALE_S = 0.5
 ghost = mujoco.MjData(model); scratch = mujoco.MjData(model)
 vopt = mujoco.MjvOption(); pert = mujoco.MjvPerturb()
-preview = {"plan": None, "t0": 0.0, "name": "", "duration": 0.0, "loops": 0, "was_sending": False}
+preview = {"plan": None, "t0": 0.0, "name": "", "duration": 0.0, "loops": 0, "was_sending": False, "hold": False}
 PAUSE_S, MAX_LOOPS = 1.0, 3      # a dry-run preview plays 3 times and clears; after real streaming the ghost clears at once
 
 def load_plan(path):
@@ -142,24 +146,26 @@ def draw_preview(scn):
     all in the live robot's base frame. Returns the caption, or None when there is nothing to show."""
     plan = preview["plan"]
     sending = state["cmd_q"] is not None and time.time() - state["cmd_t"] < CMD_STALE_S and state["cmd_w"] > 0
-    if plan is None and not sending: return None
+    show_plan = plan is not None and (preview["hold"] or not sending)     # a held preview stays on top of the live topic
+    if not show_plan and not sending: return None
     ghost.qpos[:] = data.qpos
-    if sending:
+    if not show_plan:
         for s in ARM_SLOTS: ghost.qpos[qadr[s]] = state["cmd_q"][s]
         rgba = CMD_RGBA
         caption = f"SENDING {preview['name'] if plan else ''}   weight {state['cmd_w']}%"
         preview["was_sending"] = True
     else:
-        if preview["was_sending"]:                                   # streaming just ended: show only the real robot again
+        if preview["was_sending"] and not preview["hold"]:           # streaming just ended: show only the real robot again
             preview.update(plan=None, was_sending=False); return None
         cycle = preview["duration"] + PAUSE_S
         el = time.time() - preview["t0"]; t = min(el % cycle, preview["duration"]); preview["loops"] = int(el // cycle) + 1
-        if preview["loops"] > MAX_LOOPS:
+        if preview["loops"] > MAX_LOOPS and not preview["hold"]:
             preview["plan"] = None; return None
         for k, v in plan["held"].items(): ghost.qpos[k] = v
         for k, v in zip(plan["adr"], plan["pose"](t)): ghost.qpos[k] = v
         rgba = GHOST_RGBA
-        caption = f"PREVIEW {preview['name']}   {t:4.1f} / {preview['duration']:.1f} s   loop {preview['loops']}"
+        caption = (f"PROPOSED {preview['name'][:60]}   {t:4.1f} / {preview['duration']:.1f} s   Accept or Reject in the window" if preview["hold"]
+                   else f"PREVIEW {preview['name']}   {t:4.1f} / {preview['duration']:.1f} s   loop {preview['loops']}")
     mujoco.mj_forward(model, ghost)
     n0 = scn.ngeom
     mujoco.mjv_addGeoms(model, ghost, vopt, pert, mujoco.mjtCatBit.mjCAT_DYNAMIC, scn)
@@ -176,12 +182,12 @@ def draw_preview(scn):
         add_sphere(scn, ghost.xpos[WRIST[side]] + ghost.xmat[WRIST[side]].reshape(3, 3) @ TIP, PATH_RGBA[side])
     return caption
 
-def start_preview(rel):
+def start_preview(rel, hold=False):
     path = os.path.realpath(os.path.join(ROOT, rel))
     if not path.startswith(ROOT + os.sep) or not path.endswith(".json"): raise ValueError("plan must be a .json inside the repo")
     plan, name, duration = load_plan(path)
-    preview.update(plan=plan, name=name, duration=duration, t0=time.time(), loops=0, was_sending=False)
-    return f"previewing {name}: {duration:.1f} s, {MAX_LOOPS} times"
+    preview.update(plan=plan, name=name, duration=duration, t0=time.time(), loops=0, was_sending=False, hold=bool(hold))
+    return f"previewing {name}: {duration:.1f} s, " + ("until stopped" if hold else f"{MAX_LOOPS} times")
 
 def render_loop():
     while True:
@@ -231,13 +237,14 @@ class H(BaseHTTPRequestHandler):
             age = time.time() - state["t"]
             txt = f"mode_machine {state['mode']}, {state['n']} msgs, last {age:.1f}s ago" if state["n"] else "no rt/lowstate yet"
             if state["cmd_q"] is not None and time.time() - state["cmd_t"] < CMD_STALE_S: txt += f" · SENDING weight {state['cmd_w']}%"
-            elif preview["plan"] is not None: txt += f" · preview {preview['name']} loop {preview['loops']}"
+            elif preview["plan"] is not None: txt += f" · preview {preview['name'][:40]} loop {preview['loops']}" + (" (held)" if preview["hold"] else "")
+            if preview["plan"] is not None and preview["hold"]: txt += " · PROPOSAL shown"
             self.send_response(200); self.send_header("Content-Type", "text/plain"); self.end_headers(); self.wfile.write(txt.encode()); return
         if self.path.startswith("/preview"):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             try:
-                if self.path.startswith("/preview/stop"): preview["plan"] = None; txt = "preview stopped"
-                else: txt = start_preview(q.get("file", ["sim/plans/arm_lift_dryrun.json"])[0])
+                if self.path.startswith("/preview/stop"): preview.update(plan=None, hold=False); txt = "preview stopped"
+                else: txt = start_preview(q.get("file", ["sim/plans/arm_lift_dryrun.json"])[0], q.get("hold", ["0"])[0] not in ("0", "", "false"))
                 code = 200
             except Exception as e:
                 txt, code = f"preview failed: {e}", 400

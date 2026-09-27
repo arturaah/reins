@@ -46,6 +46,8 @@ class ExecResult:
     empty_grasp: bool = False
     duration_s: float = 0.0
     notes: list = field(default_factory=list)
+    declined: bool = False             # the operator rejected the move before it was sent
+    operator_note: str = ""            # their reason, when they gave one
 
 
 class Backend:
@@ -66,7 +68,9 @@ class ArmExecutor:
     def __init__(self, cfg, kin, gate, backend, arm):
         self.cfg, self.kin, self.gate, self.backend, self.arm = cfg, kin, gate, backend, arm
         self.rate = float(cfg["robot"]["command_rate_hz"])
-        self.confirm = None          # optional callable(text) -> bool, asked before every real motion
+        # optional callable(text, preview) asked before every motion: True sends; False or a str (the operator's
+        # reason) rejects. preview = {arm, q_now, frames, dt, joints}: what would be streamed, for a ghost preview.
+        self.confirm = None
 
     # -- state ------------------------------------------------------------------------------------
     def others(self, joints):
@@ -101,14 +105,15 @@ class ArmExecutor:
         if bad:
             return ExecResult(False, f"REJECTED by the trajectory check: {bad}", state.p, state.p, requested, np.zeros(3),
                               state.roll, state.roll, clamped=bool(v.clamped), notes=v.clamped)
-        if self.confirm is not None and not self.backend.dry_run:
+        if self.confirm is not None:
             dq = v.q_target - q_now
             text = (f"{proposal.action.raw if proposal.action else proposal.kind}: hand {state.p.round(3).tolist()} -> {v.p.round(3).tolist()} m, "
                     f"roll {math.degrees(state.roll):.0f} -> {math.degrees(v.roll):.0f} deg, {v.duration_s:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(dq).max())):.0f} deg" +
                     (f"; {'; '.join(v.clamped)}" if v.clamped else ""))
-            if not self.confirm(text):
-                return ExecResult(False, "operator declined this move", state.p, state.p, requested, np.zeros(3), state.roll, state.roll)
+            ans = self._ask(text, q_now, frames, dt, j)
+            if ans is not True:
+                return self._declined(ans, state, requested)
         t0 = time.time()
         self.backend.stream(self.arm, frames, dt)
         timeout = self._settle()
@@ -117,6 +122,15 @@ class ArmExecutor:
         fb = self._feedback(proposal, requested, achieved, v, timeout)
         return ExecResult(True, fb, state.p, after.p, requested, achieved, state.roll, after.roll, v.q_target,
                           self.kin.q_from_dict(after.q), False, timeout, bool(v.clamped), None, False, time.time() - t0, v.clamped)
+
+    def _ask(self, text, q_now, frames, dt, joints):
+        return self.confirm(text, {"arm": self.arm, "q_now": q_now, "frames": frames, "dt": dt, "joints": joints})
+
+    @staticmethod
+    def _declined(ans, state, requested):
+        note = ans.strip() if isinstance(ans, str) else ""
+        return ExecResult(False, "the operator rejected this move" + (f": {note}" if note else ""), state.p, state.p, requested,
+                          np.zeros(3), state.roll, state.roll, declined=True, operator_note=note)
 
     def _settle(self):
         lim = self.cfg["limits"]
@@ -173,11 +187,13 @@ class ArmExecutor:
         if bad:
             return ExecResult(False, f"{label} refused by the trajectory check: {bad}", state.p, state.p)
         p_t, _ = self.kin.fk(q_t, self.others(j))
-        if self.confirm is not None and not self.backend.dry_run:
+        if self.confirm is not None:
             text = (f"{label}: hand {state.p.round(3).tolist()} -> {p_t.round(3).tolist()} m over {duration:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(q_t - q_now).max())):.0f} deg")
-            if not self.confirm(text):
-                return ExecResult(False, f"operator declined the {label}", state.p, state.p)
+            ans = self._ask(text, q_now, frames, 1.0 / self.rate, j)
+            if ans is not True:
+                r = self._declined(ans, state, p_t - state.p); r.feedback = f"the operator rejected the {label}" + (f": {r.operator_note}" if r.operator_note else "")
+                return r
         t0 = time.time()
         self.backend.stream(self.arm, frames, 1.0 / self.rate)
         timeout = self._settle()

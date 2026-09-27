@@ -27,7 +27,7 @@ Everything uses the repo venv (`.venv/bin/python`, see CLAUDE.md step 6) plus `a
 `pytest`, `pyyaml`. All numbers live in [config.yaml](config.yaml); override any with `--set key=value`.
 
 ```
-.venv/bin/python -m pytest harness                       # 66 tests, no hardware, about 3 s
+.venv/bin/python -m pytest harness                       # 76 tests, no hardware, about 6 s
 
 # simulation: kinematic mock on the MuJoCo scene, rendered cameras
 MUJOCO_GL=cgl .venv/bin/python -m harness sim "move your hand above the block"        # chat provider
@@ -49,6 +49,45 @@ MUJOCO_GL=cgl .venv/bin/python -m harness --set hand.type=virtual sim "pick up t
 Cameras come from the stream servers the cockpit already uses: `tools/headcam.py en6` (port 8081,
 head camera = CONTEXT VIEW) and the Jetson's `camstream.py` forwarded to port 8080 (wrists).
 
+## Demonstrations as context (`--demos`)
+
+`--demos recordings/a.json recordings/b.json` puts the selected recordings in front of every
+planner and controller call, as `DEMO_k` blocks ([demos.py](demos.py)): a text summary (source,
+duration, which arm moved, the hand tip at the motion's key moments in cm in the robot frame with
+the change between moments in the same forward/left/up words the actions use) and, when the
+recording has one, its contact sheet image `recordings/<name>.sheet.jpg`. `tools/teach.py` and
+`tools/record.py` make that sheet since 2026-09-27: they sample the head and wrist streams at 3 Hz
+while recording (`tools/framelog.py`) and tile the frames at 6 key moments (equal joint-space
+arc-length fractions, first and last always; one row per camera, one column per moment, time
+labels) and note the moments in the JSON under `"sheet"`. Older recordings work text-only. The
+prompt tells the model the demonstrations are references, not scripts.
+
+## Accept / Reject before every move
+
+With `--confirm` (live does it by default) the loop prints `PROPOSAL: <what would move>` before
+every motion, including the start pose, and reads one line: Enter sends it, `n` rejects it,
+`n <note>` rejects it and the model reads the note in its next call ("The operator rejected your
+last proposal (MV_LEFT) with the note ..."; a rejected chunk is dropped; the history shows
+`MV_LEFT(rejected)`), `x` is the e-stop. `--preview FILE` writes each proposal as a plan file in
+the sim contract first (moving arm at 50 Hz, other arm and waist held), which the twin server plays
+as ghost arms: `GET /preview?file=runs/ui_preview.json&hold=1` keeps it on top until
+`/preview/stop`, even while the streamer holds the arms with weight 1.
+
+## Desktop window: the AI pane
+
+`tools/reins_ui.py` (started by `tools/start_all.sh`) has this loop under the cameras: task, dry
+run | live, arm, step profile, floor z (`workspace.table_z_m`), a multi-select list of recordings
+as context (✓ = has a contact sheet), Run / Stop, the current proposal with Accept / Reject and a
+note field, and the session log. It runs exactly
+`python -m harness --arm A --profile P --set workspace.table_z_m=Z live|dry-run IFACE TASK --vlm claude-cli --confirm --preview runs/ui_preview.json --demos ...`
+as a subprocess, so the VLM is `claude -p` on the Mac's Claude login. Every `PROPOSAL` line
+enables the buttons and loads the held preview in the twin pane; Accept stops the preview (the
+yellow SENDING ghost then shows the real motion) and sends Enter; Reject sends `n <note>`; Stop
+sends Ctrl-C (the session releases the arms). Live mode starts `harness.robot.arm_stream` itself
+when port 8790 is closed (log `/tmp/harness_stream.log`) and asks once before the arms are
+engaged; the ENGAGE prompt is answered by the window. Dry run reads real joints and cameras and
+publishes nothing, so the whole Accept / Reject flow can be rehearsed on the standing robot.
+
 ## Before the first live run
 
 1. Measure the table: run `tools/teach.py en6 measure --seconds 60` in one terminal (arms go soft),
@@ -59,7 +98,7 @@ head camera = CONTEXT VIEW) and the Jetson's `camstream.py` forwarded to port 80
 3. Robot standing in FSM 811 (operator, remote), body cable on `en6`, head camera server up.
 4. `dry-run` first: same prompts, same IK, same gate, prints every frame it would send.
 5. `live`: the loop asks before ENGAGE, before the start-pose move and before every step
-   (Enter sends, `n` skips, `x` is the e-stop). Ctrl-C in either terminal ramps the weight down.
+   (Enter sends, `n [note]` rejects, `x` is the e-stop). Ctrl-C in either terminal ramps the weight down.
 
 ## What the streamer guarantees on its own
 

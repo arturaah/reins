@@ -3,11 +3,15 @@
     python -m harness sim "move your hand above the block" [--vlm scripted|anthropic] [--realtime]
     python -m harness dry-run en6 "..."      real joint state and cameras, VLM calls and IK, nothing published
     python -m harness live en6 "..."         needs `python -m harness.robot.arm_stream en6` running; asks before every move
+        --demos recordings/a.json ...        selected recordings (text summary + contact sheet) as demonstrations in every call
+        --confirm --preview runs/ui_preview.json   ask before every move in any mode and write each proposal as a plan file
+                                             first (the desktop window's AI pane drives this: PROPOSAL lines, Accept/Reject)
     python -m harness packet [--sim | --iface en6]   dump one perception packet (images + proprio text) and exit
     python -m harness replay RUN_DIR --step N [--vlm anthropic]   rebuild a recorded step's prompt and re-query
     python -m harness measure-table en6      print the hand tip height from rt/lowstate (subscribe-only)
 Options: --config FILE, --set key.path=value (repeatable), --arm left|right, --profile precision|coarse_fine.
 Keyboard while running: type x + Enter for the e-stop (arms freeze, episode ends); Ctrl-C releases the arms.
+At a PROPOSAL: Enter sends it, `n` rejects it, `n <note>` rejects it and passes the note to the model, x is the e-stop.
 """
 import argparse
 import json
@@ -17,6 +21,7 @@ import threading
 import time
 
 from . import config as hcfg
+from .demos import load_demos
 from .executor import ArmExecutor
 from .kinematics import ArmKinematics
 from .perception import Perception, height_above_table_cm
@@ -32,15 +37,24 @@ def stdin_reader():
         stdin_lines.put(line.strip())
 
 
-def make_confirm(gate, backend):
-    """Ask on the terminal before a real move; 'x' at any time is the e-stop."""
-    def confirm(text):
-        print(f"\nSEND? {text}\n  [Enter] send   n Enter skip   x Enter e-stop > ", end="", flush=True)
-        while True:
-            line = stdin_lines.get()
-            if line == "x":
-                gate.estop.set(); backend.freeze(); print("E-STOP set"); return False
-            return line == ""
+def make_confirm(gate, backend, preview_file=None):
+    """Ask on the terminal before a move; 'x' at any time is the e-stop. With preview_file the proposal is written there
+    as a plan first (the twin's ghost). PROPOSAL lines and the answers are the desktop window's protocol."""
+    from .preview import write_plan
+
+    def confirm(text, preview=None):
+        if preview_file and preview is not None:
+            write_plan(preview_file, preview["arm"], preview["q_now"], preview["frames"], preview["dt"], preview["joints"], text)
+        print(f"\nPROPOSAL: {text}")
+        print("  [Enter] send   n [note] Enter reject   x Enter e-stop > ", end="", flush=True)
+        line = stdin_lines.get()
+        print()
+        if line == "x":
+            gate.estop.set(); backend.freeze(); print("E-STOP set"); return False
+        if line == "":
+            return True
+        note = line[1:].strip() if line[:1] == "n" else line.strip()
+        return note or False
     return confirm
 
 
@@ -97,20 +111,23 @@ def run_episode(a, cfg, mode):
     log = print
     backend, ex, per = build(cfg, mode, a.iface, log)
     vlm = vlm_base.make(cfg, a.vlm)
+    demos = load_demos(a.demos, cfg) if getattr(a, "demos", None) else []
+    for d in demos:
+        print(f"demo: {d.name} ({'with' if d.image else 'no'} contact sheet, {len(d.text)} chars)")
     threading.Thread(target=stdin_reader, daemon=True).start()
+    ask = (mode == "live" and not a.no_confirm) or getattr(a, "confirm", False)
+    if ask:
+        ex.confirm = make_confirm(ex.gate, backend, getattr(a, "preview", None))
+    elif mode != "dry-run":
+        threading.Thread(target=estop_watch, args=(ex.gate, backend), daemon=True).start()
     if mode == "live":
         if backend.fsm not in (4, 811):
             sys.exit(f"refusing: FSM {backend.fsm} = {backend.fsm_name}")
-        if not a.no_confirm:
-            ex.confirm = make_confirm(ex.gate, backend)
-        else:
-            threading.Thread(target=estop_watch, args=(ex.gate, backend), daemon=True).start()
-        print("ENGAGE: the streamer takes the arms (weight ramps to 1). Enter to continue, anything else to quit > ", end="", flush=True)
+        print("ENGAGE: the streamer takes the arms (weight ramps to 1) and holds them until the episode ends.")
+        print("  Enter to continue, anything else to quit > ", end="", flush=True)
         if stdin_lines.get() != "":
             return
         backend.engage()
-    elif mode == "sim":
-        threading.Thread(target=estop_watch, args=(ex.gate, backend), daemon=True).start()
     rec = Recorder(cfg, mode, a.task)
     print(f"recording to {rec.dir}")
     try:
@@ -119,7 +136,7 @@ def run_episode(a, cfg, mode):
             print(f"start pose: {r.feedback}")
             if not r.ok and mode == "live":
                 return
-        ep = Episode(cfg, vlm, ex, per, rec, log)
+        ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos)
         summary = ep.run(a.task)
         print(json.dumps(summary, indent=1, default=str))
     finally:
@@ -201,6 +218,9 @@ def main():
             p.add_argument("--realtime", action="store_true"); p.add_argument("--start-pose", action="store_true")
         if name == "live":
             p.add_argument("--no-confirm", action="store_true", help="do not ask before each move (e-stop: x + Enter)")
+        p.add_argument("--confirm", action="store_true", help="ask before every move (live does by default)")
+        p.add_argument("--preview", metavar="FILE", help="write each proposal as a plan file before asking (the twin previews it)")
+        p.add_argument("--demos", nargs="+", metavar="RECORDING", help="recordings/*.json shown to the model as demonstrations")
     p = sub.add_parser("packet"); p.add_argument("--sim", action="store_true"); p.add_argument("--iface")
     p = sub.add_parser("replay"); p.add_argument("run_dir"); p.add_argument("--step", type=int, required=True)
     p.add_argument("--vlm"); p.add_argument("--edit", help="use this file as the prompt instead of the recorded one")
@@ -212,11 +232,11 @@ def main():
     cfg = hcfg.load(a.config, over)
     if a.cmd == "sim":
         cfg["_realtime"] = a.realtime
-        a.iface = None; a.no_confirm = True
+        a.iface = None; a.no_confirm = not a.confirm
         run_episode(a, cfg, "sim")
     elif a.cmd in ("dry-run", "live"):
         if a.cmd == "dry-run":
-            a.no_confirm = True; a.start_pose = True
+            a.no_confirm = not a.confirm; a.start_pose = True
         else:
             a.start_pose = True
         run_episode(a, cfg, a.cmd)
