@@ -12,3 +12,5 @@ runs/chat_inbox/
 sim/plans/prompt_*.json
 runs/ui_preview.json
 runs/inference_stats.png
+runs/ui_state.json
+runs/replays/

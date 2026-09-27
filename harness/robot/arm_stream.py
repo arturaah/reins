@@ -220,6 +220,8 @@ class Streamer:
                 chunk = conn.recv(65536)
             except socket.timeout:
                 continue
+            except OSError:                                  # connection reset: the client died mid-command
+                return
             if not chunk:
                 return
             self.last_client = time.time()

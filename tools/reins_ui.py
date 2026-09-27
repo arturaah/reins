@@ -22,7 +22,7 @@ Abort sends the tool its interrupt, which ramps the arm weight down.
     tools/start_all.sh            # starts the stream servers, then this window
     .venv/bin/python tools/reins_ui.py [--iface en8]   # default: auto-detected
 """
-import argparse, io, os, queue, re, signal, socket, subprocess, sys, threading, time, urllib.request
+import argparse, io, json, os, queue, re, signal, socket, subprocess, sys, threading, time, urllib.request
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
@@ -79,8 +79,20 @@ root = tk.Tk(); root.title("Reins · R1"); root.configure(bg="#0f1419")
 SW, SH = root.winfo_screenwidth(), root.winfo_screenheight()
 root.geometry(f"{SW}x{SH - 80}+0+0"); compute_sizes(SW, SH - 80)
 style = ttk.Style(); style.theme_use("clam")
-style.configure(".", background="#0f1419", foreground="#c9d1d9", fieldbackground="#161c23")
-style.configure("TButton", padding=6); style.configure("Danger.TButton", foreground="#ff6b6b"); style.configure("Go.TButton", foreground="#7ee787")
+BG, PANEL, FG, DIM, EDGE = "#0f1419", "#161c23", "#c9d1d9", "#5c6570", "#30363d"
+style.configure(".", background=BG, foreground=FG, fieldbackground=PANEL, bordercolor=EDGE, lightcolor=PANEL, darkcolor=PANEL)
+style.configure("TButton", padding=6, background="#21262d", foreground=FG)
+style.map("TButton", background=[("disabled", PANEL), ("pressed", "#30363d"), ("active", "#30363d")], foreground=[("disabled", DIM)])
+style.configure("Danger.TButton", foreground="#ff6b6b"); style.map("Danger.TButton", foreground=[("disabled", "#5a3d3d")])
+style.configure("Go.TButton", foreground="#7ee787"); style.map("Go.TButton", foreground=[("disabled", "#3d5a45")])
+style.configure("Live.TButton", foreground="#0f1419", background="#ff6b6b"); style.map("Live.TButton", background=[("active", "#ff8a8a"), ("disabled", PANEL)])
+# read-only comboboxes and disabled widgets in clam default to a light field with light text: make them readable
+style.configure("TCombobox", fieldbackground=PANEL, background="#21262d", foreground=FG, arrowcolor=FG, insertcolor=FG)
+style.map("TCombobox", fieldbackground=[("readonly", PANEL), ("disabled", PANEL)], foreground=[("readonly", FG), ("disabled", DIM)],
+          selectbackground=[("readonly", PANEL)], selectforeground=[("readonly", FG)], background=[("active", "#30363d")])
+style.configure("TEntry", fieldbackground=PANEL, foreground=FG, insertcolor=FG)
+for opt, val in (("background", PANEL), ("foreground", FG), ("selectBackground", "#0f766e"), ("selectForeground", "#ffffff")):
+    root.option_add(f"*TCombobox*Listbox.{opt}", val)
 panes = ttk.PanedWindow(root, orient="horizontal"); panes.pack(fill="both", expand=True)
 
 photos = {}
@@ -107,6 +119,7 @@ ttk.Label(aif, text="AI control  (VLM: claude -p on this Mac's Claude login, cla
 ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
 arow = ttk.Frame(aif); arow.pack(fill="x")
 ai_mode = tk.StringVar(value="dry run"); ttk.Combobox(arow, textvariable=ai_mode, values=("dry run", "live"), state="readonly", width=7).pack(side="left")
+UI_STATE = os.path.join(ROOT, "runs/ui_state.json")     # the AI pane's last settings, restored at the next launch
 ai_arm = tk.StringVar(value="left"); ttk.Combobox(arow, textvariable=ai_arm, values=("left", "right"), state="readonly", width=5).pack(side="left", padx=3)
 ai_stepp = tk.StringVar(value="coarse_fine"); ttk.Combobox(arow, textvariable=ai_stepp, values=("coarse_fine", "precision"), state="readonly", width=10).pack(side="left")
 ttk.Label(arow, text="floor z").pack(side="left", padx=(6, 2)); ai_floor = tk.StringVar(value="0.50"); ttk.Entry(arow, textvariable=ai_floor, width=5).pack(side="left")
@@ -365,6 +378,7 @@ def ai_run():
         ai_log("\nfloor z must be a number (metres in the robot frame: the hand tip never goes below it)\n"); return
     live = ai_mode.get() == "live"
     demos = [demo_files[i] for i in demo_lb.curselection()]
+    save_ui_state()
     cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}",
            "live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW]
     if demos: cmd += ["--demos", *demos]
@@ -440,9 +454,32 @@ def ai_finished(code):
     cockpit("/preview/stop"); reload_files()                       # the session's accepted moves are now a recording (✓) in both lists
     ai_log("■ " + {0: "session ended", 130: "stopped on request", -2: "stopped on request"}.get(code, f"session ended with code {code}") + f"   (full log: {AI_LOG})\n")
 
-ttk.Button(abtns, text="Run", style="Go.TButton", width=4, command=ai_run).pack(side="left")
+run_btn = ttk.Button(abtns, text="Run", style="Go.TButton", width=9, command=ai_run); run_btn.pack(side="left")
 ttk.Button(abtns, text="Stop", style="Danger.TButton", width=4, command=ai_stop).pack(side="left", padx=(4, 0))
 ai_task_entry.bind("<Return>", lambda _e: ai_run())
+def mode_changed(*_):                                              # the button says what Run will do
+    live = ai_mode.get() == "live"
+    run_btn.configure(text="Run LIVE" if live else "Run dry", style="Live.TButton" if live else "Go.TButton")
+ai_mode.trace_add("write", mode_changed)
+def save_ui_state():
+    try:
+        os.makedirs(os.path.dirname(UI_STATE), exist_ok=True)
+        with open(UI_STATE, "w") as f:
+            json.dump({"task": ai_task.get(), "mode": ai_mode.get(), "arm": ai_arm.get(), "profile": ai_stepp.get(), "floor_z": ai_floor.get(),
+                       "context": [demo_files[i] for i in demo_lb.curselection()]}, f)
+    except OSError:
+        pass
+def load_ui_state():
+    try:
+        with open(UI_STATE) as f: st = json.load(f)
+    except (OSError, ValueError):
+        st = {}
+    ai_task.set(st.get("task", "")); ai_mode.set(st.get("mode", "dry run")); ai_arm.set(st.get("arm", "left"))
+    ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50"))
+    for i, f in enumerate(demo_files):
+        if f in st.get("context", []): demo_lb.selection_set(i)
+    ctx_changed(); mode_changed()
+load_ui_state()
 accept_btn = ttk.Button(prow, text="Accept", style="Go.TButton", width=7, command=lambda: ai_answer(True)); accept_btn.pack(side="left"); accept_btn.state(["disabled"])
 reject_btn = ttk.Button(prow, text="Reject", style="Danger.TButton", width=7, command=lambda: ai_answer(False)); reject_btn.pack(side="left", padx=4); reject_btn.state(["disabled"])
 ttk.Label(prow, text="feedback:").pack(side="left"); ttk.Entry(prow, textvariable=ai_note).pack(side="left", fill="x", expand=True, padx=(2, 0))
@@ -532,6 +569,7 @@ def on_close(deadline=None):
     """Interrupt whatever runs (trajectory tool, AI session, streamer) and keep reading until it has released and saved
     (up to 6 s), then quit."""
     running = [p for p in (proc["p"], ai["p"], ai["streamer"]) if p and p.poll() is None]
+    if deadline is None: save_ui_state()
     if running:
         if deadline is None:
             interrupt()

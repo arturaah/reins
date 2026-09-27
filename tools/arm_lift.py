@@ -12,9 +12,11 @@ before and 1 -> 0 after, watching every moving joint the whole time.
     .venv/bin/python tools/arm_lift.py en6 --execute                # moves the robot
     .venv/bin/python tools/arm_lift.py en6 --plan tools/plans/cup_grab_right.json [--execute]
     one-joint options: --joint left_shoulder_pitch --delta -0.25 --move-s 2 --hold-s 1
-Every --execute run is logged to recordings/<timestamp>_<name>.json with the
-commanded and measured trajectory; replay one with --plan recordings/<file>.json.
---record PATH overrides the file name.
+Every --execute run is logged to runs/replays/<timestamp>_<name>.json with the
+commanded and measured trajectory; replay one with --plan runs/replays/<file>.json.
+--record PATH overrides the file name (put it under recordings/ to keep it as a
+skill). Replays used to land in recordings/, which filled the window's lists with
+"recording of recording of ..." copies of the same take at every Execute.
 
 Plan files use the sim contract (schema_version 1, keyframes with MuJoCo joint
 names in radians, first keyframe at t=0). The t=0 values are replaced by the
@@ -151,7 +153,7 @@ def main():
     ap.add_argument("--move-s", type=float, default=2.0)
     ap.add_argument("--hold-s", type=float, default=1.0)
     ap.add_argument("--execute", action="store_true", help="actually publish to rt/arm_sdk")
-    ap.add_argument("--record", help="override the recording path (default recordings/<timestamp>_<name>.json)")
+    ap.add_argument("--record", help="override the replay log path (default runs/replays/<timestamp>_<name>.json)")
     ap.add_argument("--brief", action="store_true", help="print only what a person acts on (the desktop window uses this)")
     a = ap.parse_args()
     detail = (lambda *x: None) if a.brief else print     # per-joint tables and protocol facts: CLI only
@@ -286,7 +288,7 @@ def main():
     def save_recording():
         if not rec: return
         slug = "".join(c if c.isalnum() else "_" for c in label.lower()).strip("_")[:40]
-        path = Path(a.record) if a.record else ROOT / "recordings" / f"{time.strftime('%Y%m%d_%H%M%S')}_{slug}.json"
+        path = Path(a.record) if a.record else ROOT / "runs" / "replays" / f"{time.strftime('%Y%m%d_%H%M%S')}_{slug}.json"
         mj = {s: BY_NAME[names[s]][2] for s in moving}
         out = {"schema_version": 1, "name": f"recording of {label}", "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                "duration_s": round(rec[-1][0], 3),
