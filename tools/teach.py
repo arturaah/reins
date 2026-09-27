@@ -6,7 +6,9 @@ While this runs, the arm topic is streamed at 50 Hz with low stiffness and a
 otherwise, so a released arm settles instead of sagging away under gravity.
 Expect a few degrees of droop at full extension with the soft gains. Waist and head
 are held at their measured pose with normal gains. Both arms are recorded at
-20 Hz into recordings/NAME.json in the sim contract format.
+20 Hz into recordings/NAME.json in the sim contract format. The head and wrist camera streams
+are sampled at 3 Hz meanwhile and tiled into recordings/NAME.sheet.jpg at the motion's key
+moments (tools/framelog.py); --no-frames skips that.
 
     .venv/bin/python tools/teach.py en6 NAME [--seconds 30] [--kp 15] [--kd 1]
     .venv/bin/python tools/arm_lift.py en6 --plan recordings/NAME.json [--speed 0.5] [--execute]   # replay
@@ -27,6 +29,7 @@ from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.r1.loco.r1_loco_client import LocoClient
 from unitree_sdk2py.r1.loco.r1_loco_api import ROBOT_API_ID_LOCO_GET_FSM_ID
 from arm_lift import JOINTS, State, ROOT, FSM_NAMES, FSM_ARM_OK, RATE_HZ
+from framelog import FrameLogger, save_sheet
 
 ARM = [j for j in JOINTS if j[1].startswith(("left", "right"))]
 OTHER = [j for j in JOINTS if j not in ARM]
@@ -37,6 +40,7 @@ ap.add_argument("iface"); ap.add_argument("name")
 ap.add_argument("--seconds", type=float, default=30.0)
 ap.add_argument("--kp", type=float, default=20.0, help="arm stiffness while teaching (Unitree's normal is 30-50)")
 ap.add_argument("--kd", type=float, default=1.5)
+ap.add_argument("--no-frames", action="store_true", help="do not sample the camera streams for the contact sheet")
 a = ap.parse_args()
 
 ChannelFactoryInitialize(0, a.iface)
@@ -83,6 +87,7 @@ while (t := time.time() - t_start) < 1.0:
     send(t); time.sleep(dt)
 print(f"TEACH: move the arms by hand, slowly. Recording {a.name} for up to {a.seconds:g} s, Ctrl-C to finish early.")
 rec, rec_last, t_start = [], -1.0, time.time()
+frames = None if a.no_frames else FrameLogger().start(t_start)
 try:
     while (t := time.time() - t_start) < a.seconds:
         now = time.time()
@@ -100,6 +105,7 @@ try:
         time.sleep(max(0.0, dt - (time.time() - now)))
 except KeyboardInterrupt:
     print()
+if frames: frames.stop.set()
 signal.signal(signal.SIGINT, lambda *_: print("(already finishing: saving, then the weight ramps down)"))
 path = ROOT / "recordings" / f"{a.name}.json"
 try:                                   # save first (milliseconds), release no matter what
@@ -117,4 +123,6 @@ finally:
     sub.Close()
 if len(rec) < 2:
     sys.exit("nothing recorded")
+if frames:
+    print(save_sheet(path, rec, frames.finish()))
 print(f"replay: .venv/bin/python tools/arm_lift.py {a.iface} --plan {path.relative_to(ROOT)}   (add --speed 0.5 if the dry run says too fast)")
