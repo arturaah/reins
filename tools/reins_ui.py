@@ -12,7 +12,7 @@ as subprocesses, so the same gates apply: dry run first, execute on a go,
 Abort sends the tool its interrupt, which ramps the arm weight down.
 
     tools/start_all.sh            # starts the stream servers, then this window
-    .venv/bin/python tools/reins_ui.py [--iface en6]
+    .venv/bin/python tools/reins_ui.py [--iface en8]   # default: auto-detected
 """
 import argparse, io, os, queue, re, signal, subprocess, sys, threading, time, urllib.request
 import tkinter as tk
@@ -33,9 +33,19 @@ def fit_to(im, box):
     return im.resize((max(1, int(im.width * k)), max(1, int(im.height * k)))) if abs(k - 1) > 0.02 else im
 
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-ap.add_argument("--iface", default="en6")
+def robot_iface():
+    """The interface holding a 192.168.123.x address (the adapter re-enumerates after a re-plug: en6 one day, en8 the next)."""
+    cur = None
+    for line in subprocess.run(["ifconfig"], capture_output=True, text=True).stdout.splitlines():
+        if line and not line[0].isspace():
+            cur = line.split(":")[0]
+        elif "inet 192.168.123." in line:
+            return cur
+    return None
+ap.add_argument("--iface", default=None, help="robot interface; default: the one with a 192.168.123.x address")
 ap.add_argument("--selftest", metavar="NAME", help="run a 3 s passive log called NAME through the button code path, print the log, exit (subscribe-only)")
 a = ap.parse_args()
+a.iface = a.iface or robot_iface() or "en6"
 latest = {k: None for k in STREAMS}
 events = queue.Queue()          # ("log", text) ("status", text) ("rec_start", "") ("done", code); threads never touch Tk
 
