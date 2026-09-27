@@ -268,8 +268,9 @@ class Runner:
     KP_SCALE = (0.5, 2.0)
     MAX_LINES = 4000
 
-    def __init__(self, iface, tool=ROOT / 'tools/arm_lift.py', python=sys.executable, on_exit=None):
+    def __init__(self, iface, tool=ROOT / 'tools/arm_lift.py', python=sys.executable, on_exit=None, simulation_only=False):
         self.iface, self.tool, self.python, self.on_exit = iface, Path(tool), python, on_exit
+        self.simulation_only = simulation_only
         self.lock = threading.Lock()
         self.proc = None
         self.job = None           # {'kind', 'plan', 'speed', 'kp_scale', 'started'}
@@ -301,6 +302,8 @@ class Runner:
         return c if c and time.time() - c['at'] < self.DRY_RUN_VALID_S else None
 
     def start(self, kind, plan, plan_path, speed=1.0, kp_scale=1.0, confirm=False):
+        if self.simulation_only:
+            raise ValueError('Hardware runs are disabled in simulation mode')
         if self.running():
             raise ValueError('A run is still active; abort it first')
         if kind == 'dry':
@@ -408,7 +411,18 @@ def main():
     parser.add_argument('--twin', default='http://127.0.0.1:8082/twin', help='Live twin MJPEG URL (tools/cockpit.py); empty to disable')
     parser.add_argument('--iface', default='en6', help='Network interface passed to tools/arm_lift.py')
     parser.add_argument('--observation', type=Path, help='Atomically updated calibrated RGB/depth observation NPZ')
+    parser.add_argument('--sim', action='store_true', help='Disable hardware runs, robot feeds and calibrated observations')
+    parser.add_argument('--voice-url', default='', help='Optional local voice service, e.g. http://127.0.0.1:8770/')
     args = parser.parse_args()
+    if args.voice_url:
+        voice = urlparse(args.voice_url)
+        if (voice.scheme != 'http' or voice.hostname not in ('127.0.0.1', 'localhost')
+                or voice.username or voice.password or voice.path not in ('', '/')
+                or voice.query or voice.fragment):
+            parser.error('--voice-url must be a local http://localhost:PORT/ address')
+    if args.sim:
+        args.head = args.left_wrist = args.right_wrist = args.glasses = args.twin = ''
+        args.observation = None
     for url in (args.head, args.left_wrist, args.right_wrist, args.glasses, args.twin):
         if url and urlparse(url).scheme not in ('http', 'https'):
             parser.error('Feed URLs must use http:// or https://')
@@ -430,7 +444,7 @@ def main():
         sim.scan()                         # new recording or dry-run plan
         if job['kind'] == 'dry' and code == 0 and DRYRUN_PLAN in sim.files:
             sim.control({'action': 'plan', 'id': DRYRUN_PLAN})   # preview what the robot would do
-    runner = Runner(args.iface, on_exit=after_run)
+    runner = Runner(args.iface, on_exit=after_run, simulation_only=args.sim)
 
     def run(command):
         action = command.get('action')
@@ -480,6 +494,7 @@ def main():
                 except ValueError:
                     since = 0
                 return self.send({'simulation': sim.status(), 'feeds': {k: v.status() for k, v in feeds.items()},
+                                  'mode': 'sim' if args.sim else 'hardware', 'voice_url': args.voice_url,
                                   'run': runner.status(since), 'robot': robot_status.text, 'prompt': prompt_planner.status()})
             if path == '/api/prompt':
                 return self.send(prompt_planner.status())
@@ -497,6 +512,7 @@ def main():
                     jpg = feed.jpg if feed and feed.status()['online'] else b''
                 return self.send(jpg, 'image/jpeg', 200) if jpg else self.send({'error': 'No current frame'}, code=503)
             files = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css'),
+                     '/minimal.css': ('minimal.css', 'text/css'),
                      '/reins-mark.png': ('reins-mark.png', 'image/png'), '/favicon.ico': ('reins-mark.png', 'image/png')}
             if path in files:
                 name, mime = files[path]
@@ -528,6 +544,8 @@ def main():
                     if action == 'submit':
                         if runner.running():
                             raise ValueError('Wait for the active robot run to finish before planning')
+                        if args.sim and command.get('source') == 'camera':
+                            raise ValueError('Camera prompts are disabled in simulation mode')
                         return self.send(prompt_planner.submit(command.get('prompt'), command.get('source', 'auto')))
                     if action == 'cancel':
                         prompt_planner.cancel()
@@ -553,7 +571,10 @@ def main():
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     threading.Thread(target=sim.run, daemon=True).start()
     print(f'Reins Observatory → http://localhost:{args.port}', flush=True)
-    print(f'Preview is local; Dry run / Execute run tools/arm_lift.py on {args.iface}. Ctrl-C to stop (aborts a run).', flush=True)
+    if args.sim:
+        print('SIMULATION ONLY: hardware runs, robot feeds and calibrated observations disabled.', flush=True)
+    else:
+        print(f'Preview is local; Dry run / Execute run tools/arm_lift.py on {args.iface}. Ctrl-C to stop (aborts a run).', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

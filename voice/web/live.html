@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reins · Live voice trial</title><link rel="stylesheet" href="/style.css"></head>
+<body><main>
+<div class="eyebrow">VOICE LAB <span>SIMULATION</span></div>
+<h1>Live voice · GPT-Live-1</h1>
+<p>GPT-Live-1 handles the conversation. Robot questions go to a separate text backend.</p>
+<div class="processing" aria-label="Live voice configuration">
+<div><span>Voice</span><strong id="voice">Loading…</strong></div>
+<div><span>Test backend</span><strong id="backend">Loading…</strong></div>
+<div><span>Voice Focus 2.2</span><strong id="focus">Loading…</strong></div>
+<div><span>Tyto 1.1</span><strong id="tyto">Loading…</strong></div>
+</div>
+<section>
+<div id="status" role="status" aria-live="polite">Microphone off</div>
+<div class="buttons"><button id="start" disabled>Start conversation</button><button id="stop" disabled>Stop</button></div>
+<p>Speak naturally. Audio plays as it arrives. Barge-in is off: microphone audio is suppressed during speech playback.</p>
+<p class="small">Try “Hello, Reins”, then “Ask the robot backend how to move forward.” The backend can discuss the request; it cannot execute movement.</p>
+<p id="mic" class="small">Microphone off</p>
+<p class="small">Enhanced microphone audio streams to OpenAI. The test backend receives conversation text. Tyto runs locally and may ask for clearer audio. No separate STT or TTS call. No audio or transcripts are saved by this app. Stop ends the session.</p>
+<p id="error" role="alert"></p>
+</section>
+<div id="transcript" aria-live="polite"></div>
+<section id="logPanel" aria-labelledby="logTitle"><div class="log-heading"><h2 id="logTitle">Live pipeline log</h2><button id="clearLog">Clear</button></div>
+<p class="small">Voice, playback, backend delegation and acoustic readings. Latest 200 events, kept in this page only.</p>
+<div id="pipelineLog" role="log" aria-label="Live pipeline events" tabindex="0"></div></section>
+</main><script src="/live.js"></script></body></html>

@@ -12,3 +12,12 @@ runs/chat_inbox/
 sim/plans/prompt_*.json
 runs/ui_preview.json
 runs/inference_stats.png
+
+# Local voice credentials and caches
+.env
+.env.*
+.pytest_cache/
+
+.voice-cache/
+
+.venv-voice/
