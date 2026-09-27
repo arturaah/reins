@@ -24,6 +24,14 @@ from .server import create_app
 
 LIVE_MODEL = 'gpt-live-1'
 LIVE_VOICE = 'cedar'
+CONVERSATION_INSTRUCTIONS = '''You are Reins, a friendly robot voice for a live demo.
+Speak naturally in short, direct sentences, with a low masculine voice and a
+lightly robotic, clipped delivery. Match the caller's language. Listen before
+answering; do not backchannel while the caller speaks. Handle conversation
+directly, without delegating. You have no tools, camera, motion controls or
+planner. Never claim to see the room or to move the robot. If asked to move,
+explain briefly that this demo is conversation only. Do not introduce model
+names or implementation details unless asked.'''
 INSTRUCTIONS = '''You are Reins, a robot voice interface in a local simulation.
 Speak in short, direct sentences, with a low masculine voice and a lightly robotic,
 clipped delivery. Match the caller's language. You cannot see or move a robot.
@@ -51,6 +59,17 @@ class RobotBackend(Protocol):
     model: str
     async def respond(self, messages: list[dict[str, str]]) -> str: ...
     async def close(self) -> None: ...
+
+
+class ConversationBackend:
+    """A local response if Live delegates unexpectedly; no API or task dispatch."""
+    model = 'Conversation only'
+
+    async def respond(self, messages):
+        return 'This demo is conversation only. No action was queued or executed. Continue talking directly.'
+
+    async def close(self):
+        pass
 
 
 class TestRobotBackend:
@@ -352,7 +371,7 @@ def main():
     parser.add_argument('--key-file')
     parser.add_argument('--port', type=int, default=8770)
     parser.add_argument('--backend-model', default='gpt-5-mini')
-    parser.add_argument('--backend', choices=['test', 'spectacles'], default='test')
+    parser.add_argument('--backend', choices=['test', 'spectacles', 'conversation'], default='test')
     parser.add_argument('--voice-inbox', type=Path, default=ROOT / 'runs/spectacles_voice.json')
     parser.add_argument('--output', choices=['browser', 'r1'], default='browser')
     parser.add_argument('--robot-iface', help='R1 body Ethernet interface; required with --output r1')
@@ -380,8 +399,15 @@ def main():
         key = os.environ['OPENAI_API_KEY']
         from .inbox_backend import InboxBackend
         from .robot_speaker import RobotSpeaker
-        backend = InboxBackend(args.voice_inbox) if args.backend == 'spectacles' else TestRobotBackend(key, args.backend_model)
+        if args.backend == 'conversation':
+            backend = ConversationBackend()
+        elif args.backend == 'spectacles':
+            backend = InboxBackend(args.voice_inbox)
+        else:
+            backend = TestRobotBackend(key, args.backend_model)
         instructions = INSTRUCTIONS
+        if args.backend == 'conversation':
+            instructions = CONVERSATION_INSTRUCTIONS
         if args.backend == 'spectacles':
             instructions += ('\nThe connected backend queues requests for the desktop dry-run planner. '
                              'It returns queue status only, not results of planning or execution. '
@@ -398,7 +424,7 @@ def main():
 
     app = create_app(port=args.port, provider='gpt-live', session_factory=factory,
                      session_runner=live_conversation, index_asset='live.html', public_config={
-                         'live_model': LIVE_MODEL, 'backend_model': args.backend_model if args.backend == 'test' else 'Spectacles dry-run inbox', 'voice': args.voice,
+                         'live_model': LIVE_MODEL, 'backend_model': {'test': args.backend_model, 'spectacles': 'Spectacles dry-run inbox', 'conversation': 'Conversation only'}[args.backend], 'voice': args.voice,
                          'output': args.output,
                          'metallic': args.metallic,
                          'voice_focus': acoustics.focus, 'enhancement_level': acoustics.focus_level,

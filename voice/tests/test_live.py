@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fastapi import WebSocketDisconnect
 
-from voice.live import LiveSession, live_conversation
+from voice.live import LiveSession, live_conversation, ConversationBackend
 from voice.tests.test_voice import ORIGIN, connect, authenticate
 from voice.server import create_app
 
@@ -18,6 +18,16 @@ class Backend:
         if self.release: await self.release.wait()
         return 'Simulation only. No movement was executed.'
     async def close(self): self.closed=True
+
+
+def test_conversation_demo_delegation_is_local_and_never_dispatches_a_task():
+    async def run():
+        backend = ConversationBackend()
+        result = await backend.respond([{'role':'user','content':'Walk forward'}])
+        assert 'No action was queued or executed' in result
+        assert not hasattr(backend, 'client') and not hasattr(backend, 'inbox')
+        await backend.close()
+    asyncio.run(run())
 
 class Socket:
     def __init__(self): self.events=[]
