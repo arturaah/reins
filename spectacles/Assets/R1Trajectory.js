@@ -81,26 +81,17 @@ function voiceNotice(message) {
 }
 function stopVoice(send) {
     if (!voiceListening) { return; }
-    if (send && !voiceText()) {
-        // ASR updates are asynchronous. Stopping here discards the pending
-        // result and makes a successful utterance look like silence.
-        voiceSendRequestedAt = getTime();
-        voiceNotice("WAITING FOR SPEECH RESULT");
+    if (send) {
+        // Keep the recognizer alive long enough to receive its final update.
+        // An interim update may be the only usable result on a slow network.
+        if (voiceSendRequestedAt < 0) { voiceSendRequestedAt = getTime(); }
+        voiceNotice("FINISHING SPEECH");
         return;
     }
     voiceListening = false;
     voiceSendRequestedAt = -1;
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
-    if (!send) { voiceNotice("VOICE CANCELLED"); return; }
-    var phrase = voiceText().slice(0, 500);
-    if (!phrase) { voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET"); return; }
-    if (!socketReady) { voiceNotice("NO NETWORK"); return; }
-    voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
-    try {
-        socket.send(JSON.stringify({type:"voice_command", version:1,
-                                    id:voiceCommandId, text:phrase}));
-        voiceNotice("SENDING: " + phrase.slice(0, 44));
-    } catch (e) { voiceNotice("VOICE SEND FAILED"); }
+    voiceNotice("VOICE CANCELLED");
 }
 function startVoice() {
     if (!tagAnchored) { voiceNotice("SCAN BOTH SHOULDER TAGS FIRST"); return; }
@@ -117,10 +108,18 @@ function startVoice() {
             print("R1 AR voice: ASR update final=" + !!update.isFinal +
                   " chars=" + String(update.text || "").length);
             if (update.isFinal) {
-                if (update.text) { voiceFinal.push(update.text); }
-                voicePartial = "";
-            } else { voicePartial = update.text || ""; }
-            if (voiceSendRequestedAt >= 0 && voiceText()) { stopVoice(true); }
+                if (update.text) {
+                    voiceFinal.push(update.text);
+                    voicePartial = "";
+                }
+            } else if (update.text) {
+                // Empty interim updates are common between recognition passes.
+                // They must not erase the only phrase we have heard.
+                voicePartial = update.text;
+            }
+            if (voiceSendRequestedAt >= 0 && update.isFinal && voiceText()) {
+                finishVoiceSend();
+            }
         });
         options.onTranscriptionErrorEvent.add(function(code) {
             voiceListening = false;
@@ -137,6 +136,21 @@ function startVoice() {
         voiceNotice("MICROPHONE PERMISSION DENIED");
         print("R1 AR voice start failed: " + e);
     }
+}
+function finishVoiceSend() {
+    if (!voiceListening) { return; }
+    voiceListening = false;
+    voiceSendRequestedAt = -1;
+    var phrase = voiceText().slice(0, 500);
+    try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
+    if (!phrase) { voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET"); return; }
+    if (!socketReady) { voiceNotice("NO NETWORK"); return; }
+    voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
+    try {
+        socket.send(JSON.stringify({type:"voice_command", version:1,
+                                    id:voiceCommandId, text:phrase}));
+        voiceNotice("SENDING: " + phrase.slice(0, 44));
+    } catch (e) { voiceNotice("VOICE SEND FAILED"); }
 }
 function voicePinch(side) {
     if (pendingReview) {
@@ -675,11 +689,14 @@ function connect() {
 }
 script.createEvent("UpdateEvent").bind(function(){
     updateAnchor();
-    if (voiceListening && voiceSendRequestedAt >= 0 &&
-        getTime() - voiceSendRequestedAt > 6) {
-        voiceSendRequestedAt = -1;
-        stopVoice(false);
-        voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET");
+    if (voiceListening && voiceSendRequestedAt >= 0) {
+        var voiceWait = getTime() - voiceSendRequestedAt;
+        if (voiceWait > 1.5 && voiceText()) {
+            finishVoiceSend();
+        } else if (voiceWait > 6) {
+            stopVoice(false);
+            voiceNotice("NO SPEECH RESULT - CHECK MIC/INTERNET");
+        }
     }
     if (statusObject && script.cameraObject && statusPosition) {
         var head = script.cameraObject.getTransform();
