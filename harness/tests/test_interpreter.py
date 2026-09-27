@@ -60,8 +60,8 @@ def test_hand_still_done():
 
 def test_step_size_switching(cfg):
     st = dict(cfg["steps"]); st["profile"] = "coarse_fine"
-    assert step_size(st, wrist_visible=False)[0] == pytest.approx(0.04)
-    assert step_size(st, wrist_visible=True)[0] == pytest.approx(0.02)
-    assert step_size(st, None)[0] == pytest.approx(0.04)
+    assert step_size(st, wrist_visible=False)[0] == pytest.approx(0.06)     # steps.coarse_m (raised 2026-09-27)
+    assert step_size(st, wrist_visible=True)[0] == pytest.approx(0.03)      # steps.fine_m
+    assert step_size(st, None)[0] == pytest.approx(0.06)
     st["profile"] = "precision"
     assert step_size(st, True) == (pytest.approx(0.01), pytest.approx(math.radians(5)))

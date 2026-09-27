@@ -176,8 +176,12 @@ target is out of reach and to look again afterwards. A step never sits in a plan
 step into a velocity and a duration; the streamer's `walk` command checks enabled, FSM 811, speed
 and duration again on its own, asks the loco service for that velocity for that long, then sends an
 explicit stop (also on e-stop and Ctrl-C), and reports odometry from `rt/sportmodestate` as the
-achieved (dx, dy, dyaw) in the pre-step frame. Every step is a PROPOSAL behind Accept, shown as
-text (the twin's ghost has nothing to play). In sim the mock shifts the scene under the fixed base.
+achieved (dx, dy, dyaw) in the pre-step frame. Every step is a PROPOSAL behind Accept, written to the
+preview file as a plan whose arms hold and whose `base_keyframes` (the Spectacles feed's planar base path)
+go from the current pose to the step's end: the twin walks a translucent whole-body ghost along the green
+floor path to the end pose, and the glasses get the same file through the review mailbox. A task that
+says walk starts walking; the arm's start pose is taken only when the first arm stage begins. In sim the
+mock shifts the scene under the fixed base.
 
 ## Inference time vs context
 

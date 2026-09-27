@@ -67,11 +67,19 @@ class Episode:
         """The operator's explicit consent to whole-body motion is the word walk in the task text itself."""
         return bool(re.search(r"\bwalk(s|ed|ing)?\b", task or "", re.IGNORECASE))
 
-    def run(self, task):
+    @staticmethod
+    def is_walking_stage(stage):
+        m = (stage.get("motion") or stage.get("id") or "").upper()
+        return "APPROACH" in m or "WALK" in m or "TURN" in m
+
+    def run(self, task, start_pose=None):
+        """start_pose: joint targets for the arm's start pose, executed (gated, confirmed) right before the first stage that
+        is not a walking stage; None = the caller did it already (or does not want it)."""
         cfg, lp = self.cfg, self.cfg["loop"]
         self.loco = self.loco_cfg and self.task_allows_walking(task)
         if self.loco_cfg and not self.loco:
             self.log("walking stays off: the task text does not say 'walk'")
+        self.start_pose = None if start_pose is None else np.asarray(start_pose, float)
         state = self.ex.sync()
         self.ex.gate.set_baseline(self.ex.kin.q_from_dict(state.q), self.ex.others(state.q))
         self.fb_text = self.feedback.block(task) if self.feedback is not None else ""
@@ -87,6 +95,11 @@ class Episode:
             if self.ex.gate.estop.is_set():
                 return self.finish({"success": False, "reason": "e-stop", "steps": step})
             stage = stages[stage_i]
+            if self.start_pose is not None and not self.is_walking_stage(stage):
+                r = self.ex.go_to_joints(self.start_pose, "start pose"); self.start_pose = None
+                self.log(f"start pose: {r.feedback}")
+                if not r.ok and not self.ex.backend.dry_run:
+                    return self.finish({"success": False, "reason": f"start pose: {r.feedback}", "steps": step})
             state = self.ex.sync()
             aim = None                                              # where the last move aimed, for the pose view
             if last_result is not None and last_result.ok and last_result.requested_dp is not None and np.linalg.norm(last_result.requested_dp) > 1e-6:

@@ -37,11 +37,11 @@ workspace:
 
 steps:
   profile: precision         # coarse_fine | precision
-  coarse_m: 0.04             # wrist camera does not see the target
-  fine_m: 0.02               # wrist camera sees the target
+  coarse_m: 0.06             # wrist camera does not see the target (raised from 0.04 on 2026-09-27: 4 cm steps were hard to see)
+  fine_m: 0.03               # wrist camera sees the target
   rotate_deg: 15.0
   precision: {step_m: 0.01, rotate_deg: 5.0}
-  max_translation_m: 0.05    # hard cap per unit-mode command, whatever the model asks
+  max_translation_m: 0.08    # hard cap per unit-mode command, whatever the model asks
   max_rotation_deg: 20.0
   param_max_translation_m: 0.20   # MOVE <axis> <cm> is clipped here
   param_max_rotation_deg: 90.0    # ROTATE <axis> <deg> is clipped here

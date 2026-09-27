@@ -28,7 +28,7 @@ def test_live_gate_needs_table_height(cfg, kin):
 def test_translation_and_rotation_caps(gate):
     p0 = np.array([0.35, -0.15, 0.80])
     p, roll, notes = gate.clamp_setpoint(p0, 0.0, p0 + [0.20, 0, 0], math.radians(45))
-    assert np.linalg.norm(p - p0) == pytest.approx(0.05)
+    assert np.linalg.norm(p - p0) == pytest.approx(0.08)                     # steps.max_translation_m (unit cap)
     assert roll == pytest.approx(math.radians(20))
     assert any("translation capped" in n for n in notes) and any("rotation capped" in n for n in notes)
     p, roll, notes = gate.clamp_setpoint(p0, 0.0, p0 + [0.15, 0, 0], 0.0, mode="param")

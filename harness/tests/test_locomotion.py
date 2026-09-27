@@ -1,4 +1,5 @@
 """Whole-body steps: tokens, proposals, the walk gate, the mock scene shift, the loop's use of them, and the streamer's command."""
+import json
 import math
 import threading
 import time
@@ -130,6 +131,44 @@ def test_walking_needs_the_word_walk_in_the_task(rig):
     assert "only allowed when the task text itself says 'walk'" in acts[1]
     assert Episode.task_allows_walking("Walk to the chair") and Episode.task_allows_walking("please walk, then touch it")
     assert not Episode.task_allows_walking("walkway inspection") and not Episode.task_allows_walking("hand over the sidewalk sign")
+
+
+def test_start_pose_waits_for_the_first_arm_stage(rig):
+    """A walking task must not begin with the arm swinging into its start pose; the pose comes before the first arm stage."""
+    cfg, backend, ex, per = rig
+    asked = []
+    ex.confirm = lambda text, preview: (asked.append(text), True)[1]
+    plan = {"subgoals": [{"id": "go", "target": "ahead", "affordance": "floor", "motion": "WALK", "description": "walk about 60 cm forward",
+                         "completion": "the room ahead looks clearly closer"},
+                        {"id": "hover", "target": "the block", "affordance": "block top", "motion": "REACH", "description": "d", "completion": "c"}]}
+    vlm = ScriptedVLM(plan=plan, decisions=[{"decision": "WALK_FWD", "reasoning": "WRIST: NO"}, {"decision": "WALK_FWD", "reasoning": "WRIST: NO"},
+                                            {"decision": "DONE", "reasoning": "WRIST: NO"}, {"decision": "MV_UP", "reasoning": "WRIST: YES"},
+                                            {"decision": "DONE", "reasoning": "WRIST: YES"}])
+    q0 = dict(backend.joints())
+    s = Episode(cfg, vlm, ex, per, None, log=lambda *_: None).run("walk forward, then hover over the block", start_pose=cfg["robot"]["start_pose_rad"]["right"])
+    assert s["success"]
+    assert [t.split(":")[0] for t in asked] == ["WALK_FWD", "WALK_FWD", "start pose", "MV_UP"]     # walks first, the pose only when the arm stage starts
+    assert abs(backend.base[0] - 0.6) < 1e-9
+    assert "IN A STAGE WHOSE MOTION IS APPROACH OR WALK" in [c[1] for c in vlm.calls if c[0] == "act"][0]
+    assert "walking instruction with no arm work" in vlm.calls[0][1]
+
+
+def test_walk_plan_file_for_the_twin_and_the_glasses(cfg, tmp_path):
+    import numpy as np
+    from harness.preview import write_walk_plan
+    from spectacles.plan_feed import base_path
+    joints = {n: 0.1 for n in ["right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint", "right_elbow_joint", "right_wrist_roll_joint",
+                               "left_shoulder_pitch_joint", "left_elbow_joint", "waist_yaw_joint"]}
+    p = write_walk_plan(tmp_path / "walk.json", "right", 0.3, 0.0, 0.0, 1.2, joints, "WALK_FWD: the WHOLE ROBOT steps")
+    d = json.loads(p.read_text())
+    assert d["schema_version"] == 1 and len(d["keyframes"]) == 2 and d["keyframes"][1]["time_s"] == 1.2
+    assert d["keyframes"][0]["joint_targets_rad"] == d["keyframes"][1]["joint_targets_rad"]           # the arm holds
+    assert "left_elbow_joint" in d["held_joints_rad"] and "waist_yaw_joint" in d["held_joints_rad"]
+    assert d["base_keyframes"] == [{"time_s": 0, "x_m": 0, "y_m": 0, "yaw_rad": 0}, {"time_s": 1.2, "x_m": 0.3, "y_m": 0.0, "yaw_rad": 0.0}]
+    b = base_path(d, np.array([0.0, 0.6, 1.2]))                                                     # the glasses feed accepts it
+    assert np.allclose(b[:, 0], [0, 0.15, 0.3]) and np.allclose(b[:, 2], 0)
+    d2 = json.loads(write_walk_plan(tmp_path / "turn.json", "right", 0, 0, -0.35, 0.9, joints, "TURN_RIGHT").read_text())
+    assert d2["base_keyframes"][1]["yaw_rad"] == -0.35 and d2["base_keyframes"][1]["x_m"] == 0
 
 
 def test_prompts_hide_walking_when_disabled(cfg):

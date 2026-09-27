@@ -199,17 +199,29 @@ def draw_preview(scn):
         rgba = GHOST_RGBA
         caption = (f"PROPOSED {preview['name'][:60]}   {t:4.1f} / {preview['duration']:.1f} s   Accept or Reject in the window" if preview["hold"]
                    else f"PREVIEW {preview['name']}   {t:4.1f} / {preview['duration']:.1f} s   loop {preview['loops']}")
+    walking = bool(show_plan and plan.get("base") is not None)
+    R0 = data.xmat[1].reshape(3, 3) if model.nbody > 1 else np.eye(3); P0 = data.xpos[1].copy()   # the live pelvis = the base frame
+    if walking:                                                      # move the whole ghost along the planned base path
+        x, y, yaw = plan["base"](t)
+        ghost.qpos[0:3] = data.qpos[0:3] + R0 @ np.array([x, y, 0.0])
+        qz = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)]); q_new = np.zeros(4)
+        mujoco.mju_mulQuat(q_new, qz, np.array(data.qpos[3:7])); ghost.qpos[3:7] = q_new
     mujoco.mj_forward(model, ghost)
     n0 = scn.ngeom
     mujoco.mjv_addGeoms(model, ghost, vopt, pert, mujoco.mjtCatBit.mjCAT_DYNAMIC, scn)
     for i in range(n0, scn.ngeom):
         g = scn.geoms[i]
-        if g.objtype == mujoco.mjtObj.mjOBJ_GEOM and int(model.geom_bodyid[g.objid]) in ARM_BODIES: g.rgba[:] = rgba
+        if walking and g.objtype == mujoco.mjtObj.mjOBJ_GEOM: g.rgba[:] = (rgba[0], rgba[1], rgba[2], 0.35)   # the whole body, translucent
+        elif g.objtype == mujoco.mjtObj.mjOBJ_GEOM and int(model.geom_bodyid[g.objid]) in ARM_BODIES: g.rgba[:] = rgba
         else: g.rgba[3] = 0.0                                        # the rest of the ghost coincides with the live robot: hide it
     R = ghost.xmat[1].reshape(3, 3) if model.nbody > 1 else np.eye(3); P = ghost.xpos[1]   # body 1 = pelvis (floating base)
     if plan:
+        if plan.get("floor") is not None and len(plan["floor"]) > 1:   # the planned base path on the floor, from where the robot stands
+            f = plan["floor"] @ R0.T + np.array([P0[0], P0[1], 0.0])
+            for p0, p1 in zip(f[:-1], f[1:]): add_line(scn, p0, p1, (0.4, 1.0, 0.4, 0.9), 6.0)
+            add_sphere(scn, f[-1], (0.4, 1.0, 0.4, 0.9), 0.04)
         for side, pts in plan["paths"].items():
-            w = pts @ R.T + P
+            w = (pts @ R0.T + P0) if plan.get("base") is not None else (pts @ R.T + P)
             for p0, p1 in list(zip(w[:-1], w[1:])) + arrow_segments(w): add_line(scn, p0, p1, PATH_RGBA[side])
     for side in WRIST:
         add_sphere(scn, ghost.xpos[WRIST[side]] + ghost.xmat[WRIST[side]].reshape(3, 3) @ TIP, PATH_RGBA[side])

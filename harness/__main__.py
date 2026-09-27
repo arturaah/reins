@@ -42,7 +42,7 @@ def stdin_reader():
 def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"):
     """Ask on the terminal before a move; 'x' at any time is the e-stop. With preview_file the proposal is written there
     as a plan first (the twin's ghost). PROPOSAL lines and the answers are the desktop window's protocol."""
-    from .preview import write_plan
+    from .preview import write_plan, write_walk_plan
     from spectacles.review import ReviewMailbox
 
     mailbox = ReviewMailbox(ROOT / review_file if review_file else None) if review_file else None
@@ -51,8 +51,12 @@ def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"
 
     def confirm(text, preview=None):
         proposal = None
-        if preview_file and preview and preview.get("frames"):        # a walk has no arm frames: nothing for the twin's ghost
-            plan_path = write_plan(preview_file, preview["arm"], preview["q_now"], preview["frames"], preview["dt"], preview["joints"], text)
+        if preview_file and preview and (preview.get("frames") or preview.get("walk")):
+            if preview.get("frames"):
+                plan_path = write_plan(preview_file, preview["arm"], preview["q_now"], preview["frames"], preview["dt"], preview["joints"], text)
+            else:                                                     # a whole-body step: the arms hold, the base path moves
+                dx, dy, dyaw = preview["walk"]
+                plan_path = write_walk_plan(preview_file, preview["arm"], dx, dy, dyaw, preview["duration"], preview["joints"], text)
             if mailbox:
                 proposal = mailbox.propose(plan_path, text, mode)
         print(f"\nPROPOSAL: {text}")
@@ -168,13 +172,17 @@ def run_episode(a, cfg, mode):
     stats = InferenceLog(cfg["stats"]["path"], cfg["stats"]["plot"], session, mode, a.task)
     feedback = FeedbackStore(cfg["feedback"]["path"], session, cfg["feedback"]["max_in_prompt"])
     try:
-        if mode != "sim" or a.start_pose:
-            r = ex.go_to_joints(cfg["robot"]["start_pose_rad"][ex.arm], "start pose")
+        start = cfg["robot"]["start_pose_rad"][ex.arm] if (mode != "sim" or a.start_pose) else None
+        deferred = start is not None and bool((cfg.get("locomotion") or {}).get("enabled")) and Episode.task_allows_walking(a.task)
+        if start is not None and not deferred:
+            r = ex.go_to_joints(start, "start pose")
             print(f"start pose: {r.feedback}")
             if not r.ok and mode == "live":
                 return
+        elif deferred:
+            print("walking task: the arm's start pose waits until the first arm stage")
         ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos, feedback=feedback, stats=stats)
-        summary = ep.run(a.task)
+        summary = ep.run(a.task, start_pose=start if deferred else None)
         print(json.dumps(summary, indent=1, default=str))
         if stats.count:
             print(f"inference: {stats.count} call(s) logged to {stats.path.relative_to(stats.path.parents[1])}, plot {cfg['stats']['plot']}")
@@ -272,24 +280,28 @@ def main():
     if a.arm: over["robot.arm"] = a.arm
     if a.profile: over["steps.profile"] = a.profile
     cfg = hcfg.load(a.config, over)
-    if a.cmd == "sim":
-        cfg["_realtime"] = a.realtime
-        a.iface = None; a.no_confirm = not a.confirm
-        run_episode(a, cfg, "sim")
-    elif a.cmd in ("dry-run", "live"):
-        if a.cmd == "dry-run":
-            a.no_confirm = not a.confirm; a.start_pose = True
-        else:
-            a.start_pose = True
-        run_episode(a, cfg, a.cmd)
-    elif a.cmd == "packet":
-        if not a.sim and not a.iface:
-            sys.exit("packet needs --sim or --iface")
-        cmd_packet(a, cfg)
-    elif a.cmd == "replay":
-        cmd_replay(a, cfg)
-    elif a.cmd == "measure-table":
-        cmd_measure(a, cfg)
+    try:
+        if a.cmd == "sim":
+            cfg["_realtime"] = a.realtime
+            a.iface = None; a.no_confirm = not a.confirm
+            run_episode(a, cfg, "sim")
+        elif a.cmd in ("dry-run", "live"):
+            if a.cmd == "dry-run":
+                a.no_confirm = not a.confirm; a.start_pose = True
+            else:
+                a.start_pose = True
+            run_episode(a, cfg, a.cmd)
+        elif a.cmd == "packet":
+            if not a.sim and not a.iface:
+                sys.exit("packet needs --sim or --iface")
+            cmd_packet(a, cfg)
+        elif a.cmd == "replay":
+            cmd_replay(a, cfg)
+        elif a.cmd == "measure-table":
+            cmd_measure(a, cfg)
+    except KeyboardInterrupt:
+        print("\ninterrupted: the episode ends (the arms were released)")
+        sys.exit(130)
 
 
 if __name__ == "__main__":

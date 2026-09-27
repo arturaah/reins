@@ -43,14 +43,19 @@ PLANNER_HAND_RULES_NONE = """- THIS ROBOT HAS NO HAND OR GRIPPER. It can only re
   RELEASE stage; plan REACH / HOVER / TOUCH / PUSH stages whose completion is a visible spatial relation."""
 PLANNER_LOCOMOTION = """- THE ROBOT CAN WALK for this task. The arm reaches about 45 cm from the shoulder; when the target is farther
   than that, plan an APPROACH stage first (motion label APPROACH) whose completion is "the target is within arm's reach
-  in the context view", then the arm stages."""
+  in the context view", then the arm stages.
+- If the task itself is a walking instruction with no arm work (e.g. "walk forward", "turn around", "go to the door"),
+  plan ONLY walking stages (motion label WALK or APPROACH) with the distance or direction in the description and a
+  completion the images can show (e.g. "the robot has advanced about 1 m: the near objects look clearly closer"), and
+  no arm stages at all."""
 LOCOMOTION_RULES = """LOCOMOTION: the whole robot can step. WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT move the body {walk_cm:.0f} cm (the
 hand comes along; its position relative to the body does not change), TURN_LEFT / TURN_RIGHT turn the body {turn_deg:.0f} deg,
 or WALK <forward|back|left|right> <cm> and TURN <deg> (positive = left) within the caps. Use them ONLY when the TARGET is
 out of the arm's reach: more than about 40 cm from the hand tip, or the arm keeps reporting unreachable targets. Face the
 TARGET with turns, then WALK_FWD until it is within reach; WALK_BACK when too close. A walk is a single action, never in a
 plan chunk, and the images change afterwards: judge again before the next action. Never walk while the hand is near an
-object or a surface."""
+object or a surface. IN A STAGE WHOSE MOTION IS APPROACH OR WALK, choose ONLY WALK_* / TURN_* / sized WALK or TURN, or DONE
+when its completion is visible; never an arm move there."""
 
 PLANNER_HAND_RULES_REVO2 = """- HAND: a five-finger hand that only opens or closes all fingers at once (a power grasp around the palm). Good for
   objects roughly 3 to 9 cm across (blocks, bottles, cups by the body); thin flat objects lying on the table cannot be

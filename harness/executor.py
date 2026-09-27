@@ -142,7 +142,7 @@ class ArmExecutor:
                 f"{math.degrees(abs(v.vyaw)):.0f} deg/s over {v.duration_s:.1f} s" + (f"; {'; '.join(v.clamped)}" if v.clamped else ""))
         note, asked = "", False
         if self.confirm is not None:
-            ok, note = self._ask(text, {"walk": (v.dx, v.dy, v.dyaw), "duration": v.duration_s}); asked = True
+            ok, note = self._ask(text, {"walk": (v.dx, v.dy, v.dyaw), "duration": v.duration_s, "arm": self.arm, "joints": self.backend.joints()}); asked = True
             if not ok:
                 return self._declined(note, state, zero)
         t0 = time.time()
