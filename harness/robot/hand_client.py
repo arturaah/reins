@@ -79,7 +79,14 @@ class Revo2Client:
         return q
 
     def hand_state(self, arm):
-        return self.closed.get(arm, False) if self.read(arm) else None
+        """The last command once one was sent; before that the measured fingers (closed when index..pinky are over
+        half way), so the model is not told "open" about a hand that starts closed."""
+        st = self.read(arm)
+        if st is None:
+            return None
+        if arm in self.closed:
+            return self.closed[arm]
+        return sum(st["q"][FINGERS]) / 4 > 0.5
 
     def close(self):
         self.sock.close()

@@ -92,3 +92,38 @@ def test_hand_command_is_confirmed_first(cfg):
     ex.confirm = lambda text, preview: True
     r = ex.execute(Proposal(kind="hand", p=np.zeros(3), roll=0.0, hand_closed=True), ex.sync())
     assert r.ok and r.asked and r.hand_closed is True
+
+
+def test_hand_words_parse_as_grasp_and_release():
+    from harness.actions import parse_action
+    assert [parse_action(t).name for t in ("GRAB", "close", "OPEN", "let_go")] == ["GRASP", "GRASP", "RELEASE", "RELEASE"]
+
+
+def test_hand_state_is_measured_until_the_first_command(server):
+    dds = FakeDds(); dds.q["right"] = [0.9] * 6                  # starts closed
+    c = Revo2Client(server(dds), log=lambda *a: None)
+    assert c.hand_state("right") is True and c.hand_state("left") is False
+
+
+def test_sim_pick_and_place_with_the_revo2_prompts(cfg, tmp_path):
+    """The whole loop with hand.type revo2 (the mock grasps like the virtual hand): the model is told about the
+    five-finger hand, sees each hand command's result, and the episode succeeds through the empty-grasp recovery."""
+    from harness.loop import Episode
+    from harness.perception import MockCameras, Perception
+    from harness.recorder import Recorder
+    from harness.tests.test_loop_sim import PLAN, Oracle
+    from harness.vlm.scripted import ScriptedVLM
+    cfg["hand"]["type"] = "revo2"; cfg["steps"]["profile"] = "coarse_fine"; cfg["recorder"]["root"] = str(tmp_path)
+    kin = ArmKinematics(cfg["robot"]["model"], "right")
+    backend = MockBackend(cfg, render=False)
+    ex = ArmExecutor(cfg, kin, SafetyGate(cfg, kin, None, live=False), backend, "right")
+    vlm = ScriptedVLM(plan=PLAN, on_act=Oracle(backend))
+    summary = Episode(cfg, vlm, ex, Perception(cfg, "right", MockCameras(backend, "right", 320, 180)),
+                      Recorder(cfg, "sim", "pick"), log=lambda *a: None).run("pick up the block and place it on the plate")
+    assert summary["success"], summary
+    plans = [c[1] for c in vlm.calls if c[0] == "plan"]
+    acts = [c[1] for c in vlm.calls if c[0] == "act"]
+    assert "BrainCo Revo2" in plans[0] and "power grasp" in plans[0]
+    assert all("HAND (five fingers" in p and "GRASP, RELEASE" in p for p in acts)
+    assert any("Last hand command: EMPTY grasp" in p for p in acts)
+    assert any("Last hand command: hand closed on the object" in p and "Holding an object" in p for p in acts)

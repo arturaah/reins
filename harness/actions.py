@@ -27,6 +27,9 @@ PARAM_DIRS = {"forward": ("forward", 1), "back": ("forward", -1), "left": ("left
 ROTATE_AXES = ("roll", "x", "y", "z")
 POINT_PRESETS = ("down", "forward", "down45")
 SIMPLE = ("GRASP", "RELEASE", "STILL", "DONE")
+# what a model says for the hand when it forgets the vocabulary; the Action keeps its raw token for the history
+HAND_ALIASES = {"GRAB": "GRASP", "CLOSE": "GRASP", "CLOSE_HAND": "GRASP", "GRIP": "GRASP", "PICK": "GRASP",
+                "OPEN": "RELEASE", "OPEN_HAND": "RELEASE", "LET_GO": "RELEASE", "DROP": "RELEASE", "UNGRASP": "RELEASE"}
 UNIT_VOCAB = list(MOVES) + ["ROTATE_CW", "ROTATE_CCW"] + list(SIMPLE)
 
 
@@ -81,6 +84,7 @@ def parse_action(token, limits=None):
     if not parts:
         raise ActionError("empty action")
     head, args = parts[0], parts[1:]
+    head = HAND_ALIASES.get(head, head)
     lim = limits or {}
     if head in MOVES:
         if args:

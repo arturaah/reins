@@ -27,7 +27,7 @@ Everything uses the repo venv (`.venv/bin/python`, see CLAUDE.md step 6) plus `a
 `pytest`, `pyyaml`. All numbers live in [config.yaml](config.yaml); override any with `--set key=value`.
 
 ```
-.venv/bin/python -m pytest harness                       # 94 tests, no hardware, about 14 s
+.venv/bin/python -m pytest harness                       # 97 tests, no hardware, about 14 s
 
 # simulation: kinematic mock on the MuJoCo scene, rendered cameras
 MUJOCO_GL=cgl .venv/bin/python -m harness sim "move your hand above the block"        # chat provider
@@ -56,7 +56,18 @@ RELEASE sends `hand.revo2.open` ([config.yaml](config.yaml); motors thumb, thumb
 ring, pinky, 0 = open .. 1 = closed). After a close the fingers are read back: index..pinky within
 `empty_reach` of the close pose means nothing stopped them, reported as `EMPTY grasp`, which the loop
 answers as before (open, note, roll back to the GRASP stage). With `--confirm` every hand command is a
-PROPOSAL like a motion. The planner is told the hand exists, so it plans GRASP / LIFT / RELEASE stages.
+PROPOSAL like a motion.
+
+What the model is told ([prompts.py](prompts.py)): the planner gets the hand (five fingers, open/close
+only, a power grasp for objects about 3 to 9 cm, flat things are pushed) and plans GRASP / LIFT / MOVE /
+RELEASE / RETREAT stages; the controller gets GRASP and RELEASE in its vocabulary plus a HAND block (the
+object must sit between the open fingers and the palm in both views before GRASP; RELEASE first if the
+hand is closed and empty; release only when lowered onto the destination), `Hand now: open|closed` and,
+after a hand command, `Last hand command: <result>` ("hand closed on an object ..." or "EMPTY grasp ...").
+"Hand now" is measured from the fingers until the first command, so a hand that starts closed is not
+reported open; "Holding an object" is only said after a GRASP that closed on something. GRAB, CLOSE,
+OPEN, LET_GO and similar words are accepted as GRASP / RELEASE. `test_revo2.py` runs a whole simulated
+pick and place with `hand.type: revo2` and checks these prompts.
 
 Chain: `brainco_hand_server` on the Jetson (unitreerobotics/brainco_hand_service, the same bridge
 xr_teleoperate's `--ee brainco` uses; hands on USB serial, DDS `MotorCmds_` on

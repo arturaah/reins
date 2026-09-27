@@ -42,6 +42,11 @@ Return JSON ONLY."""
 PLANNER_HAND_RULES_NONE = """- THIS ROBOT HAS NO HAND OR GRIPPER. It can only reach, touch, push and hover. Never plan a GRASP, LIFT or
   RELEASE stage; plan REACH / HOVER / TOUCH / PUSH stages whose completion is a visible spatial relation."""
 
+PLANNER_HAND_RULES_REVO2 = """- HAND: a five-finger hand that only opens or closes all fingers at once (a power grasp around the palm). Good for
+  objects roughly 3 to 9 cm across (blocks, bottles, cups by the body); thin flat objects lying on the table cannot be
+  picked up, plan PUSH stages for them instead. One object at a time.
+- The GRASP stage's completion is the object visibly inside the closed fingers; LIFT's is the object clear of the table."""
+
 CONTROLLER = """TASK: {task}
 STAGE: {stage}
 TARGET: {target}
@@ -94,6 +99,12 @@ MEM_RULES = """- If recent moves show GRASP(empty), do not GRASP in place again;
 HAND_BLOCK_GRIPPER = """HAND:
 - GRASP when BOTH the CONTEXT VIEW and the wrist view confirm the {affordance} is clearly between the fingers
 - RELEASE only when the held object is above its destination and lowered onto it"""
+HAND_BLOCK_REVO2 = """HAND (five fingers, GRASP closes all of them, RELEASE opens all of them; nothing in between):
+- The object is grasped against the palm: before GRASP the {affordance} must be between the open fingers and the
+  palm in BOTH views, at palm height, not below the fingertips. If it is only near the fingertips -> move closer first
+- If "Hand now" is closed and nothing is held while you still have to approach -> RELEASE first to open the hand
+- After GRASP read "Last hand command": "closed on an object" = held, go on (usually MV_UP); GRASP(empty) = missed
+- RELEASE only when the held object is above its destination and lowered onto it"""
 HAND_BLOCK_NONE = """HAND: this robot has no hand. GRASP and RELEASE only pause the arm; do not use them."""
 
 WRIST_MARKER = "WRIST CHECK: begin your reasoning with `WRIST: YES` if the TARGET is visible in the wrist view, else `WRIST: NO`."
@@ -133,7 +144,7 @@ def robot_description(cfg, arm):
 
 
 def planner_prompt(task, cfg, arm):
-    hand_rules = PLANNER_HAND_RULES_NONE if cfg["hand"]["type"] == "none" else ""
+    hand_rules = {"none": PLANNER_HAND_RULES_NONE, "revo2": PLANNER_HAND_RULES_REVO2}.get(cfg["hand"]["type"], "")
     return PLANNER.format(task=task, robot_desc=robot_description(cfg, arm), hand_rules=hand_rules)
 
 
@@ -166,12 +177,12 @@ def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=Fa
         mem_text=mem_text(history), recovery=("Recovery: " + recovery) if recovery else "",
         proprio=proprio.get("text", ""), wrist_label=wrist_label, arm=arm, images_line=images_line,
         wrist_rules=WRIST_RULES_DEFAULT, rotation=ROTATION_FRAGMENT, mem_rules=MEM_RULES,
-        hand_block=HAND_BLOCK_NONE if hand == "none" else HAND_BLOCK_GRIPPER.format(affordance=stage.get("affordance", "")),
+        hand_block=HAND_BLOCK_NONE if hand == "none" else (HAND_BLOCK_REVO2 if hand == "revo2" else HAND_BLOCK_GRIPPER).format(affordance=stage.get("affordance", "")),
         variable_step=WRIST_MARKER, action_chunk=ACTION_CHUNK.format(n=chunk) if chunk > 1 and not dual else "",
         output_contract=contract)
 
 
-def proprio_text(height_cm, step_cm, hand_state, stall=None, clamped=None, ik_fail=None, holding=False, high_cm=8.0):
+def proprio_text(height_cm, step_cm, hand_state, stall=None, clamped=None, ik_fail=None, holding=False, high_cm=8.0, hand_note=None):
     """Show-Harness proprioception block with RoboDawn-style outcome notes."""
     parts = [f"The hand tip is {height_cm:.1f} cm above the table; each step moves ~{step_cm:.0f} cm."]
     if holding:
@@ -184,6 +195,8 @@ def proprio_text(height_cm, step_cm, hand_state, stall=None, clamped=None, ik_fa
         parts.append("Last setpoint was clamped by the safety box: " + clamped + ".")
     if ik_fail:
         parts.append(ik_fail)
+    if hand_note:
+        parts.append(f"Last hand command: {hand_note}.")
     return {"text": " ".join(parts), "hand_state": hand_state}
 
 
