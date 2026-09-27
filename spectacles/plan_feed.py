@@ -35,8 +35,10 @@ import mujoco
 import numpy as np
 try:
     from .review import ReviewMailbox
+    from .voice_inbox import VoiceInbox
 except ImportError:  # also runnable as `python spectacles/plan_feed.py`
     from review import ReviewMailbox
+    from voice_inbox import VoiceInbox
 
 ROOT = Path(__file__).resolve().parents[1]
 MJCF = ROOT / "sim/models/r1/R1_fixed_base.xml"
@@ -323,7 +325,7 @@ async def listen_relay(state, url):
         await asyncio.sleep(2)
 
 
-async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None):
+async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None, voice=None):
     from websockets.asyncio.server import serve
 
     async def handler(websocket):
@@ -357,6 +359,13 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                     if not isinstance(raw, str) or len(raw) > 1024:
                         continue
                     msg = json.loads(raw)
+                    if msg.get("type") == "voice_command" and msg.get("version") == 1:
+                        accepted = bool(voice and voice.enqueue(msg.get("id"), msg.get("text")))
+                        print(f"Spectacles voice command: {'queued' if accepted else 'ignored'}: "
+                              f"{str(msg.get('text', ''))[:100]}", file=sys.stderr, flush=True)
+                        await websocket.send(json.dumps({"type": "voice_ack", "version": 1,
+                                                         "id": msg.get("id"), "accepted": accepted}))
+                        continue
                     if msg.get("type") != "review_decision" or msg.get("version") != 1:
                         continue
                     accepted = bool(review and review.decide(feed.path, msg.get("id"), msg.get("decision")))
@@ -398,6 +407,8 @@ def main():
                     help="fresh measured map pose JSON from the walking controller; never inferred from glasses")
     ap.add_argument("--review-file", type=Path,
                     help="Spectacles accept/reject mailbox written by the harness; serve the same --preview plan")
+    ap.add_argument("--voice-inbox", type=Path, default=Path("runs/spectacles_voice.json"),
+                    help="mailbox for Spectacles speech; the desktop UI consumes it as a dry-run Claude task")
     ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
     if not 2 <= a.points <= MAX_POINTS:
@@ -419,7 +430,8 @@ def main():
             asyncio.create_task(listen_relay(state, a.state_url))
         await serve_feed(feed, a.host, a.port, a.period, state,
                          BasePoseFile(a.base_pose_file) if a.base_pose_file else None,
-                         ReviewMailbox(a.review_file.resolve()) if a.review_file else None)
+                         ReviewMailbox(a.review_file.resolve()) if a.review_file else None,
+                         VoiceInbox(a.voice_inbox.resolve()))
     asyncio.run(run())
 
 

@@ -57,6 +57,82 @@ var reviewObject = null;
 var reviewText = null;
 var reviewFrame = null;
 var socketReady = false;
+var asrModule = null;
+var voiceListening = false;
+var voiceFinal = [];
+var voicePartial = "";
+var voiceMessage = "";
+var voiceMessageUntil = 0;
+var voicePinchAt = -1000;
+var voiceCommandId = "";
+var voiceSequence = 0;
+
+function voiceText() {
+    return (voiceFinal.join(" ") + " " + voicePartial).trim();
+}
+function voiceNotice(message) {
+    voiceMessage = message;
+    voiceMessageUntil = getTime() + 5;
+    print("R1 AR voice: " + message);
+}
+function stopVoice(send) {
+    if (!voiceListening) { return; }
+    voiceListening = false;
+    try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
+    if (!send) { voiceNotice("VOICE CANCELLED"); return; }
+    var phrase = voiceText().slice(0, 500);
+    if (!phrase) { voiceNotice("NO SPEECH HEARD"); return; }
+    if (!socketReady) { voiceNotice("NO NETWORK"); return; }
+    voiceCommandId = "spectacles-" + Date.now() + "-" + (++voiceSequence);
+    try {
+        socket.send(JSON.stringify({type:"voice_command", version:1,
+                                    id:voiceCommandId, text:phrase}));
+        voiceNotice("SENDING: " + phrase.slice(0, 44));
+    } catch (e) { voiceNotice("VOICE SEND FAILED"); }
+}
+function startVoice() {
+    if (!socketReady) { voiceNotice("CONNECT TO ARTUR FIRST"); return; }
+    if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
+    voiceFinal = []; voicePartial = "";
+    try {
+        var options = AsrModule.AsrTranscriptionOptions.create();
+        options.mode = AsrModule.AsrMode.HighAccuracy;
+        options.silenceUntilTerminationMs = 5000;
+        options.onTranscriptionUpdateEvent.add(function(update) {
+            if (!voiceListening) { return; }
+            if (update.isFinal) {
+                if (update.text) { voiceFinal.push(update.text); }
+                voicePartial = "";
+            } else { voicePartial = update.text || ""; }
+        });
+        options.onTranscriptionErrorEvent.add(function(code) {
+            voiceListening = false;
+            voiceNotice("SPEECH ERROR " + code);
+        });
+        voiceListening = true;
+        asrModule.startTranscribing(options);
+        voiceNotice("LISTENING");
+    } catch (e) { voiceListening = false; voiceNotice("SPEECH START FAILED: " + e); }
+}
+function voicePinch(side) {
+    if (pendingReview) {
+        if (voiceListening) { stopVoice(false); }
+        reviewPinch(side === "right" ? "approve" : "decline");
+        return;
+    }
+    if (side === "left") {
+        if (voiceListening) { stopVoice(false); }
+        return;
+    }
+    var now = getTime();
+    if (now - voicePinchAt > 0.25 && now - voicePinchAt < 4) {
+        voicePinchAt = -1000;
+        if (voiceListening) { stopVoice(true); } else { startVoice(); }
+    } else {
+        voicePinchAt = now;
+        voiceNotice(voiceListening ? "RIGHT PINCH AGAIN TO SEND" : "RIGHT PINCH AGAIN TO SPEAK");
+    }
+}
 
 try {
     if (script.tagDetectedSound) {
@@ -144,14 +220,14 @@ function reviewPinch(choice) {
 
 try {
     var gestureModule = require('LensStudio:GestureModule');
-    gestureModule.getPinchDownEvent(GestureModule.HandType.Right).add(function() {
-        reviewPinch("approve");
-    });
-    gestureModule.getPinchDownEvent(GestureModule.HandType.Left).add(function() {
-        reviewPinch("decline");
-    });
-    print("R1 AR: right double-pinch accepts; left double-pinch rejects");
+    gestureModule.getPinchDownEvent(GestureModule.HandType.Right).add(function() { voicePinch("right"); });
+    gestureModule.getPinchDownEvent(GestureModule.HandType.Left).add(function() { voicePinch("left"); });
+    print("R1 AR: right double-pinch speaks or accepts; left cancels or rejects");
 } catch (e) { print("R1 AR: review gesture unavailable: " + e); }
+try {
+    asrModule = require('LensStudio:AsrModule');
+    print("R1 AR: Spectacles speech recognition ready");
+} catch (e) { print("R1 AR: speech recognition unavailable: " + e); }
 
 function showStatus(found, side) {
     if (!statusVisual) { return; }
@@ -459,6 +535,7 @@ function applyTrajectory(message) {
     var incoming = message.review;
     if (incoming && typeof incoming.id === "string" && incoming.id.length >= 16 &&
         (incoming.mode === "live" || incoming.mode === "dry-run" || incoming.mode === "sim")) {
+        if (voiceListening) { stopVoice(false); }
         if (!pendingReview || pendingReview.id !== incoming.id) {
             reviewChoice = ""; reviewSent = false; reviewMessage = "";
             print("R1 AR: proposal ready: " + incoming.text);
@@ -516,6 +593,12 @@ function connect() {
                     }
                     return;
                 }
+                if (trajectory.type === "voice_ack") {
+                    if (trajectory.id === voiceCommandId) {
+                        voiceNotice(trajectory.accepted ? "COMMAND QUEUED FOR CLAUDE" : "ARTUR BUSY; TRY AGAIN");
+                    }
+                    return;
+                }
                 applyTrajectory(trajectory);
                 lastReceivedAt=getTime();
                 if (trajectory && trajectory.type === "trajectory" &&
@@ -543,6 +626,7 @@ function connect() {
         };
         socket.onclose=function(event){
             socketReady=false;socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
+            if (voiceListening) { stopVoice(false); }
             if (event && event.code && event.code!==1000 && !lastNetworkError) {
                 print("R1 AR: WebSocket closed with code "+event.code);
                 lastNetworkError="closed";
@@ -574,8 +658,8 @@ script.createEvent("UpdateEvent").bind(function(){
         if (statusTextObject) { statusTextObject.enabled = false; }
     }
     if (reviewObject && script.cameraObject) {
-        reviewObject.enabled = !!pendingReview;
-        if (pendingReview) {
+        reviewObject.enabled = !!pendingReview || voiceListening || getTime() < voiceMessageUntil;
+        if (reviewObject.enabled) {
             var cameraTransform = script.cameraObject.getTransform();
             var panel = reviewObject.getTransform();
             panel.setWorldPosition(cameraTransform.getWorldPosition().add(
@@ -584,11 +668,14 @@ script.createEvent("UpdateEvent").bind(function(){
             if (reviewChoice && !reviewSent && getTime() - reviewChoiceAt >= 4) {
                 reviewChoice = ""; reviewMessage = "";
             }
-            reviewText.text = "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
+            reviewText.text = pendingReview ?
+                "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
                 String(pendingReview.text || "NEW PATH").slice(0, 38) + "\n" +
                 (reviewMessage || (!tagAnchored ? "SCAN BOTH TAGS FIRST" :
                  !socketReady ? "WAITING FOR CONNECTION" :
-                 "RIGHT x2 ACCEPT   LEFT x2 REJECT"));
+                 "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
+                (voiceListening ? "LISTENING\n" + voiceText().slice(-55) +
+                 "\nRIGHT x2 SEND   LEFT CANCEL" : voiceMessage);
         }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }

@@ -146,3 +146,19 @@ observation can reuse its target grounding; the panel explains each decision.
 Without measured context, gestures use the current simulation pose for preview
 and explicitly report unknown physical clearance. Generated plans stay locked
 against physical execution.
+
+## Simulation-only voice workspace
+
+Start the optional [voice service](../../voice/README.md), then run:
+
+```sh
+.venv/bin/python tools/dashboard.py --sim --port 8091 --voice-url http://127.0.0.1:8770/
+```
+
+`--sim` disables hardware runs on the server, camera/twin readers and calibrated
+observations. The MuJoCo preview and local demo planner still work. The optional
+voice panel uses computer audio. GPT-Live handles conversation and delegates
+robot questions through its backend adapter; it does not submit the plan form.
+The optional [cascaded mode](../../voice/CASCADE.md) instead dictates into the
+existing prompt and exposes `window.ReinsVoice.speak(text)` for reply playback.
+Neither mode authorizes motion. Omit `--voice-url` to keep the existing layout.

@@ -1,0 +1,86 @@
+/* Neutral presentation layer, kept separate from dashboard layout and behavior. */
+:root {
+  --bg: #111213;
+  --card: #1c1e21;
+  --card-2: #25282c;
+  --raise: #292b2e;
+  --line: #41454a;
+  --line-2: #626972;
+  --text: #f6f7f8;
+  --soft: #d7dce2;
+  --muted: #b8bec7;
+  --faint: #a3abb6;
+  --cyan: #bcc5ce;
+  --green: #9bb6a4;
+  --yellow: #bbb2a1;
+  --orange: #c1aa8d;
+  --pink: #c5b4b9;
+  --violet: #aaa8b9;
+  --accent: #c5cbd1;
+  --up: #9bb6a4;
+  --down: #d39595;
+  --amber: #c1aa8d;
+  --spectrum: #bfc4ca;
+  --trajectory: #777e85;
+  --cool: #d2d6da;
+  --warm: #c1aa8d;
+  --radius: 9px;
+  --radius-sm: 6px;
+  --shadow: none;
+}
+*, *::before, *::after { box-shadow: none !important; }
+body, .rail { background: var(--bg); }
+body { font-size: 14px; }
+button:disabled { opacity: .55; }
+.rail { backdrop-filter: none; }
+.brand { font-weight: 600; }
+.brand-mark { filter: none; opacity: 1; }
+.wordmark { background: none; color: var(--text); filter: none; }
+.rail-button.active, .rail-card, .search, .avatar, .stat-card, .panel, dialog, .toast {
+  background: var(--card);
+  border-color: var(--line);
+}
+.rail-button.active::before { background: var(--muted); width: 2px; }
+.rail-button.active svg { color: var(--soft); filter: none; }
+.stat-card::before, .stat-card::after, .badge::before { display: none; }
+.stat-icon, .panel-title > .icon-box, .panel-title > svg, .empty-icon,
+.plan-icon, .add-icon, .rail-card-icon, .button > svg { display: none; }
+.stat-card { min-height: 96px; padding: 16px; }
+.stat-bottom { margin-top: 12px; }
+.stat-bottom strong { font-size: 21px; font-weight: 500; letter-spacing: -.3px; }
+.hero h1 { font-size: clamp(24px, 2.3vw, 32px); font-weight: 550; letter-spacing: -.7px; }
+.hero-actions { margin-top: 20px; }
+.button, select, .plan-row.current, .segmented button.selected, .camera-tabs button.selected {
+  background: var(--raise); border-color: var(--line-2); border-radius: 6px;
+}
+.button.primary, .button.light, .play-button, #dryRun {
+  background: #d8dce0; color: #1a1c1f; border-color: #d8dce0; font-weight: 550;
+}
+.button.warn { background: #514638; color: #e1d0b8; border-color: #75624a; }
+.button.danger:not(:disabled) { background: #613839; color: #f0d4d4; border-color: #9a6062; }
+.button.warn:disabled, .button.danger:disabled, .button.primary:disabled, #dryRun:disabled {
+  background: var(--card-2); color: var(--muted); border-color: var(--line);
+}
+.button.primary:hover:not(:disabled) { filter: none; background: #eceef0; }
+.delta.good, .delta.bad { background: transparent; border-color: var(--line-2); }
+.delta.good { color: var(--soft); }
+.delta.bad { color: #b9a0a0; }
+.add-card { background: transparent; border-style: solid; justify-content: center; }
+.add-card:hover, .search:hover, .toast { border-color: var(--line-2); }
+.sim-stage, .feed-stage { background: #101112; border-radius: 6px; }
+.small, .eyebrow, .nav-label, .field-label { font-size: 11px; letter-spacing: .5px; }
+.stat-card small, .prompt-result p, .prompt-options > span { font-size: 12px; }
+.stat-card small { white-space: normal; overflow: visible; line-height: 1.45; }
+.prompt-events li, .prompt-review dl > div { font-size: 12px; }
+.prompt-events li > span:first-child { font-size: 10px; }
+.prompt-options label, .promptConfig { font-size: 11px; }
+.badge, .delta { font-size: 11px; }
+.gate li.active .gate-dot { animation: none; }
+.gate li.done .gate-dot { border-width: 1px; background: var(--card); }
+.gate li.ready .gate-dot { background: #c1aa8d; }
+#voiceFrame { border-radius: 0 0 9px 9px; }
+@media (max-width: 640px) {
+  .hero h1 { font-size: 24px; }
+  .stat-row { gap: 12px; }
+  .panel-head { padding: 0 15px; }
+}

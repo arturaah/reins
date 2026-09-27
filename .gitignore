@@ -14,3 +14,12 @@ runs/ui_preview.json
 runs/inference_stats.png
 runs/ui_state.json
 runs/replays/
+
+# Local voice credentials and caches
+.env
+.env.*
+.pytest_cache/
+
+.voice-cache/
+
+.venv-voice/

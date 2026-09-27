@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 let token = '', plans = [], state = null, camera = 'head', simSource = 'simulation', sharing = null;
 let scrubbing = false, toastTimer, statusBusy = false;
-let runSeq = 0, runStarted = null, plansLibrary = 0, runBusy = false;
+let runSeq = 0, runStarted = null, plansLibrary = 0, runBusy = false, voiceReady = false;
 const DRYRUN_PLAN = 'sim/plans/arm_lift_dryrun.json';
 const GRID = {head:'gridHead', left:'gridLeft', right:'gridRight'};
 const frameBusy = new Set(), frameUrls = {};
@@ -47,6 +47,18 @@ async function frame(key, imgId, visible) {
   finally { frameBusy.delete(imgId); }
 }
 function renderStatus() {
+  if (state?.voice_url && $('voiceFrame').getAttribute('src') !== state.voice_url) {
+    $('voicePanel').hidden = false;
+    $('voiceFrame').src = state.voice_url; $('voiceOpen').href = state.voice_url;
+    $('speakPrompt').hidden = false;
+  }
+  if (state?.mode === 'sim') {
+    $('controlPanel').hidden = true;
+    $('controlJump').hidden = $('heroControl').hidden = true;
+    $('simSource').querySelector('[value="twin"]').disabled = true;
+    $('promptSource').querySelector('[value="camera"]').disabled = true;
+    document.querySelector('.local-pill').textContent = 'SIMULATION ONLY';
+  }
   if (!state) return;
   const sim = state.simulation, feeds = state.feeds;
   updatePlayback(sim);
@@ -82,6 +94,37 @@ function renderStatus() {
   renderOverview();
   if (!feeds.glasses.online || sharing) $('glassesImage').classList.remove('visible');
 }
+
+// Text-only bridge: dictation edits the existing field; the user submits it normally.
+// The harness can read any reply through window.ReinsVoice.speak(text).
+window.ReinsVoice = {
+  speak(text) {
+    if (!voiceReady || !state?.voice_url || typeof text !== 'string' || !text.trim() || text.length > 1000) return false;
+    $('voiceFrame').contentWindow.postMessage({type:'reins-voice-speak',text},new URL(state.voice_url).origin);
+    voiceReady = false; $('speakPrompt').disabled = true;
+    return true;
+  }
+};
+window.addEventListener('message', event => {
+  if (!state?.voice_url || event.source !== $('voiceFrame').contentWindow
+      || event.origin !== new URL(state.voice_url).origin) return;
+  if (event.data?.type === 'reins-voice-ready') {
+    voiceReady = event.data.ready === true;
+    $('speakPrompt').disabled = !voiceReady;
+  }
+  if (event.data?.type === 'reins-voice-transcript') {
+    const text = event.data.text, field = $('actionPrompt');
+    if (typeof text !== 'string' || !text.trim() || text.length > 1000) return;
+    const size = field.value.length - (field.selectionEnd - field.selectionStart) + text.length;
+    if (size > field.maxLength) { toast('Dictation is too long for the prompt. Copy it from the voice transcript.'); return; }
+    field.setRangeText(text, field.selectionStart, field.selectionEnd, 'end');
+    field.dispatchEvent(new Event('input', {bubbles:true}));
+    toast('Dictation added to the prompt. Review it, then Generate plan.');
+  }
+});
+$('speakPrompt').onclick = () => {
+  if (!window.ReinsVoice.speak($('promptMessage').textContent)) toast('Connect voice and wait for playback to finish. Replies must be under 1,000 characters.');
+};
 async function poll() {
   if (statusBusy) return;
   statusBusy = true;
@@ -248,7 +291,7 @@ function renderControl() {
   $('gateExecText').textContent = exText;
   ex.querySelector('.gate-dot').innerHTML = `<svg><use href="#i-${ex.className === 'done' ? 'check' : ex.className === 'ready' || ex.className === 'active' ? 'play' : 'lock'}"/></svg>`;
   const previewOnly = !!plans.find(p => p.id === target)?.preview_only;
-  $('dryRun').disabled = running || !target || previewOnly;
+  $('dryRun').disabled = state.mode === 'sim' || running || !target || previewOnly;
   $('execute').disabled = running || !matches || previewOnly;
   if (previewOnly) { $('gateDryText').textContent = 'Prompt-generated preview. Physical execution is locked.'; $('gateExecText').textContent = 'Requires verified calibration, contact control and execution validation.'; }
   $('abort').disabled = !running;
@@ -313,6 +356,12 @@ function renderOverview() {
   delta('statGlassesDelta', glasses ? 'live' : 'no source', glasses ? 'good' : '');
   $('statGlassesSub').textContent = sharing ? 'mirrored glasses window' : feeds.glasses.online ? 'MJPEG video stream' : 'share a window or stream';
   $('railStatus').textContent = run.running ? (run.job.kind === 'execute' ? 'Executing a trajectory' : 'Dry run in progress') : live ? robotText : 'Robot state unknown';
+  if (state.mode === 'sim') {
+    $('railStatus').textContent = 'Simulation only';
+    $('statRobot').textContent = 'Simulated'; delta('statRobotDelta','local','good');
+    $('statRobotSub').textContent = 'Hardware connection disabled';
+    $('statFsmSub').textContent = 'Hardware controls disabled';
+  }
 }
 function navTo(buttonId, target) {
   document.querySelectorAll('.rail-button').forEach(b => b.classList.toggle('active', b.id === buttonId));
