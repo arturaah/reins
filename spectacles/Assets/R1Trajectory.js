@@ -55,8 +55,6 @@ var statusPosition = null;
 var notificationAudio = null;
 var lastNotificationAt = -1000;
 var pendingReview = null;
-var reviewChoice = "";
-var reviewChoiceAt = -1000;
 var reviewSent = false;
 var reviewMessage = "";
 var reviewObject = null;
@@ -420,34 +418,27 @@ function trackingState() {
 }
 function reviewPinch(choice) {
     if (!pendingReview || !socketReady || !socketSession || reviewSent) { return; }
+    if (choice !== "approve" && choice !== "decline") { return; }
     if (getTime() >= reviewExpiresAt) { reviewMessage = "PROPOSAL EXPIRED"; return; }
     var tracking = trackingState();
     if (choice === "approve" && (!tracking.registered || tracking.age_s > 3)) {
-        reviewMessage = "SCAN BOTH TAGS AGAIN"; reviewChoice = ""; return;
+        reviewMessage = "SCAN BOTH TAGS AGAIN"; return;
     }
-    var now = getTime();
-    if (reviewChoice === choice && now - reviewChoiceAt > 0.25 && now - reviewChoiceAt < 4) {
-        try {
-            socket.send(JSON.stringify({type:"review_decision", version:1,
-                                        id:pendingReview.id, digest:pendingReview.digest, revision:pendingReview.revision,
-                                        decision:choice, session:socketSession, tracking:tracking}));
-            reviewSent = true;
-            reviewMessage = "SENDING " + choice.toUpperCase();
-            print("R1 AR: " + choice + " sent for proposal " + pendingReview.id);
-        } catch (e) { reviewMessage = "SEND FAILED"; print("R1 AR: review send failed: " + e); }
-        return;
-    }
-    reviewChoice = choice;
-    reviewChoiceAt = now;
-    reviewMessage = "PINCH " + (choice === "approve" ? "RIGHT" : "LEFT") + " AGAIN TO " +
-                    (choice === "approve" ? "ACCEPT" : "REJECT");
+    try {
+        socket.send(JSON.stringify({type:"review_decision", version:1,
+                                    id:pendingReview.id, digest:pendingReview.digest, revision:pendingReview.revision,
+                                    decision:choice, session:socketSession, tracking:tracking}));
+        reviewSent = true;
+        reviewMessage = choice === "approve" ? "SENDING ACCEPT" : "CANCELLING MOTION";
+        print("R1 AR: " + choice + " sent for proposal " + pendingReview.id);
+    } catch (e) { reviewMessage = "SEND FAILED"; print("R1 AR: review send failed: " + e); }
 }
 
 try {
     var gestureModule = require('LensStudio:GestureModule');
     gestureModule.getPinchDownEvent(GestureModule.HandType.Right).add(function() { voicePinch("right"); });
     gestureModule.getPinchDownEvent(GestureModule.HandType.Left).add(function() { voicePinch("left"); });
-    print("R1 AR: right double-pinch speaks or accepts; left cancels or rejects");
+    print("R1 AR: one right pinch accepts a proposal; left cancels it. Without a proposal, double-pinch to speak.");
 } catch (e) { print("R1 AR: review gesture unavailable: " + e); }
 try {
     asrModule = require('LensStudio:AsrModule');
@@ -771,14 +762,14 @@ function applyTrajectory(message) {
             voicePinchAt = -1000;
             voiceCancelPinchAt = -1000;
             voiceGestureLockUntil = 0;
-            reviewChoice = ""; reviewSent = false; reviewMessage = "";
+            reviewSent = false; reviewMessage = "";
             print("R1 AR: proposal ready: " + incoming.text);
         }
         pendingReview = incoming;
         reviewExpiresAt = getTime() + Math.min(300, incoming.expires_in_s);
     } else {
         if (pendingReview) { voicePinchAt = -1000; voiceCancelPinchAt = -1000; }
-        pendingReview = null; reviewChoice = ""; reviewSent = false; reviewMessage = "";
+        pendingReview = null; reviewSent = false; reviewMessage = "";
     }
     latestTrajectory = message;
     function drawHand(points, visual) {
@@ -851,7 +842,7 @@ function connect() {
                 if (trajectory.type === "review_ack") {
                     if (pendingReview && trajectory.id === pendingReview.id) {
                         reviewMessage = trajectory.accepted ? "DECISION RECEIVED" : "PROPOSAL EXPIRED";
-                        if (!trajectory.accepted) { reviewSent = false; reviewChoice = ""; }
+                        if (!trajectory.accepted) { reviewSent = false; }
                     }
                     return;
                 }
@@ -887,7 +878,7 @@ function connect() {
             }
         };
         socket.onclose=function(event){
-            socketReady=false;socketSession="";pairingDeadline=-1;pendingReview=null;reviewChoice="";socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
+            socketReady=false;socketSession="";pairingDeadline=-1;pendingReview=null;socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
             if (voiceListening) { stopVoice(false); }
             if (event && event.code && event.code!==1000 && !lastNetworkError) {
                 print("R1 AR: WebSocket closed with code "+event.code);
@@ -939,20 +930,17 @@ script.createEvent("UpdateEvent").bind(function(){
             panel.setWorldPosition(cameraTransform.getWorldPosition().add(
                 cameraTransform.back.uniformScale(140)));
             panel.setWorldRotation(cameraTransform.getWorldRotation());
-            if (reviewChoice && !reviewSent && getTime() - reviewChoiceAt >= 4) {
-                reviewChoice = ""; reviewMessage = "";
-            }
             reviewText.text = pendingReview ?
-                "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
+                (pendingReview.mode === "live" ? "ACCEPT & RUN ON ROBOT" : "ACCEPT & RUN IN SIMULATION") + "\n" +
                 String(pendingReview.text || "NEW PATH").slice(0, 38) + "\n" +
                 (getTime() >= reviewExpiresAt ? "PROPOSAL EXPIRED" :
                  !trackingState().registered || trackingState().age_s > 3 ? "SCAN BOTH TAGS AGAIN" :
                  reviewMessage || (!socketReady ? "WAITING FOR CONNECTION" :
-                 "RIGHT x2 ACCEPT   LEFT x2 REJECT")) :
+                 "RIGHT PINCH ACCEPT   LEFT CANCEL")) :
                 (voiceListening ? (liveVoiceEnabled() ? (liveSpeaking ? "R1 SPEAKING\n" : liveReady ? "GPT-LIVE LISTENING\n" : "CONNECTING\n") : voiceSendRequestedAt >= 0 ? "WAITING FOR WORDS\n" : "LISTENING\n") +
                  (voiceText() || (getTime() - voiceStartedAt > 3 ? "NO WORDS YET" : "SPEAK NOW")).slice(-55) +
                  (liveVoiceEnabled() ? "\nDOUBLE PINCH TO STOP" : "\nRIGHT x2 SEND   LEFT x2 CANCEL") : getTime() < voiceMessageUntil ? voiceMessage :
-                 "DRAFT PREVIEW\nNO MOTION SUBMITTED");
+                 "PLANNING PREVIEW\nPREPARING COMPLETE MOTION");
         }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }

@@ -186,16 +186,16 @@ $('headerConnections').onclick = () => $('connections').showModal();
 init();
 
 // Prompt orchestration is asynchronous; the server owns status and proposal IDs.
-let promptVersion = '', promptRequestBusy = false, lastPromptId = null;
-// Prompt → Generate preview → Show in simulation, from the live chat and planner state.
+let promptVersion = '', promptRequestBusy = false;
+// Planning and preview run automatically; Accept is the only execution step.
 function renderFlow() {
   const p=state?.pipeline, planning=state?.prompt?.state==='planning'||state?.chat?.busy;
   const set=(id,cls,note)=>{const li=$(id);li.className=cls;li.querySelector('small').textContent=note;};
   set('flowPrompt',state?.chat?.messages?.length||p?.draft||p?.proposal?'done':'active','Ask the assistant for a motion');
   set('flowPreview',p?.draft||p?.proposal?'done':planning?'active':p?.state==='blocked'?'failed':'',
-    p?.draft?'Draft checked; revisions need no approval':p?.proposal?'Complete motion checked':planning?'Observing, planning and checking…':'Inspect the planned motion');
+    p?.proposal?.kind==='firmware'?'Onboard path unavailable for preview':p?.proposal?'Playing the checked motion':p?.draft?'Checking the complete motion':planning?'Observing, planning and checking…':'The checked motion plays automatically');
   set('flowShow',p?.state==='completed'?'done':p?.state==='review'?'ready':p?.state==='executing'?'active':'',
-    p?.state==='completed'?'Motion completed':p?.state==='review'?'One approval for this complete motion':p?.state==='executing'?'Approved motion in progress':'Approve here or in paired glasses');
+    p?.state==='completed'?'Motion completed':p?.state==='review'?'Accept here or pinch in paired glasses':p?.state==='executing'?'Accepted motion in progress':'One Accept runs this motion');
 }
 function renderPrompt() {
   const p=state?.prompt;
@@ -207,14 +207,12 @@ function renderPrompt() {
   if(version===promptVersion)return;
   promptVersion=version;
   $('promptSummary').textContent=p.prompt?'“'+p.prompt+'”':'No motion prepared yet.';
-  $('promptMessage').textContent=state?.pipeline?.proposal?'One complete motion is ready for review.':state?.pipeline?.draft?'Draft checked. It can be revised before submission.':state?.pipeline?.last_result?'The outcome is shown above. Ask for a new motion to continue.':p.message;
-  $('promptDraft').hidden=true;
-  $('promptSummary').textContent=p.prompt?'Last chat draft: “'+p.prompt+'”':'No motion prepared yet.';
+  $('promptMessage').textContent=state?.pipeline?.proposal?.kind==='firmware'?'Onboard preset ready. Accept to send it to the robot.':state?.pipeline?.proposal?'Preview ready. Accept to run this exact motion.':state?.pipeline?.draft?'The assistant is finishing the checked motion.':state?.pipeline?.last_result?'The outcome is shown above. Ask for a new motion to continue.':p.message;
   $('planningDetails').hidden=!p.events?.length;
   $('promptEvents').replaceChildren();
   for(const event of p.events||[]){const li=document.createElement('li'),tag=document.createElement('span'),text=document.createElement('span');tag.textContent=event.stage;text.textContent=event.message;li.append(tag,text);$('promptEvents').append(li);}
   $('cancelPrompt').hidden=!!state?.pipeline?.proposal || (p.state!=='planning'&&!state?.pipeline?.draft);
-  $('cancelPrompt').textContent=p.state==='planning'?'Cancel':'Dismiss draft';
+  $('cancelPrompt').textContent='Cancel planning';
   $('promptMetrics').replaceChildren();
   for(const [label,value] of [['Arm',p.target?.arm],['Validation',p.validation?.samples!=null?p.validation.samples+' sampled poses':null]]) {
     if(value==null)continue;
@@ -307,7 +305,7 @@ async function detectionCommand(enabled, source) {
 $('detectionToggle').onclick=()=>detectionCommand(!state?.detection?.enabled,$('detectionSource').value);
 $('detectionSource').onchange=()=>detectionCommand(!!state?.detection?.enabled,$('detectionSource').value);
 
-// Conversation suggestions start preview planning only when the user clicks.
+// Motion replies are submitted by the server, including replies from glasses voice.
 function displayMessage(message) {
   const result=message?.runtime_result;
   if(!result)return message?.text||'';
@@ -345,24 +343,14 @@ function renderChat() {
     const welcome=document.createElement('p');welcome.className='cli-welcome';
     welcome.textContent=chat.configured?'Ready. Ask a question or describe a task.':'Connect '+chat.provider_label+' to start a conversation, or pick another assistant above.';log.append(welcome);
   }
-  const lastAssistant = chat.messages.at(-1)?.role === 'assistant' ? chat.messages.at(-1) : null;
   for (const message of chat.messages) {
     const row=document.createElement('article'), name=document.createElement('span'), text=document.createElement('div');
     row.className='chat-message '+message.role;name.className='chat-speaker';name.textContent=message.runtime_result?'robot':message.role==='user'?'you':(message.provider||'assistant').replace(/ (CLI|API)$/,'').toLowerCase();
     text.className='chat-text';text.textContent=displayMessage(message);row.append(name,text);
     if (message.robot_request) {
-      const suggestion=document.createElement('div'), label=document.createElement('span'), button=document.createElement('button');
-      suggestion.className='chat-suggestion';label.textContent=message.robot_request+(message.trajectory ? ' · '+message.trajectory.waypoints.length+' authored waypoints' : '');
-      button.className='button pill';button.textContent='Generate preview ↗';button.type='button';
-      button.disabled=chat.busy || message.id!==lastAssistant?.id || promptRequestBusy || state.prompt?.state==='planning' || state.pipeline?.busy || !!state.pipeline?.proposal;
-      button.onclick=async ()=>{
-        $('promptDraft').hidden=false;
-        $('promptDraft').textContent=message.trajectory ? message.trajectory.name+' · '+message.trajectory.arm+' arm · '+message.trajectory.waypoints.length+' waypoints. Ask in chat to revise the motion.' : message.robot_request;
-        $('motionDetails').open=true;
-        $('motionDetails').scrollIntoView({behavior:'smooth',block:'center'});
-        await promptCommand({action:'submit',chat_message_id:message.id,source:'auto'});
-      };
-      suggestion.append(label,button);row.append(suggestion);
+      const suggestion=document.createElement('div');
+      suggestion.className='chat-suggestion';suggestion.textContent=message.robot_request+(message.trajectory ? ' · '+message.trajectory.waypoints.length+' authored waypoints' : '');
+      row.append(suggestion);
     }
     log.append(row);
   }
@@ -424,24 +412,25 @@ $('chatBackend').onchange = async () => {
 $('chatInput').addEventListener('input',()=>{const input=$('chatInput');input.style.height='auto';input.style.height=Math.min(input.scrollHeight,130)+'px';});
 
 /* One reviewed motion pipeline, shared with the paired glasses. */
-let robotRequestBusy=false;
+let robotRequestBusy=false, displayedProposalId=null;
 function renderPipeline() {
   renderFlow();
   const p=state?.pipeline,proposal=p?.proposal,draft=p?.draft,reviewing=p?.state==='review'&&!!proposal&&!proposal.expired;
+  if(proposal&&proposal.id!==displayedProposalId) {
+    displayedProposalId=proposal.id;
+    if(proposal.kind!=='firmware'&&viewers.main!=='simulation')setViewer('main','simulation');
+  }
   const item=proposal||draft,kind=item?.kind||item?.motion_kind||'arm';
-  $('robotModeLabel').textContent=state?.mode==='sim'?'SIMULATION · HARDWARE DISABLED':p?.mode==='live'?'PHYSICAL ROBOT · '+(p.connected?'STATE CONNECTED':'DISCONNECTED'):'SIMULATION';
+  $('robotModeLabel').textContent=state?.mode==='sim'?'SIMULATION · HARDWARE DISABLED':kind==='firmware'?'PHYSICAL ROBOT · ONBOARD PRESET':p?.mode==='live'?'PHYSICAL ROBOT · '+(p.connected?'STATE CONNECTED':'DISCONNECTED'):'SIMULATION';
   badge('pipelineBadge',p?.state?.toUpperCase()||'OFFLINE',reviewing||p?.state==='completed');
   $('pipelineSummary').textContent=item?.name||'No motion awaiting review.';
   $('pipelineMessage').textContent=p?.message||'Dashboard disconnected.';
-  const target=kind==='walk'?'base path':kind==='hand'?(item?.arm||'selected')+' hand action':(item?.arm||'selected')+' arm';
-  $('pipelineDetails').textContent=item?(item.mode==='live'?'Physical robot':'Simulation')+' · '+target+' · '+Number(item.duration_s||0).toFixed(1)+' s'+(proposal?' · revision '+proposal.revision+(proposal.expired?' · Expired':' · '+Math.max(0,Math.ceil(proposal.expires_at-Date.now()/1000))+' s to approve'):' · Draft, not approved')+(item.description?' · '+item.description:''):'';
-  $('draftActions').hidden=!draft||!!proposal;
-  $('previewDraft').disabled=robotRequestBusy||!!p?.busy;
-  $('proposeMotion').disabled=robotRequestBusy||!!p?.busy||!!state?.chat?.busy||state?.prompt?.state==='planning';
+  const target=kind==='firmware'?'onboard preset':kind==='walk'?'base path':kind==='hand'?(item?.arm||'selected')+' hand action':(item?.arm||'selected')+' arm';
+  const duration=kind==='firmware'?'Duration controlled by robot':Number(item?.duration_s||0).toFixed(1)+' s';
+  $('pipelineDetails').textContent=item?(item.mode==='live'?'Physical robot':'Simulation')+' · '+target+' · '+duration+(proposal?' · revision '+proposal.revision+(proposal.expired?' · Expired':' · '+Math.max(0,Math.ceil(proposal.expires_at-Date.now()/1000))+' s to accept'):' · Preparing proposal')+(item.description?' · '+item.description:''):'';
   $('pipelineActions').hidden=!reviewing;
-  $('approveMotion').textContent=proposal?.mode==='live'?'Approve & run on robot':'Approve in simulation';
+  $('approveMotion').textContent=proposal?.mode==='live'?'Accept & run on robot':'Accept & run in simulation';
   $('approveMotion').disabled=robotRequestBusy||!reviewing;
-  $('rejectMotion').disabled=robotRequestBusy||!reviewing;
   const busy=robotRequestBusy||!!p?.busy||!!proposal||state?.prompt?.state==='planning';
   $('robotConnect').disabled=!p||busy||p.connected||state?.mode==='sim'||p?.capabilities?.hardware_allowed===false;
   $('robotConnect').textContent=p?.connected?'Robot state connected':'Connect robot';
@@ -487,15 +476,12 @@ $('robotStop').onclick=()=>robotCommand({action:'stop'});
 $('robotHome').onclick=()=>robotCommand({action:'home',arm:$('robotArm').value});
 document.querySelectorAll('[data-jog]').forEach(b=>b.onclick=()=>robotCommand({action:'jog',arm:$('robotArm').value,direction:b.dataset.jog}));
 $('robotArm').onchange=()=>{renderPipeline();robotCommand({action:'settings',arm:$('robotArm').value});};
-$('previewDraft').onclick=()=>{const draft=state?.pipeline?.draft;if(draft)robotCommand({action:'preview',plan_id:draft.id});};
-$('proposeMotion').onclick=()=>{const draft=state?.pipeline?.draft;if(draft)robotCommand({action:'propose',plan_id:draft.id});};
 const walkCommands={forward:[.1,0,0],back:[-.1,0,0],left:[0,.1,0],right:[0,-.1,0],turn_left:[0,0,.1],turn_right:[0,0,-.1]};
 document.querySelectorAll('[data-walk]').forEach(button=>button.onclick=()=>{const [dx,dy,dyaw]=walkCommands[button.dataset.walk];robotCommand({action:'walk',dx,dy,dyaw});});
 document.querySelectorAll('[data-hand]').forEach(button=>button.onclick=()=>robotCommand({action:'hand',arm:$('robotArm').value,closed:button.dataset.hand==='close'}));
-for(const [id,decision] of [['approveMotion','approve'],['rejectMotion','decline']])$(id).onclick=()=>{
+$('approveMotion').onclick=()=>{
   const p=state?.pipeline?.proposal;if(!p)return;
-  robotCommand({action:'decision',id:p.id,digest:p.digest,decision,note:$('reviewNote').value});
-  $('reviewNote').value='';
+  robotCommand({action:'decision',id:p.id,digest:p.digest,decision:'approve'});
 };
 document.addEventListener('keydown',event=>{if(event.key==='Escape' && state?.pipeline?.connected){event.preventDefault();robotCommand({action:'stop'});}});
 async function loadGlassesPairing() {

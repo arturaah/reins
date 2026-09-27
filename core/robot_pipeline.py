@@ -21,7 +21,7 @@ import uuid
 import numpy as np
 from contract.runtime import digest, validate_motion, validate_approval
 from core import trajectory
-from core.generated_motion import compile_trajectory, validate_trajectory
+from core.generated_motion import TrajectoryRejected, compile_trajectory, validate_trajectory
 from core.experience import ExperienceMemory
 from core.ik import ArmIK
 from core.motion_policy import base_path, check_waypoints, table_obstacles, walking_payload
@@ -78,7 +78,9 @@ class RobotPipeline:
         self.last_result = None
         self.on_result = None
         self.on_stop = None
-        self.state, self.message = "idle", "Describe a motion. Plan and preview it, then submit it for one human review."
+        self.firmware_pending = None
+        self.on_planning_blocked = None
+        self.state, self.message = "idle", "Describe a motion. Planning and preview are automatic; Accept runs the complete motion."
         self.events = []
         self.run_dir = Path(run_dir or ROOT / "runs/dashboard") / self.session_id
         self.control_dir = None
@@ -87,6 +89,7 @@ class RobotPipeline:
         self.walked_m = self.turned_rad = 0.
         self.planner.before_submit = self.before_submit
         self.planner.on_complete = self.planned
+        self.planner.validate_candidate = self.validate_candidate
         self.planner.preview_pose = self.planning_pose
         self.planner.pose_label = lambda: "measured robot joints" if self.mode == "live" else "approved simulation state"
         self.watchdog = threading.Thread(target=self._watchdog, daemon=True)
@@ -170,6 +173,7 @@ class RobotPipeline:
 
     def reset_planning(self, cancelled=False):
         """Supersede unsent agent work without disturbing a submitted human review."""
+        job_id = self.planner.status().get("id")
         with self.lock:
             if self.proposal or (self.worker and self.worker.is_alive()):
                 return
@@ -182,6 +186,20 @@ class RobotPipeline:
             else:
                 self.cancelled.clear()
                 self.state, self.message = "idle", "Agent planning started. No motion has been submitted for review."
+        if job_id is not None:
+            self.planner.cancel(job_id=job_id)
+
+    def supersede_review(self, proposal_id):
+        """A new motion request can replace a pending review, never an accepted run."""
+        with self.lock:
+            if not self.proposal:
+                return
+            if (self.proposal["id"] != proposal_id or self.state != "review" or self.decision
+                    or (self.worker and self.worker.is_alive())):
+                raise ValueError("The current motion was already accepted or changed; wait for it or use Stop")
+            self._finish("cancelled", "Pending proposal replaced by a new motion request.")
+            self.sim.control({"action": "stop"})
+        self.reset_planning()
 
     def _planning_generation(self, generation=None):
         self._available()
@@ -197,18 +215,41 @@ class RobotPipeline:
             self.primary_generation = self.generation
             self.cancelled.clear()
             self.draft = self.paths = None
-            self.state, self.message = "planning", "Preparing a motion draft; no approval or actuation yet."
+            self.state, self.message = "planning", "Planning and validating the motion for automatic preview."
+            return self.generation
+
+    def validate_candidate(self, plan, draft, pose, generation=None):
+        """Apply execution workspace policy inside the bounded path-revision loop."""
+        with self.lock:
+            self._planning_generation(generation)
+        try:
+            check_waypoints(self.cfg, draft["waypoints"], self.mode == "live")
+            resolved = trajectory.resolve(plan, draft["arm"], pose)
+            trajectory.validate(resolved, draft["arm"], self.ik.model, table_obstacles(self.cfg, self.mode == "live"))
+        except ValueError as exc:
+            raise TrajectoryRejected(str(exc), {"stage": "workspace_policy", "workspace": copy.deepcopy(self.cfg["workspace"])}) from exc
+
+    def _planning_blocked(self, status, message, generation):
+        with self.lock:
+            if generation != self.generation or self.cancelled.is_set():
+                return
+            self.event("blocked", message)
+            callback = self.on_planning_blocked
+            report = {**copy.deepcopy(status), "state": "blocked", "stage": "blocked", "message": message}
+        if callback:
+            callback(report)
 
     def planned(self, status, plan):
         with self.lock:
-            generation = self.primary_generation
+            generation = status.get("pipeline_generation", self.primary_generation)
             if (self.cancelled.is_set() or status["state"] == "cancelled"
-                    or generation != self.generation):
+                    or generation != self.generation
+                    or "prompt:" + str(status.get("id")) in self.requests):
                 return
             self.primary_id = status.get("id")
         try:
             if plan is None:
-                self.event("blocked", status["message"] + " Ask the agent to observe or revise this draft.")
+                self._planning_blocked(status, status["message"], generation)
                 return
             pose = self.planning_pose()
             if plan.get("generated_trajectory"):
@@ -218,11 +259,9 @@ class RobotPipeline:
             elif self.mode == "live" and status.get("source") == "demo":
                 raise ValueError("Demonstration fixtures cannot authorize physical motion")
             draft = self.prepare_arm(plan, status["target"]["arm"], pose=pose, generation=generation)
-            self.preview_plan(draft["id"])
+            self.propose_motion(draft["id"], "prompt:" + str(status.get("id")), task=status.get("prompt"))
         except (ValueError, RuntimeError) as exc:
-            with self.lock:
-                if generation == self.generation and not self.cancelled.is_set():
-                    self.event("blocked", f"Draft rejected: {exc}. Revise the path or gather fresh context.")
+            self._planning_blocked(status, f"Motion planning blocked: {exc}", generation)
 
     def _start(self, work):
         with self.lock:
@@ -308,7 +347,7 @@ class RobotPipeline:
             while len(self.drafts)>32: self.drafts.pop(next(iter(self.drafts)))
             self.draft = copy.deepcopy(public)
             self.paths = None
-            self.event("draft", "Draft validated. Preview freely, then submit this complete motion for review.")
+            self.event("draft", "Path validated. Finishing the complete proposal for automatic preview.")
             return copy.deepcopy(public)
 
     def _get_draft(self, plan_id):
@@ -382,7 +421,7 @@ class RobotPipeline:
             except Exception as exc:
                 self.experience_snapshot = None
                 self.experience.error = str(exc)[:180]
-            self.event("review", "Review the complete motion. Approve once or decline in the dashboard or glasses.")
+            self.event("review", "Previewing the complete motion. Accept once in the dashboard or pinch in the glasses to run it.")
             self._log({"type": "proposal", "proposal": p, "payload": self.plan})
             return self.motion_result(ident)
 
@@ -406,11 +445,15 @@ class RobotPipeline:
             if decision == "decline":
                 self._finish("declined", "Proposal declined. "+str(note)[:500])
             else:
-                self.event("approved", "Complete motion approved in "+self.mode+" mode.")
+                self.event("approved", "Complete motion accepted in "+p["mode"]+" mode.")
                 self._start(self._execute)
         return self.status()
 
     def _execute(self):
+        with self.lock:
+            firmware = self.proposal and self.proposal.get("kind") == "firmware"
+        if firmware:
+            return self._execute_firmware()
         with self.lock:
             if not self.proposal or not self.decision or self.decision["decision"] != "approve":
                 raise ValueError("No human approval")
@@ -428,6 +471,10 @@ class RobotPipeline:
             if self.cancelled.is_set() or generation != self.generation:
                 return
             self.event("executing", ("Executing " if mode == "live" else "Simulating ")+p["name"])
+            if mode == "sim":
+                # Acceptance runs the exact reviewed motion even when its automatic
+                # preview has already finished. There is no replay control/API.
+                self._display(item, p["id"]+":accepted")
         result = {}
         try:
             if payload["kind"] == "walk":
@@ -482,7 +529,7 @@ class RobotPipeline:
                 # Diagnostic storage must not change an approval or motion outcome.
                 self.experience.error = str(exc)[:180]
             self.experience_snapshot = None
-            self.proposal = self.plan = self.paths = self.draft = None
+            self.proposal = self.plan = self.paths = self.draft = self.firmware_pending = None
             self._log({"type": "outcome", **result})
             self.event("completed" if outcome == "executed" else outcome, message)
             callback = self.on_result
@@ -638,14 +685,80 @@ class RobotPipeline:
             if self.simulation_only: raise ValueError("Firmware is disabled in simulation-only mode")
             if self.connected or self.proposal or self.state == "planning" or (self.worker and self.worker.is_alive()):
                 raise ValueError("Release trajectory control and finish planning before using firmware presets")
-            # Human-only browser route, not offered in the agent tool list.
-            return gestures.command(command)
+            if command.get("action") == "refresh":
+                return gestures.command(command)  # Read-only discovery needs no approval.
+            if command.get("action") != "gesture":
+                raise ValueError("Unknown gesture command")
+            state = gestures.status()
+            action_id = command.get("id")
+            preset = next((a for a in state["actions"] if type(action_id) is int and a["id"] == action_id), None)
+            if not state["connected"] or state["busy"] or preset is None:
+                raise ValueError("Connect and choose an available R1 gesture")
+            # Opaque firmware presets are human-only. They never enter the model's
+            # validated trajectory transport or masquerade as a kinematic preview.
+            self.generation += 1
+            self.cancelled.clear()
+            self.drafts.clear()
+            self.draft = None
+            self.revision += 1
+            ident = uuid.uuid4().hex
+            payload = {"kind": "firmware", "action_id": action_id,
+                       "name": preset["name"], "iface": state["iface"]}
+            self.proposal = {"id": ident, "plan_id": ident, "session_id": self.session_id,
+                "revision": self.revision, "state": "review", "kind": "firmware", "mode": "live",
+                "name": preset["label"], "digest": digest(payload), "expires_at": time.time()+self.REVIEW_SECONDS,
+                "source": "operator", "duration_s": None, "observation_id": None,
+                "description": "Onboard preset; its path and duration are unavailable for simulation preview.",
+                "validation": {"coverage": "Firmware preset identity only; onboard path is opaque"}}
+            self.plan, self.decision = payload, None
+            self.firmware_pending = {"controller": gestures, "payload": copy.deepcopy(payload), "dispatched": False}
+            self.paths = {"left": [], "right": []}
+            self.sim.control({"action": "stop"})
+            self.event("review", "Onboard preset selected. Accept once to run on the robot; no trajectory preview is available.")
+            self._log({"type": "proposal", "proposal": self.proposal, "payload": payload})
+            return gestures.status()
+
+    def _execute_firmware(self):
+        with self.lock:
+            p, pending = self.proposal, self.firmware_pending
+            if not p or not pending or not self.decision or self.decision["decision"] != "approve":
+                raise ValueError("No human acceptance for this preset")
+            if self.simulation_only or self.connected or self.cancelled.is_set():
+                raise ValueError("Firmware ownership changed; select the preset again")
+            payload = copy.deepcopy(self.plan)
+            if payload != pending["payload"]:
+                raise ValueError("Accepted preset changed")
+            validate_approval({"proposal_id": p["id"], "revision": p["revision"],
+                              "digest": p["digest"], "expires_at": p["expires_at"]}, digest(payload))
+            controller = pending["controller"]
+            state = controller.status()
+            if (state["iface"] != payload["iface"] or not state["connected"] or state["busy"] or
+                not any(a["id"] == payload["action_id"] and a["name"] == payload["name"] for a in state["actions"])):
+                raise ValueError("Firmware preset availability changed; refresh and select it again")
+            self.event("executing", "Running accepted onboard preset. Use the Unitree controller to interrupt an onboard gesture.")
+            if self.cancelled.is_set():
+                return
+            controller.command({"action": "gesture", "id": payload["action_id"]})
+            pending["dispatched"] = True
+            proposal_id = p["id"]
+        while controller.status()["busy"]:
+            if self.closed.wait(.05):
+                return
+        with self.lock:
+            if not self.proposal or self.proposal["id"] != proposal_id:
+                return
+            state = controller.status()
+            self._finish("failed" if state["error"] else "executed",
+                         state["error"] or "Accepted onboard preset completed (firmware reported).",
+                         feedback={"source": "firmware_rpc", "action_id": payload["action_id"]})
 
     def stop(self, message="Stopped. Control released and pending motion cancelled."):
         self.cancelled.set(); self.planner.cancel()
         if self.on_stop: self.on_stop()
         with self.lock:
             self.generation += 1
+            if self.firmware_pending and self.firmware_pending["dispatched"]:
+                message = "Onboard preset was already dispatched. Use the Unitree controller to halt it; dashboard approval is cancelled."
             if self.proposal: self._finish("cancelled", message)
             self.drafts.clear(); self.draft = self.paths = self.plan = None
             pending, self.pending_backend = self.pending_backend, None

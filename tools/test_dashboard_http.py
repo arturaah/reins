@@ -20,7 +20,7 @@ from tools import dashboard
 
 
 class DashboardHTTPTests(unittest.TestCase):
-    def test_sim_lockout_draft_review_and_persistent_pairing(self):
+    def test_automatic_preview_single_accept_and_paired_voice_pinch(self):
         firmware=[]
         actions=parse_presets([[{'id':27,'name':'shake_hand'},{'id':99,'name':'release_arm'}],[]])
         def request(iface,action_id):
@@ -57,6 +57,12 @@ class DashboardHTTPTests(unittest.TestCase):
                         if done(result):return result
                         time.sleep(.01)
                     self.fail('Timed out waiting for '+path)
+                def receive_until(socket,done):
+                    deadline=time.monotonic()+10
+                    while time.monotonic()<deadline:
+                        result=json.loads(socket.recv(timeout=max(.01,deadline-time.monotonic())))
+                        if done(result):return result
+                    self.fail('Timed out waiting for glasses message')
                 try:
                     token=call('/api/session')[1]['token']
                     until('/api/gestures',lambda x:not x['busy'])
@@ -76,36 +82,32 @@ class DashboardHTTPTests(unittest.TestCase):
                     self.assertEqual(firmware,[])
 
                     self.assertEqual(call('/api/chat',{'message':'Blow a kiss'})[0],200)
-                    reply=until('/api/chat',lambda x:not x['busy'])['messages'][-1]
-                    self.assertEqual(call('/api/prompt',{'action':'submit','chat_message_id':reply['id']})[0],200)
+                    until('/api/chat',lambda x:not x['busy'])
                     result=until('/api/prompt',lambda x:x['state']!='planning')
                     self.assertEqual(result['state'],'proposed',result['message'])
                     self.assertEqual(result['attempt'],2)
                     self.assertEqual(len(revision_calls),1)
                     self.assertRegex(revision_calls[0]['trajectory_revision']['failures'][0]['error'],'unreachable|joints jump')
-                    runtime=until('/api/robot',lambda x:x['draft'] is not None or x['state']=='blocked')
-                    draft=runtime['draft']
-                    self.assertIsNotNone(draft,runtime['message'])
-                    self.assertIsNone(runtime['proposal'])
+                    runtime=until('/api/robot',lambda x:x['state'] in ('review','blocked'))
+                    self.assertEqual(runtime['state'],'review',runtime['message'])
+                    self.assertIsNone(runtime['last_result']) # preview is not execution
                     status=until('/api/status',lambda x:x['simulation']['playing'] or x['pipeline']['state']=='blocked')
                     self.assertTrue(status['simulation']['playing'],status['pipeline']['message'])
                     self.assertNotIn('run',status)
-                    self.assertEqual(call('/api/robot',{'action':'propose','plan_id':draft['id']},False)[0],403)
-                    self.assertEqual(call('/api/robot',{'action':'propose','plan_id':draft['id']})[0],200)
-                    reviewed=until('/api/robot',lambda x:x['state']=='review')
-                    proposal=reviewed['proposal']
+                    proposal=runtime['proposal']
                     self.assertEqual(proposal['mode'],'sim')
+                    approval={'action':'decision','id':proposal['id'],'digest':proposal['digest'],'decision':'approve'}
+                    self.assertEqual(call('/api/robot',approval,False)[0],403)
                     self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':'changed',
                                                         'decision':'approve'})[0],400)
-                    self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':proposal['digest'],
-                                                        'decision':'decline','note':'Keep the hand lower'})[0],200)
-                    until('/api/robot',lambda x:x['proposal'] is None)
+                    self.assertEqual(call('/api/robot',approval)[0],200)
+                    completed=until('/api/robot',lambda x:x['state']=='completed')
+                    self.assertEqual(completed['last_result']['outcome'],'executed')
                     self.assertEqual(call('/api/experience')[1]['count'],1)
                     self.assertEqual(call('/api/experience',{'action':'forget'},False)[0],403)
                     self.assertEqual(call('/api/experience')[1]['count'],1)
                     self.assertEqual(call('/api/experience',{'action':'forget'})[1]['count'],0)
-                    self.assertEqual(call('/api/robot',{'action':'decision','id':proposal['id'],'digest':proposal['digest'],
-                                                        'decision':'approve'})[0],400)
+                    self.assertEqual(call('/api/robot',approval)[0],400)
                     self.assertEqual(call('/api/glasses',{'action':'create_device','label':'Lab glasses'},False)[0],403)
                     code,paired=call('/api/glasses',{'action':'create_device','label':'Lab glasses'})
                     self.assertEqual(code,200)
@@ -123,14 +125,31 @@ class DashboardHTTPTests(unittest.TestCase):
                                'session':authenticated['session']}
                         for _ in range(2):
                             socket.send(json.dumps(voice))
-                            while True:
-                                answer=json.loads(socket.recv(timeout=3))
-                                if answer['type']=='voice_ack':break
+                            answer=receive_until(socket,lambda x:x['type']=='voice_ack')
                             self.assertTrue(answer['accepted'],answer)
-                    conversation_state=until('/api/chat',lambda x:not x['busy'])
-                    self.assertEqual([m['text'] for m in conversation_state['messages'] if m['role']=='user'],
-                                     ['Blow a kiss','Wave at me'])
-                    self.assertIsNone(call('/api/robot')[1]['proposal']) # voice is a prompt, never approval
+                        conversation_state=until('/api/chat',lambda x:not x['busy'])
+                        self.assertEqual([m['text'] for m in conversation_state['messages'] if m['role']=='user'],
+                                         ['Blow a kiss','Wave at me'])
+                        voiced=until('/api/robot',lambda x:x['state'] in ('review','blocked'))
+                        self.assertEqual(voiced['state'],'review',voiced['message'])
+                        self.assertEqual(voiced['last_result']['proposal_id'],proposal['id']) # voice cannot approve
+                        reviewed=voiced['proposal']
+                        displayed=receive_until(socket,lambda x:(x.get('review') or {}).get('id')==reviewed['id'])
+                        self.assertEqual(displayed['phase'],'review')
+                        self.assertEqual(displayed['review']['digest'],reviewed['digest'])
+                        self.assertTrue(displayed['hands']['right'])
+                        pinch={'type':'review_decision','version':1,'id':reviewed['id'],'digest':reviewed['digest'],
+                               'revision':reviewed['revision'],'decision':'approve','session':authenticated['session'],
+                               'tracking':{'registered':True,'age_s':0}}
+                        socket.send(json.dumps(pinch))
+                        answer=receive_until(socket,lambda x:x['type']=='review_ack')
+                        self.assertTrue(answer['accepted'],answer)
+                        completed=until('/api/robot',lambda x:x['state']=='completed')
+                        self.assertEqual(completed['last_result']['proposal_id'],reviewed['id'])
+                        self.assertEqual(completed['last_result']['outcome'],'executed')
+                        socket.send(json.dumps(pinch))
+                        answer=receive_until(socket,lambda x:x['type']=='review_ack')
+                        self.assertFalse(answer['accepted'])
                     self.assertEqual(call('/api/glasses',{'action':'revoke_device','device_id':device['device_id']})[0],200)
                     self.assertEqual(call('/api/control',{'action':'seek','time':0})[0],400)
                     self.assertEqual(call('/api/control',{'action':'play'})[0],400)

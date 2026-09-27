@@ -85,7 +85,7 @@ class PromptPlanner:
         self.target_cache=None
         self.last_targets={}
         self.lock=threading.RLock()
-        self.job={'state':'idle','message':'Choose Generate preview on a motion in chat.', 'events':[]}
+        self.job={'state':'idle','message':'Describe a motion in chat; planning and preview are automatic.', 'events':[]}
         self.image=b''
         self.plan=None
         self.cancelled=threading.Event()
@@ -93,6 +93,9 @@ class PromptPlanner:
         self.reviser_factory=None
         self.before_submit=None
         self.on_complete=None
+        self.on_event=None
+        self.validate_candidate=None
+        self.worker=None
         self.pose_label=None
 
     def status(self):
@@ -107,34 +110,46 @@ class PromptPlanner:
         with self.lock:
             self.job.update(state='planning',stage=stage,message=message)
             self.job['events'].append({'stage':stage,'message':message})
+            status=self.status()
+        if self.on_event:
+            self.on_event(status)
 
     def motion_context(self):
         context = motion_context(ArmIK(backend='mujoco'), dict(self.preview_pose()))
         if self.pose_label: context['pose_source'] = self.pose_label()
         return context
 
-    def submit(self, prompt, source="auto", trajectory=None, reviser=None):
+    def submit(self, prompt, source="auto", trajectory=None, reviser=None, attempt_limit=None):
         if not isinstance(prompt,str) or not 1<=len(prompt.strip())<=1000:
             raise ValueError('Enter a prompt between 1 and 1000 characters')
         if source not in ('auto','camera','demo'): raise ValueError('Unknown observation source')
+        if attempt_limit is None:
+            attempt_limit=self.MAX_TRAJECTORY_ATTEMPTS
+        if type(attempt_limit) is not int or not 1 <= attempt_limit <= self.MAX_TRAJECTORY_ATTEMPTS:
+            raise ValueError('Trajectory attempt limit must be between 1 and 3')
         if trajectory is not None:
             trajectory=validate_trajectory(trajectory)
         with self.lock:
-            if self.job['state']=='planning': raise ValueError('A planning request is already running')
-            if self.before_submit: self.before_submit()
-            if trajectory is not None and reviser is None and self.reviser_factory:
+            if self.job['state']=='planning' or (self.worker and self.worker.is_alive()):
+                raise ValueError('A planning request is already running')
+            generation=self.before_submit() if self.before_submit else None
+            if reviser is None and self.reviser_factory:
                 reviser=self.reviser_factory()
             self.cancelled.clear(); self.image=b''; self.plan=None
             self.reviser=reviser
             self.job={'id':uuid.uuid4().hex,'revision':1,'prompt':prompt.strip(),'source':source,
+                      'pipeline_generation':generation,'attempt_limit':attempt_limit,
                       'arm':trajectory['arm'] if trajectory else None,
                       'state':'planning','stage':'context','message':'Checking what context this action needs…','events':[]}
-            threading.Thread(target=self._work,args=(prompt.strip(),source,trajectory,reviser),daemon=True).start()
+            self.worker=threading.Thread(target=self._work,args=(prompt.strip(),source,trajectory,reviser),daemon=True)
+            self.worker.start()
         return self.status()
 
-    def cancel(self):
-        self.cancelled.set()
+    def cancel(self, job_id=None):
         with self.lock:
+            if job_id is not None and self.job.get('id') != job_id:
+                return
+            self.cancelled.set()
             if self.job['state'] in ('proposed','blocked','previewed'):
                 self.job.update(state='cancelled',message='Proposal dismissed.')
             self.plan=None
@@ -161,7 +176,7 @@ class PromptPlanner:
             self.output_dir.mkdir(parents=True,exist_ok=True)
             path=self.output_dir/f'prompt_{proposal_id}.json'
             temp=path.with_suffix('.tmp'); temp.write_text(json.dumps(plan,indent=2,allow_nan=False)+'\n'); temp.replace(path)
-            self.job.update(state='previewed',message='Loaded in MuJoCo. Use the simulation playback controls to pause or replay.')
+            self.job.update(state='previewed',message='Validated motion loaded in MuJoCo for review.')
             return path
 
     def _ground(self, intent, observation, source):
@@ -225,12 +240,12 @@ class PromptPlanner:
         with self.lock:
             if self.cancelled.is_set(): raise ValueError('Planning cancelled.')
             self.plan=plan
-            self.job.update(state='proposed',stage='review',message=f'{skill.replace("_"," ").capitalize()} preview ready. No visual recognition was needed. Physical execution remains locked.',
+            self.job.update(state='proposed',stage='review',message=f'{skill.replace("_"," ").capitalize()} preview ready. It will play automatically; Accept runs it.',
                  target={'label':f'{side} hand','arm':side,'surface_m':None,'goal_m':None,'standoff_m':None,'quality':{'source':environment}},
                  validation=report,duration=plan['duration_s'],digest=hashlib.sha256(json.dumps(plan,sort_keys=True).encode()).hexdigest(),
                  execution_allowed=False,contact_enabled=False,has_image=False)
 
-    def _generated(self, draft, source, reviser=None):
+    def _generated(self, draft, source, reviser=None, *, failures=None, attempt_offset=0):
         side=draft['arm']
         self.job['context']={'skill':'generated_trajectory',
                              'requirements':['joint_pose','workspace_clearance'], 'vision':'not_required'}
@@ -252,9 +267,9 @@ class PromptPlanner:
         if observation:
             geometry['pose_source']='measured joint pose from the calibrated observation'
         original=copy.deepcopy(draft)
-        failures=[]
-        limit=self.MAX_TRAJECTORY_ATTEMPTS if reviser is not None else 1
-        for attempt in range(1,limit+1):
+        failures=copy.deepcopy(failures or [])
+        limit=self.job.get('attempt_limit',self.MAX_TRAJECTORY_ATTEMPTS) if reviser is not None else 1
+        for attempt in range(attempt_offset+1,limit+1):
             with self.lock:
                 self.job.update(attempt=attempt,max_attempts=limit,revision=attempt)
             self.event('plan',f'Checking trajectory attempt {attempt} of {limit}.')
@@ -269,6 +284,8 @@ class PromptPlanner:
                 if observation and not -.1 <= time.time()-observation.captured_at <= 3:
                     raise PerceptionError('Observation expired while generating the path. Acquire a fresh observation and retry.')
                 report=MotionValidator(ik.model).check(plan,side,[],observation)
+                if self.validate_candidate:
+                    self.validate_candidate(plan,draft,pose,self.job.get('pipeline_generation'))
                 break
             except (TrajectoryRejected,MotionRejected) as exc:
                 if self.cancelled.is_set(): raise ValueError('Planning cancelled.') from None
@@ -302,7 +319,7 @@ class PromptPlanner:
             if self.cancelled.is_set(): raise ValueError('Planning cancelled.')
             self.plan=plan
             self.job.update(state='proposed',stage='review',
-                message='Trajectory preview ready'+(f' after {attempt} attempts' if attempt>1 else '')+'. Choose Show once in simulation to review it.',
+                message='Trajectory preview ready'+(f' after {attempt} attempts' if attempt>1 else '')+'. The validated motion will preview automatically; Accept runs it.',
                 target={'label':draft['name'],'arm':side,'surface_m':None,
                         'goal_m':draft['waypoints'][-1]['position_m'],'standoff_m':None,
                         'quality':{'source':environment}},
@@ -310,12 +327,48 @@ class PromptPlanner:
                 digest=hashlib.sha256(json.dumps(plan,sort_keys=True,allow_nan=False).encode()).hexdigest(),
                 execution_allowed=False,contact_enabled=False,has_image=False)
 
+    def _author_after_failure(self, prompt, source, intent, failure, reviser):
+        """Use the remaining path budget after a recognized motion/context fails."""
+        limit=self.job.get('attempt_limit',self.MAX_TRAJECTORY_ATTEMPTS)
+        failures=[{'attempt':1,'stage':self.job.get('stage','plan'),'error':str(failure),
+                   'details':copy.deepcopy(getattr(failure,'details',{}))}]
+        with self.lock:
+            self.job.update(attempt=1,max_attempts=limit,failures=copy.deepcopy(failures))
+        if limit<=1:
+            raise ValueError(f'No valid trajectory after 1 attempt(s). Last issue: {failure}') from failure
+        self.event('revise',f'Attempt 1/{limit} rejected: {failure}. Authoring another trajectory within the remaining budget…')
+        geometry=self.motion_context()
+        geometry['planning_context']={
+            'previous_failure':str(failure),'requested_arm':intent['arm'],
+            'note':'Only robot geometry is supplied here, not a current camera image or measured object position. '
+                   'Preserve the requested task and validation constraints; return no motion if missing scene context is essential.'}
+        draft=validate_trajectory(reviser(prompt,None,copy.deepcopy(failures),geometry))
+        if self.cancelled.is_set():
+            raise ValueError('Planning cancelled.')
+        if intent['arm'] in ('left','right') and draft['arm']!=intent['arm']:
+            raise ValueError('An authored replacement must preserve the requested arm.')
+        self.job['arm']=draft['arm']
+        self._generated(draft,source,reviser,failures=failures,attempt_offset=1)
+
     def _work(self,prompt,source,trajectory=None,reviser=None):
+        intent=None
         try:
             if trajectory is not None:
                 self._generated(trajectory,source,reviser)
                 return
-            intent=route_intent(prompt)
+            try:
+                intent=route_intent(prompt)
+            except ValueError as exc:
+                if reviser is None:
+                    raise
+                self.event('author','Authoring waypoints for this motion from the current robot geometry.')
+                draft=reviser(prompt,None,[{'attempt':0,'stage':'author','error':str(exc),'details':{}}],self.motion_context())
+                if self.cancelled.is_set():
+                    raise ValueError('Planning cancelled.')
+                draft=validate_trajectory(draft)
+                self.job['arm']=draft['arm']
+                self._generated(draft,source,reviser)
+                return
             self.job['arm']=intent['arm']
             self.job['context']={'skill':intent['skill'],'requirements':list(SKILLS[intent['skill']].requirements),
                                  'vision':'not_required' if intent['selector'] is None else 'needed'}
@@ -411,6 +464,16 @@ class PromptPlanner:
                              'standoff_m':standoff,'quality':quality},validation=report,duration=plan['duration_s'],digest=digest,
                      execution_allowed=False,contact_enabled=False,has_image=bool(self.image))
         except Exception as exc:
+            # A recognized local gesture is only the first candidate, not a reason
+            # to stop when geometry or missing context blocks it. Novel/raw drafts
+            # already own their bounded revision loop and must not start another.
+            if (intent is not None and trajectory is None and reviser is not None
+                    and isinstance(exc,ValueError) and not self.cancelled.is_set()):
+                try:
+                    self._author_after_failure(prompt,source,intent,exc,reviser)
+                    return
+                except Exception as repair_error:
+                    exc=repair_error
             with self.lock:
                 self.plan=None
                 self.job.update(state='cancelled' if self.cancelled.is_set() else 'blocked',stage='blocked',

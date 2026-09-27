@@ -7,10 +7,13 @@ setup and do not prove that a new integration has been commissioned.
 ## Project and supported workflow
 
 Reins is a VLM-agnostic harness for the Unitree R1 EDU A5. One dashboard agent
-observes, detects, plans with core IK, validates and previews without approvals.
-It submits one complete immutable motion with `propose_motion`. A human reviews
-that exact motion in the dashboard or paired Spectacles, then the coordinator
-rechecks and executes through an authenticated private actuator connection.
+observes, detects, plans with core IK, validates and previews automatically.
+It submits one complete immutable motion with `propose_motion`; the host also
+finalizes a successful completed tool draft or plans a motion in the final reply.
+The validated proposal plays in MuJoCo and paired Spectacles without another
+click. A human selects one mode-specific **Accept** in the dashboard or uses the
+glasses acceptance pinch, then the coordinator rechecks and executes through an
+authenticated private actuator connection.
 Any additional or changed motion needs a new proposal and approval. The model
 never approves, executes or invokes firmware gestures itself.
 
@@ -45,7 +48,9 @@ are retired. Offline datasets/evaluations remain useful.
 - `core/robot_pipeline.py`: sole supported proposal/execution coordinator.
   Draft handles, idempotent submissions, session/revision/digest, expiry,
   fresh-state rechecks, cancellation and measured outcomes belong here. Model
-  planning does not automatically ask for review; only final submission does.
+  intermediate planning drafts cannot execute. A completed validated motion is
+  submitted and previewed automatically; execution still needs one human Accept.
+  Failed revisions cannot automatically promote a previously valid draft.
 - `contract/runtime.py`: canonical live motion payload/approval validation;
   `contract/motion.schema.json`, `runtime_examples/` and tests document it.
   `reins.schema.json`/`reins_contract.py` are retained offline session experiments,

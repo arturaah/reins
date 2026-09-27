@@ -38,19 +38,120 @@ class ReinsTools:
         self.cancelled = False
         self.generation = 0
         self.current_call = threading.local()
+        self.on_planning_event = None
+        self.final_plan_id = self.submitted_id = self.last_blocker = None
+        self.plan_attempt = 0
+        self.finished_turn = None
+        self.review_at_turn_start = None
 
     def begin_turn(self, task):
         with self.lock:
             self.generation += 1
             self.started, self.calls, self.plans = time.monotonic(), 0, 0
             self.task, self.cancelled = task, False
-            if self.pipeline: self.pipeline.reset_planning()
+            self.final_plan_id = self.submitted_id = self.last_blocker = None
+            self.plan_attempt = 0
+            self.finished_turn = None
+            self.review_at_turn_start = None
+            if self.pipeline:
+                self.pipeline.reset_planning()
+                with self.pipeline.lock:
+                    if self.pipeline.proposal:
+                        self.review_at_turn_start = self.pipeline.proposal["id"]
+            return self.generation
+
+    def _replace_previous_review(self):
+        # General chat leaves the human's review intact; only a new motion replaces it.
+        if self.review_at_turn_start is not None:
+            self._pipeline().supersede_review(self.review_at_turn_start)
+            self.review_at_turn_start = None
 
     def cancel(self):
         with self.lock:
             self.generation += 1
             self.cancelled = True
+            self.final_plan_id = None
             if self.pipeline: self.pipeline.reset_planning(cancelled=True)
+
+    def reject_final_motion(self, message, generation):
+        """Spend the shared budget on malformed final data without keeping an old draft."""
+        with self.lock:
+            if generation != self.generation or self.cancelled:
+                return {"retry": False, "message": "Planning request was cancelled."}
+            self.final_plan_id = self.finished_turn = None
+            if self.submitted_id:
+                return {"retry": False, "message": "The tool-submitted proposal remains awaiting its own acceptance."}
+            try:
+                self._replace_previous_review()
+            except ValueError as exc:
+                return {"retry": False, "message": str(exc)}
+            self.plans += 1
+            self.last_blocker = {"state": "blocked", "message": message,
+                                 "retryable": self.plans < self.MAX_PLANS}
+            return {"retry": self.last_blocker["retryable"], "message": message}
+
+    def finish_turn(self, generation, *, has_motion=False):
+        """Publish the final validated tool draft when a successful model turn ends.
+
+        Intermediate drafts stay private to planning. A later failed revision,
+        cancellation or replacement turn must never promote an older valid path.
+        This only creates the human review; it cannot accept or execute it.
+        """
+        notice = None
+        with self.lock:
+            if generation != self.generation or self.cancelled or time.monotonic()-self.started > self.TURN_SECONDS:
+                return {"state": "cancelled", "message": "Planning request was cancelled or superseded."}
+            if self.finished_turn is not None:
+                return copy.deepcopy(self.finished_turn)
+            pipeline = self._pipeline()
+            if has_motion and not self.submitted_id:
+                try:
+                    self._replace_previous_review()
+                except ValueError as exc:
+                    return {"state": "blocked", "retryable": False, "message": str(exc)}
+            if self.submitted_id:
+                result = pipeline.motion_result(self.submitted_id)
+            else:
+                with pipeline.lock:
+                    proposal_id = pipeline.proposal["id"] if pipeline.proposal else None
+                if proposal_id:
+                    result = pipeline.motion_result(proposal_id)
+                elif has_motion:
+                    # A trajectory in the final reply supersedes an earlier tool draft.
+                    # It still has to spend the remaining planning budget and validate.
+                    result = ({"state": "none"} if self.plans < self.MAX_PLANS else
+                              {"state": "blocked", "retryable": False,
+                               "message": "Planning revision budget exhausted; no further path can be submitted."})
+                elif self.final_plan_id:
+                    try:
+                        result = pipeline.propose_motion(self.final_plan_id,
+                            f"turn-{generation}-{self.final_plan_id}", task=self.task)
+                        self.submitted_id = result["proposal_id"]
+                    except (ValueError, RuntimeError) as exc:
+                        result = {"state": "blocked", "retryable": self.plans < self.MAX_PLANS, "message": str(exc)}
+                        notice = result
+                elif self.last_blocker:
+                    result = {**copy.deepcopy(self.last_blocker), "state": "blocked"}
+                else:
+                    result = {"state": "none"}
+            self.finished_turn = copy.deepcopy(result)
+        if notice is not None:
+            self._planning_notice(notice, generation)
+        return result
+
+    def _planning_notice(self, result, generation):
+        with self.lock:
+            if generation != self.generation or self.cancelled:
+                return
+            callback = self.on_planning_event
+            event = {**copy.deepcopy(result), "attempt": self.plans, "max_attempts": self.MAX_PLANS,
+                     "generation": generation}
+        if callback:
+            try:
+                callback(event)
+            except Exception:
+                # A disconnected feedback consumer cannot alter planning or approval.
+                pass
 
     def _current(self):
         if (self.cancelled or getattr(self.current_call, "generation", self.generation) != self.generation
@@ -60,36 +161,85 @@ class ReinsTools:
 
     def call(self, name, arguments):
         if name not in TOOL_NAMES: raise ToolError(f"Unknown tool {name!r}")
-        if not isinstance(arguments, dict): raise ToolError("Tool arguments must be an object")
+        budget_error = None
         with self.lock:
+            planning = name.startswith("plan_")
+            if planning:
+                # Invalidate before budget/schema checks as those also reject a revision.
+                self.final_plan_id = None
+                self.finished_turn = None
+                self.plan_attempt += 1
+                attempt = self.plan_attempt
             if self.cancelled or time.monotonic()-self.started > self.TURN_SECONDS or self.calls >= self.MAX_CALLS:
-                raise ToolError("Planning budget ended. Explain what is missing; start a new user request to continue.")
-            self.calls += 1
-            if name.startswith("plan_"):
+                if planning:
+                    self.last_blocker = {"message": "Planning budget ended.", "retryable": False}
+                budget_error = "Planning budget ended. Explain what is missing; start a new user request to continue."
+            elif planning and self.plans >= self.MAX_PLANS:
+                self.last_blocker = {"message": "Planning revision budget exhausted; do not relax validation constraints", "retryable": False}
+                budget_error = self.last_blocker["message"]
+            else:
+                self.calls += 1
+            if planning and not budget_error:
                 self.plans += 1
-                if self.plans > self.MAX_PLANS: raise ToolError("Planning revision budget exhausted; do not relax validation constraints")
+                try:
+                    self._replace_previous_review()
+                except ValueError as exc:
+                    budget_error = str(exc)
             self.current_call.generation = self.generation
             if self.pipeline:
                 with self.pipeline.lock:
                     self.current_call.pipeline_generation = self.pipeline.generation
         started = time.time()
         try:
+            if budget_error:
+                raise ToolError(budget_error)
+            if not isinstance(arguments, dict):
+                raise ToolError("Tool arguments must be an object")
             result = getattr(self, name)(**arguments)
-            with self.lock: self._current()
+            with self.lock:
+                self._current()
+                if planning and attempt == self.plan_attempt:
+                    if result.get("state") == "draft":
+                        self.final_plan_id, self.last_blocker = result["plan_id"], None
+                    elif result.get("state") == "blocked":
+                        self.last_blocker = copy.deepcopy(result)
+                if name == "propose_motion":
+                    self.submitted_id = result["proposal_id"]
             self._record(name, arguments, result.get("state") != "blocked", result.get("message", result.get("state", "ok")), started)
+            if planning and result.get("state") == "blocked":
+                self._planning_notice(result, self.current_call.generation)
             return result
         except TypeError as exc:
             self._record(name,arguments,False,"Invalid arguments",started)
+            if planning:
+                self._failed_plan(f"Invalid arguments for {name}: {exc}", attempt)
             raise ToolError(f"Invalid arguments for {name}: {exc}") from None
         except (ValueError, KeyError, RuntimeError) as exc:
             self._record(name,arguments,False,str(exc),started)
+            if planning:
+                self._failed_plan(str(exc), attempt, retryable=False if budget_error else None)
+            elif name == "propose_motion":
+                with self.lock:
+                    if self.current_call.generation == self.generation:
+                        self.final_plan_id = None
+                        self.last_blocker = {"state": "blocked", "message": str(exc), "retryable": False}
             raise ToolError(str(exc)[:800]) from None
         finally:
             self.current_call.__dict__.clear()
 
+    def _failed_plan(self, message, attempt, retryable=None):
+        with self.lock:
+            generation = self.current_call.generation
+            if generation != self.generation or attempt != self.plan_attempt:
+                return
+            self.last_blocker = {"state": "blocked", "message": message,
+                                 "retryable": self.plans < self.MAX_PLANS if retryable is None else retryable}
+            result = copy.deepcopy(self.last_blocker)
+        self._planning_notice(result, generation)
+
     def _record(self, name, arguments, ok, summary, started):
         entry = {"tool": name,"ok": ok,"summary": str(summary)[:250],"at": started,
-                 "duration_s": round(time.time()-started,2),"arguments": {k:v for k,v in arguments.items() if k!="waypoints"}}
+                 "duration_s": round(time.time()-started,2),"arguments": {k:v for k,v in arguments.items() if k!="waypoints"} if isinstance(arguments,dict) else {}}
         with self.lock:
             self.log.append(entry); del self.log[:-self.LOG]
         if self.pipeline: self.pipeline._log({"type":"tool",**entry})
@@ -184,11 +334,11 @@ class ReinsTools:
                 with self.lock: generation = self._current()
                 result = work(generation)
                 return {**result,"execution_allowed":False,"requires_operator_approval":True,
-                    "next_step":"Preview or revise this draft. When the complete motion is ready, call propose_motion(plan_id,request_id)."}
+                    "next_step":"If the complete motion is ready, call propose_motion(plan_id,request_id) now. It automatically plays the preview and waits for one human Accept; no planning click is needed. Otherwise revise within the budget."}
             except (ValueError,RuntimeError) as exc:
                 return {"state":"blocked","retryable":self.plans<self.MAX_PLANS,"message":str(exc),
                     "failures":[{"stage":"compile_or_validate","error":str(exc),"details":getattr(exc,"details",{})}],
-                    "next_step":"Revise waypoints with plan_hand_path, or call observe for missing visual context. Preserve task and arm; never relax checks."}
+                    "next_step":"Automatically revise waypoints with plan_hand_path, or call observe for missing visual context, within the remaining budget. Do not ask the user to retry planning. Preserve task and arm; never relax checks."}
 
     def plan_hand_path(self,name,arm,waypoints,return_to_start,observation_id=None):
         draft = validate_trajectory({"name":name,"arm":arm,"frame":"robot_base","waypoints":waypoints,"return_to_start":return_to_start})
@@ -209,7 +359,7 @@ class ReinsTools:
         with self.lock:
             self._current()
             result = self._pipeline().propose_motion(plan_id,request_id,task=self.task)
-        return {**result,"next_step":"The complete motion awaits the human. Return a short explanation. Do not claim it ran. Its outcome is available through get_motion_result and conversation feedback."}
+        return {**result,"next_step":"The complete motion is playing as a preview and awaits one human Accept in the dashboard or glasses. Return a short explanation; do not ask for any extra preview or submission clicks or claim it ran. Its outcome is available through get_motion_result and conversation feedback."}
 
     def get_motion_result(self,proposal_id):
         return self._pipeline().motion_result(proposal_id)

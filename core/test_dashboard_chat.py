@@ -61,9 +61,9 @@ class TransportTests(unittest.TestCase):
             with patch('urllib.request.urlopen',return_value=self.provider({'reply':'ok','robot_request':{'execute':True}})):
                 with self.assertRaises(ValueError):respond_openai([], {})
 
-    def test_unsupported_suggestion_is_removed_but_answer_is_kept(self):
-        reply=validate_reply({'reply':'We can discuss walking.', 'robot_request':'walk forwards'})
-        self.assertIn('We can discuss walking.',reply['reply']);self.assertIsNone(reply['robot_request'])
+    def test_novel_motion_is_preserved_for_automatic_authoring(self):
+        reply=validate_reply({'reply':'I will plan this gesture.', 'robot_request':'blow a kiss'})
+        self.assertEqual(reply['robot_request'],'blow a kiss')
         self.assertEqual(validate_reply({'reply':'Here is a suggestion.', 'robot_request':'wave your left hand'})['robot_request'],'wave your left hand')
 
 
@@ -126,6 +126,45 @@ class ConversationTests(unittest.TestCase):
         with patch.dict(os.environ,{},clear=True):
             with self.assertRaisesRegex(ValueError,'OPENAI_API_KEY'):chat.send('Hello')
         self.assertFalse(chat.status()['messages']);chat.responder.assert_not_called()
+
+    def test_reply_hook_gets_turn_token_and_stale_reply_never_submits(self):
+        chat=DashboardChat(responder=Mock(return_value=REPLY))
+        chat.before_turn=Mock(return_value=42);chat.on_reply=Mock(return_value=None)
+        chat.send('Hello');self.wait(chat)
+        chat.on_reply.assert_called_once_with(REPLY,42)
+        entered=threading.Event();release=threading.Event()
+        self.addCleanup(release.set)
+        def respond(*args):entered.set();release.wait(2);return REPLY
+        chat.responder=respond;chat.on_reply.reset_mock();chat.on_cancel=Mock()
+        chat.send('Prepare motion');self.assertTrue(entered.wait(1));chat.clear()
+        release.set();self.wait(chat)
+        chat.on_cancel.assert_called_once();chat.on_reply.assert_not_called()
+
+    def test_automatic_revision_preserves_turn_and_stops_at_limit(self):
+        chat=DashboardChat(responder=Mock(return_value=REPLY))
+        chat.before_turn=Mock(return_value=8)
+        chat.on_reply=Mock(return_value={'retry':True,'message':'Waypoint unreachable'})
+        chat.send('Blow a kiss');status=self.wait(chat)
+        self.assertEqual(chat.responder.call_count,3)
+        chat.before_turn.assert_called_once_with('Blow a kiss')
+        self.assertTrue(all(call.args[1]==8 for call in chat.on_reply.call_args_list))
+        self.assertIn('retry limit',status['messages'][-1]['text'])
+        self.assertIn('Waypoint unreachable',status['messages'][-1]['text'])
+        self.assertFalse(status['error'])
+
+    def test_malformed_final_waypoints_are_repaired_without_a_click(self):
+        from core.test_generated_motion import ANSWER
+        import copy
+        malformed=copy.deepcopy(ANSWER)
+        malformed['trajectory']['waypoints'][0]['position_m'][2]=-.1
+        chat=DashboardChat(responder=Mock(side_effect=[malformed,ANSWER]))
+        chat.before_turn=Mock(return_value=9);chat.on_reply=Mock(return_value=None)
+        chat.send('Blow a kiss');status=self.wait(chat)
+        self.assertIsNone(status['error'])
+        self.assertEqual(chat.responder.call_count,2)
+        chat.before_turn.assert_called_once()
+        chat.on_reply.assert_called_once_with(ANSWER,9)
+        self.assertTrue(any('above the floor' in m['text'] for m in status['messages']))
 
 
 if __name__=='__main__':unittest.main()

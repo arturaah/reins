@@ -161,15 +161,69 @@ class PipelineTests(unittest.TestCase):
         self.pipe._update_robot_state({**self.pipe.backend.snapshot(),'walked_m':self.pipe.cfg['locomotion']['max_total_m']})
         with self.assertRaisesRegex(ValueError,'budget'): self.pipe.prepare_walk(.1,0,0)
 
-    def test_primary_ui_path_yields_draft_not_per_step_review(self):
+    def test_primary_chat_path_automatically_previews_and_waits_for_one_accept(self):
+        before = self.pipe.backend.joints()
         self.planner.submit("Blow a kiss",trajectory=DRAFT)
-        self.wait("draft","blocked")
-        self.assertIsNotNone(self.pipe.draft)
-        self.assertIsNone(self.pipe.proposal)
-        # Compilation publishes the draft before its preview callback finishes.
-        end = time.monotonic()+3
-        while not self.sim.playing and time.monotonic()<end: time.sleep(.01)
+        status = self.wait("review","blocked")
+        self.assertEqual(status["state"],"review",status)
+        self.assertIsNotNone(self.pipe.proposal)
         self.assertTrue(self.sim.playing)
+        self.assertEqual(self.pipe.glasses_message()["review"]["id"],self.pipe.proposal["id"])
+        self.assertEqual(self.pipe.backend.joints(),before)
+        proposal = copy.deepcopy(self.pipe.proposal)
+        # A repeated completion callback neither creates another review nor blocks this one.
+        self.pipe.planned(self.planner.status(),self.planner.plan)
+        self.assertEqual(self.pipe.proposal,proposal)
+        self.assertEqual(self.pipe.state,"review")
+        self.assertEqual(self.approve(proposal)["state"],"completed")
+
+    def test_primary_planning_failure_reports_reason_without_review_or_motion(self):
+        callback = Mock()
+        self.pipe.on_planning_blocked = callback
+        before = self.pipe.backend.joints()
+        self.planner.submit("touch the bottle",source="camera")
+        status = self.wait("blocked")
+        end = time.monotonic()+2
+        while not callback.called and time.monotonic()<end: time.sleep(.01)
+        self.assertIn("No calibrated depth",status["message"])
+        callback.assert_called_once()
+        self.assertEqual(callback.call_args.args[0]["state"],"blocked")
+        self.assertIsNone(self.pipe.proposal)
+        self.assertEqual(self.pipe.backend.joints(),before)
+
+    def test_workspace_rejection_is_revised_before_automatic_review(self):
+        # Only the first draft is rejected by policy; the real compiler validates both.
+        from core.motion_policy import check_waypoints
+        count = [0]
+        def policy(*args):
+            count[0] += 1
+            if count[0] == 1: raise ValueError("Waypoint 2 is outside the configured workspace")
+            return check_waypoints(*args)
+        repair = Mock(return_value=DRAFT)
+        with patch("core.robot_pipeline.check_waypoints",side_effect=policy):
+            self.planner.submit("Blow a kiss",trajectory=DRAFT,reviser=repair)
+            status = self.wait("review","blocked")
+        self.assertEqual(status["state"],"review",status)
+        repair.assert_called_once()
+        self.assertEqual(repair.call_args.args[2][0]["details"]["stage"],"workspace_policy")
+        self.assertEqual(self.planner.status()["attempt"],2)
+
+    def test_new_turn_cancels_old_primary_revision_and_discards_late_result(self):
+        from core.test_trajectory_revision import UNREACHABLE
+        entered,release = threading.Event(),threading.Event()
+        def revise(*args):
+            entered.set(); release.wait(3)
+            return DRAFT
+        self.planner.submit("Blow a kiss",trajectory=UNREACHABLE,reviser=revise)
+        self.assertTrue(entered.wait(3))
+        old_generation = self.planner.status()["pipeline_generation"]
+        self.pipe.reset_planning()
+        release.set()
+        self.planner.worker.join(4)
+        self.assertGreater(self.pipe.generation,old_generation)
+        self.assertIsNone(self.pipe.proposal)
+        self.assertIsNone(self.pipe.draft)
+        self.assertFalse(self.sim.playing)
 
     def test_idempotent_submission_and_terminal_result_do_not_repeat_motion(self):
         robot = self.live(); d = self.draft()

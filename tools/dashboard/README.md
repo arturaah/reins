@@ -2,8 +2,8 @@
 
 The dashboard is the operator interface for one reviewed motion pipeline. The
 assistant can observe cameras, detect objects, compile paths with core IK,
-inspect rejection reasons and revise drafts. A complete motion becomes a
-proposal only when it is submitted for human review.
+inspect rejection reasons and revise drafts. A complete validated motion
+automatically plays as a proposal and waits for one human **Accept**.
 
 ## Start locally
 
@@ -20,18 +20,20 @@ chat selector. The optional provider SDKs and credentials depend on that choice.
 The HTTP API listens on loopback. An occupied default port advances through
 8091–8099; `--port 0` chooses a free one. No JavaScript build is required.
 
-## Prompt → preview → approve and run
+## Prompt → automatic plan and preview → Accept and run
 
-1. Describe a task in chat. The assistant chooses observations and planning tools;
-   planning and revisions do not need approvals.
-2. Inspect the draft in MuJoCo or paired glasses. A draft cannot be approved.
-3. The assistant submits the complete motion with `propose_motion`. For a manual
-   chat suggestion, **Generate preview** creates a draft and **Submit complete
-   motion for review** submits it. Robot control buttons submit their short motion
-   directly for review.
-4. Approve or reject once, in the dashboard or glasses. The decision binds the
-   complete motion, revision and digest. Any further motion needs a new proposal.
-5. The coordinator rechecks the current pose and validation, runs the approved
+1. Describe a task in chat. The assistant calls `plan_hand_path` and the other
+   planning tools itself. A final reply containing a motion is also submitted to
+   the planner automatically. Planning and revisions do not need approvals.
+2. The validated complete proposal plays in MuJoCo and paired glasses on its own.
+   Planning errors appear in chat and the assistant revises within a retry limit.
+   There is no Generate preview, Show once or Submit step. Robot control buttons
+   submit their short motion through the same preview and approval boundary.
+3. Select **Accept & run in simulation** or **Accept & run on robot**, depending
+   on the current mode. A glasses acceptance pinch is the same single decision.
+   It binds the complete motion, revision and digest; further motion needs a new
+   proposal. An exhausted planning failure has no Accept button.
+4. The coordinator rechecks the current pose and validation, runs the approved
    motion, and returns measured feedback. The last outcome remains visible.
 
 There is no per-step camera fallback or permission to keep steering after
@@ -42,6 +44,9 @@ preset or alter a pending approved path.
 Approvals expire after two minutes. A changed start pose invalidates execution;
 no unseen approach motion is added. **Stop / release** cancels the current work
 and invalidates its proposal. Escape also stops connected control.
+Ask in chat to change a pending motion: the new motion request replaces its review
+automatically. Ordinary conversation preserves the review; an accepted or running
+motion cannot be replaced by a later model response.
 
 There is no replay library or recording UI. Diagnostic proposals, decisions and
 measured results are retained by the coordinator for debugging.
@@ -72,10 +77,12 @@ Walking previews show planned base displacement, not simulated gait, balance or
 foot contact. Hand actions show their description; the A5 model has no animated
 finger joints. Disabled capabilities cannot be enabled by model text.
 
-Firmware presets remain separate human buttons and are coordinated by the same
-pipeline ownership gate. They run onboard; the dashboard does not possess their
-joint trajectory. Their **Release arms** preset is distinct from stopping a
-reviewed trajectory. Follow the current controller state reported by the robot.
+Firmware preset buttons select an onboard action and wait for the same single
+**Accept & run on robot**. Their paths are opaque, so their review describes the
+action without inventing a trajectory preview. Their **Release arms** preset is
+distinct from stopping a reviewed trajectory. Follow the current controller
+state reported by the robot. Once an onboard preset is dispatched, interrupt it
+with the Unitree controller; cancelling the dashboard cannot retract that RPC.
 
 Arm validation checks sampled motion, robot geometry and the configured table
 volume. RGB detections locate objects in an image, not in 3D. Image-guided motions
@@ -93,9 +100,11 @@ same port.
 3. Save the displayed `deviceId` and `reviewToken` in the updated
    `spectacles/Assets/R1Trajectory.js` Inspector inputs. The token is displayed
    once; the dashboard stores its hash.
-4. Scan the shoulder markers. Draft paths are labelled as drafts; only the
-   complete proposal can be approved or rejected.
-5. Double-pinch right to approve or left to reject the current complete proposal.
+4. Scan the shoulder markers. The validated proposal preview plays automatically;
+   intermediate planning drafts are labelled separately and cannot execute.
+5. Pinch right once to Accept the complete proposal, the same action as the
+   dashboard's mode-specific Accept button. A left pinch declines it. Without a
+   proposal, double-pinch still starts voice input.
 
 Pairing survives restarts. Revoke a device in Connections to close its active
 session and remove its authority. Pairing metadata is stored under

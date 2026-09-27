@@ -1,9 +1,10 @@
 # Core planning and reviewed control
 
 The dashboard runs one agent/tool loop. The model chooses when to observe,
-detect objects, compile a path, inspect rejection reasons and preview a draft.
-It submits one finished motion with `propose_motion`; only the operator can
-approve it. See the [dashboard guide](../tools/dashboard/README.md).
+detect objects, compile a path and revise from rejection reasons within a bounded
+budget. A completed validated motion automatically becomes a proposal and plays
+in MuJoCo and paired glasses. One operator **Accept** runs it in the selected mode.
+See the [dashboard guide](../tools/dashboard/README.md).
 
 ## Components
 
@@ -13,7 +14,7 @@ approve it. See the [dashboard guide](../tools/dashboard/README.md).
 | `dashboard_chat.py`, `codex_chat.py`, `claude_chat.py` | Chat/provider lifecycle, cancellation and outcome feedback |
 | `ik.py`, `generated_motion.py` | A5 hand-position IK and authored multi-waypoint gestures |
 | `trajectory.py`, `motion_validation.py`, `motion_policy.py` | Exact sample resolution, joint/dynamics/model collision checks, workspace/table and base-motion policy |
-| `robot_pipeline.py` | Immutable drafts, explicit proposal submission, one human review, rechecks, execution and results |
+| `robot_pipeline.py` | Immutable drafts, automatic proposal preview, one human Accept, rechecks, execution and results |
 | `glasses_bridge.py`, `glasses_pairing.py` | Paired AR review and voice input with session/revision binding and revocation |
 | `object_detection.py`, `detection_stream.py` | Local 2D detection and freshness-labelled image results |
 | `contract/runtime.py` | Shared arm/base/hand payload and coordinator-approval validation |
@@ -28,11 +29,15 @@ pose rendering gives an object's measured position in robot-base metres.
 1. `plan_hand_path` compiles all waypoints, pauses and any return using core IK.
    It validates the resolved single-arm trajectory and returns a server-owned
    draft ID. Failures return details for revision; they never relax constraints.
-2. `preview_plan` displays that draft in MuJoCo and paired glasses. A draft is
-   not an active approval request and cannot execute.
-3. `propose_motion(plan_id, request_id)` freezes the motion for review. Retrying
-   a request ID is idempotent. Any different motion needs a new draft/proposal.
-4. A dashboard or paired-glasses decision binds the proposal's revision and
+2. The model calls `propose_motion(plan_id, request_id)` when the complete motion
+   is ready. The host also finalizes its latest valid draft after a successful
+   model turn if the model omitted submission. An intermediate draft is not an
+   approval request; a later failed revision prevents automatic submission of an
+   older valid draft. `preview_plan` remains an optional model inspection tool.
+3. Submission freezes the motion for review and automatically plays its preview
+   in MuJoCo and paired glasses. Retrying a request ID is idempotent. Any different
+   motion needs a new draft/proposal. No Generate, Show once or Submit click exists.
+4. A single dashboard **Accept** or glasses acceptance pinch binds the revision and
    digest. Execution rechecks expiry, cancellation, measured starting pose,
    observation availability and deterministic validation before sending the
    same payload through the private actuator connection.
@@ -45,9 +50,11 @@ path and odometry feedback; it is not obstacle-aware navigation. Revo2 actions
 use configured open/close poses, not contact-aware grasp synthesis. Firmware
 presets are operator-only and separate from the model tools.
 
-The optional `prompt_planner.py` adapter still supports simple local gestures
-and structured chat suggestions. Its successful output becomes a draft, not an
-automatically executable proposal. The old incremental `visual_policy.py` adapter
+The `prompt_planner.py` adapter supports simple local gestures and final chat
+replies containing `trajectory` or `robot_request`. These are submitted to planning
+automatically; validated output becomes a previewing proposal awaiting Accept.
+Planning failures appear in chat and drive bounded automatic revision without
+extra user clicks. The old incremental `visual_policy.py` adapter
 is retained for reference/offline work and is not the live dashboard fallback.
 
 ## Motion checks and limits

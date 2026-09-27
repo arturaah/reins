@@ -34,7 +34,7 @@ ANSWER = {'reply': 'I drafted a non-contact arm gesture. Prepare its preview to 
 
 class DraftTests(unittest.TestCase):
     def test_novel_motion_is_not_filtered_through_builtin_router(self):
-        with patch('core.dashboard_chat.route_intent', side_effect=AssertionError('builtin router called')):
+        with patch('core.action_context.route_intent', side_effect=AssertionError('builtin router called')):
             result = validate_reply(ANSWER)
         self.assertEqual(result['trajectory'], DRAFT)
         result['trajectory']['waypoints'][0]['position_m'][0] = 99
@@ -55,8 +55,7 @@ class DraftTests(unittest.TestCase):
         for draft in bad:
             with self.subTest(draft=draft), self.assertRaises(ValueError):
                 validate_trajectory(draft)
-        with self.assertRaisesRegex(ValueError, 'description'):
-            validate_reply({**ANSWER, 'robot_request': None})
+        self.assertEqual(validate_reply({**ANSWER, 'robot_request': None})['robot_request'], DRAFT['name'])
 
     def test_history_carries_draft_and_rejects_stale_or_cleared_suggestions(self):
         provider = Mock(side_effect=[ANSWER, {'reply': 'Hello', 'robot_request': None}])

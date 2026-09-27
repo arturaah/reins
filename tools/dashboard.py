@@ -441,13 +441,8 @@ def main():
     from harness.config import load as load_harness_config
     pipeline = RobotPipeline(prompt_planner, sim, feeds, args.iface, cfg=load_harness_config(args.harness_config),
                              simulation_only=args.sim)
-    chat.before_turn = reins_tools.begin_turn
-    chat.on_cancel = reins_tools.cancel
-    pipeline.on_result = chat.record_motion_result
-    pipeline.on_stop = chat.cancel
-    prompt_planner.reviser_factory = chat.motion_reviser
-    reins_tools.pipeline = pipeline
-    reins_tools.show_proposal = pipeline.show_primary
+    from core.dashboard_workflow import bind_motion_workflow
+    bind_motion_workflow(chat, reins_tools, prompt_planner, pipeline)
     measured_view = measured_thread = None
     if not args.sim and not args.twin:
         def measured_state():
@@ -604,9 +599,6 @@ def main():
                             sim.control({'action':'stop'})
                         pipeline.stop()
                         return self.send(prompt_planner.status())
-                    if action == 'preview':
-                        pipeline.show_primary(None, command.get('id'))
-                        return self.send(prompt_planner.show_once(command.get('id'), pipeline.show_primary))
                     raise ValueError('Unknown prompt action')
                 if self.path == '/api/control':
                     sim.control(command)

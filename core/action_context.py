@@ -51,7 +51,7 @@ def route_intent(prompt):
         return {'skill':name, 'arm':arm, 'selector':selector}
     if text.startswith('wave at ') or text.startswith('wave to '):
         raise ValueError('Waving at a specific person requires directed-gesture support. Use “point at the person” or a standalone “wave”.')
-    raise ValueError('Direct commands: wave, raise your left/right arm, point at, touch or approach an object. For a new gesture or compound arm sequence, ask in chat and click Generate preview on the reply.')
+    raise ValueError('No built-in path for this request. Author a new single-arm trajectory from the current robot geometry, then validate it for automatic preview.')
 
 
 def joint_skill_plan(ik, side, poses, pose, name):

@@ -53,6 +53,16 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(spec['inputSchema']['type'], 'object')
         self.assertNotIn('execute', ' '.join(TOOL_NAMES)); self.assertNotIn('gesture', ' '.join(TOOL_NAMES))
 
+    def test_malformed_final_reply_invalidates_earlier_tool_draft_and_spends_budget(self):
+        turn = self.tools.begin_turn('Plan a kiss')
+        draft = self.tools.call('plan_hand_path', {k: v for k, v in DRAFT.items() if k != 'frame'})
+        self.assertEqual(draft['state'], 'draft')
+        rejected = self.tools.reject_final_motion('Waypoint below floor', turn)
+        self.assertTrue(rejected['retry'])
+        self.assertEqual(self.tools.plans, 2)
+        self.assertEqual(self.tools.finish_turn(turn)['state'], 'blocked')
+        self.assertIsNone(self.pipeline.proposal)
+
     def test_context_and_guidance_say_there_is_no_depth(self):
         from core.tool_specs import INSTRUCTIONS
         context = self.tools.call('get_robot_context', {})
@@ -100,6 +110,88 @@ class ToolTests(unittest.TestCase):
         self.assertTrue(result['retryable'])
         self.assertIn('Waypoint 1', result['failures'][0]['error'])
         self.assertIn('plan_hand_path', result['next_step'])
+
+    def test_completed_tool_turn_automatically_previews_and_waits_for_accept(self):
+        token = self.tools.begin_turn('Blow a kiss')
+        draft = self.tools.call('plan_hand_path', {k:v for k,v in DRAFT.items() if k != 'frame'})
+        self.assertEqual(draft['state'], 'draft')
+        self.assertIsNone(self.pipeline.proposal)
+        result = self.tools.finish_turn(token)
+        self.assertEqual(result['state'], 'review')
+        self.assertTrue(self.pipeline.sim.playing)
+        self.assertIsNotNone(self.pipeline.glasses_message()['review'])
+        self.assertIsNone(self.pipeline.decision)
+        self.assertEqual(self.tools.finish_turn(token), result)
+        self.assertEqual(self.pipeline.revision, 1)
+
+    def test_failed_revision_never_promotes_previous_valid_draft(self):
+        notices = []
+        self.tools.on_planning_event = notices.append
+        token = self.tools.begin_turn('Blow a kiss, then revise it')
+        self.tools.call('plan_hand_path', {k:v for k,v in DRAFT.items() if k != 'frame'})
+        failure = self.tools.call('plan_hand_path', {'name': 'Too far', 'arm': 'right', 'return_to_start': False,
+                                                  'waypoints': [{'position_m': [1.5, -.2, 1.0], 'hold_s': 0}]})
+        result = self.tools.finish_turn(token)
+        self.assertEqual(result['state'], 'blocked')
+        self.assertEqual(result['message'], failure['message'])
+        self.assertIsNone(self.pipeline.proposal)
+        self.assertEqual(notices[0]['generation'], token)
+        self.assertEqual(notices[0]['attempt'], 2)
+        # An automatic continuation shares the budget and can finish a repaired path.
+        self.tools.call('plan_hand_path', {k:v for k,v in DRAFT.items() if k != 'frame'})
+        self.assertEqual(self.tools.finish_turn(token)['state'], 'review')
+        self.assertEqual(self.tools.plans, 3)
+
+    def test_invalid_or_budget_rejected_revision_clears_final_candidate(self):
+        args = {k:v for k,v in DRAFT.items() if k != 'frame'}
+        token = self.tools.begin_turn('Blow a kiss')
+        self.tools.call('plan_hand_path', args)
+        with self.assertRaises(ToolError):
+            self.tools.call('plan_hand_path', None)
+        self.assertEqual(self.tools.finish_turn(token)['state'], 'blocked')
+        self.assertIsNone(self.pipeline.proposal)
+        token = self.tools.begin_turn('Try again')
+        self.tools.MAX_PLANS = 1
+        self.tools.call('plan_hand_path', args)
+        with self.assertRaisesRegex(ToolError, 'budget'):
+            self.tools.call('plan_hand_path', args)
+        result = self.tools.finish_turn(token)
+        self.assertEqual(result['state'], 'blocked')
+        self.assertFalse(result['retryable'])
+        self.assertIsNone(self.pipeline.proposal)
+
+    def test_final_reply_motion_supersedes_tool_draft_without_resetting_budget(self):
+        token = self.tools.begin_turn('Blow a kiss')
+        self.tools.call('plan_hand_path', {k:v for k,v in DRAFT.items() if k != 'frame'})
+        self.assertEqual(self.tools.finish_turn(token, has_motion=True)['state'], 'none')
+        self.assertIsNone(self.pipeline.proposal)
+        self.assertEqual(self.tools.plans, 1)
+        token = self.tools.begin_turn('Only one attempt')
+        self.tools.MAX_PLANS = 1
+        self.tools.call('plan_hand_path', {k:v for k,v in DRAFT.items() if k != 'frame'})
+        self.assertEqual(self.tools.finish_turn(token, has_motion=True)['state'], 'blocked')
+        self.assertIsNone(self.pipeline.proposal)
+
+    def test_completed_explicit_proposal_is_not_submitted_again(self):
+        token = self.tools.begin_turn('Blow a kiss')
+        draft = self.tools.call('plan_hand_path', {k:v for k,v in DRAFT.items() if k != 'frame'})
+        proposal = self.tools.call('propose_motion', {'plan_id': draft['plan_id'], 'request_id': 'one-review'})
+        p = proposal['proposal']
+        self.pipeline.decide(p['id'], p['digest'], 'decline')
+        result = self.tools.finish_turn(token, has_motion=True)
+        self.assertEqual(result['outcome'], 'declined')
+        self.assertIsNone(self.pipeline.proposal)
+        self.assertEqual(self.pipeline.revision, 1)
+
+    def test_stale_completed_turn_cannot_submit_a_new_turn_draft(self):
+        old_token = self.tools.begin_turn('First task')
+        token = self.tools.begin_turn('Replacement')
+        self.tools.call('plan_hand_path', {k:v for k,v in DRAFT.items() if k != 'frame'})
+        self.assertEqual(self.tools.finish_turn(old_token)['state'], 'cancelled')
+        self.assertIsNone(self.pipeline.proposal)
+        self.tools.cancel()
+        self.assertEqual(self.tools.finish_turn(token)['state'], 'cancelled')
+        self.assertIsNone(self.pipeline.proposal)
 
     def test_observe_returns_images_and_detection_uses_the_exact_frame(self):
         import base64
@@ -294,7 +386,8 @@ class CliWiringTests(unittest.TestCase):
         bridge = ClaudeResponder(INSTRUCTIONS, SCHEMA); bridge.binary = 'claude'
         with tempfile.TemporaryDirectory() as tmp:
             args = bridge.command(Path(tmp) / 'reply.schema.json')
-        self.assertNotIn('--mcp-config', args); self.assertNotIn('plan_hand_path', bridge.instructions)
+        self.assertNotIn('--mcp-config', args)
+        self.assertNotIn('You are the planning agent in Reins.', bridge.instructions)
 
 
 if __name__ == '__main__':

@@ -13,6 +13,7 @@ from core.codex_chat import CodexResponder, ToolLink
 from core.claude_chat import ClaudeResponder
 from core.dashboard_chat import DashboardChat, TrajectoryReviser
 from core.ik import ArmIK
+from core.motion_validation import MotionRejected
 from core.perception import PerceptionError
 from core.prompt_planner import PromptPlanner
 from core.test_generated_motion import DRAFT, ANSWER
@@ -73,6 +74,100 @@ class RevisionTests(unittest.TestCase):
                 planner.show_once(status['id'], shown)
             self.assertEqual(list(Path(tmp).iterdir()), [])
 
+    def test_novel_text_request_authors_then_revises_without_preview_click(self):
+        authored = iter([UNREACHABLE,DRAFT])
+        calls = []
+        def revise(*args):
+            calls.append(args)
+            return next(authored)
+        planner = PromptPlanner()
+        planner.reviser_factory = lambda: revise
+        events = []
+        planner.on_event = lambda status: events.append(status)
+        planner.submit("Blow a kiss")
+        status = self.wait(planner)
+        self.assertEqual(status['state'],'proposed',status)
+        self.assertEqual(status['attempt'],2)
+        self.assertIsNone(calls[0][1])
+        self.assertEqual(calls[0][2][0]['stage'],'author')
+        self.assertEqual(calls[1][1],UNREACHABLE)
+        self.assertEqual(planner.plan['generated_trajectory'],DRAFT)
+        self.assertTrue(any(e['stage']=='revise' and e['failures'] for e in events))
+
+    def test_recognized_gesture_failure_authors_another_path_within_total_budget(self):
+        repair = Mock(side_effect=[UNREACHABLE,DRAFT])
+        planner = PromptPlanner()
+        with patch('core.prompt_planner.gesture_plan',side_effect=MotionRejected('Original wave has insufficient clearance')):
+            planner.submit('Wave right hand',reviser=repair)
+            status = self.wait(planner)
+        self.assertEqual(status['state'],'proposed',status)
+        self.assertEqual(status['attempt'],3)
+        self.assertEqual(status['max_attempts'],3)
+        self.assertEqual(repair.call_count,2)
+        first = repair.call_args_list[0].args
+        self.assertIsNone(first[1])
+        self.assertIn('Original wave',first[2][0]['error'])
+        self.assertEqual(first[3]['planning_context']['requested_arm'],'right')
+        self.assertEqual(len(repair.call_args_list[1].args[2]),2)
+        self.assertEqual(planner.plan['generated_trajectory'],DRAFT)
+        self.assertFalse(status['execution_allowed'])
+
+    def test_recognized_gesture_cannot_exceed_budget_or_switch_requested_arm(self):
+        for limit, candidate in [(1,DRAFT),(3,{**DRAFT,'arm':'left'})]:
+            with self.subTest(limit=limit):
+                repair=Mock(return_value=candidate)
+                planner=PromptPlanner()
+                with patch('core.prompt_planner.gesture_plan',side_effect=MotionRejected('Clearance blocked')):
+                    planner.submit('Wave right hand',reviser=repair,attempt_limit=limit)
+                    status=self.wait(planner)
+                self.assertEqual(status['state'],'blocked')
+                self.assertIsNone(planner.plan)
+                if limit==1:
+                    repair.assert_not_called()
+                    self.assertEqual(status['attempt'],1)
+                else:
+                    repair.assert_called_once()
+                    self.assertIn('requested arm',status['message'])
+
+    def test_recognized_context_failure_is_given_to_model_without_invented_scene(self):
+        repair=Mock(side_effect=ValueError('A fresh camera observation is needed to point at the cup'))
+        planner=PromptPlanner()
+        planner.submit('Point at the cup with right hand',reviser=repair)
+        status=self.wait(planner)
+        repair.assert_called_once()
+        prompt,draft,failures,geometry=repair.call_args.args
+        self.assertEqual(prompt,'Point at the cup with right hand')
+        self.assertIsNone(draft)
+        self.assertIn('No calibrated depth source',failures[0]['error'])
+        self.assertIn('not a current camera image',geometry['planning_context']['note'])
+        self.assertEqual(status['state'],'blocked')
+        self.assertIn('fresh camera',status['message'])
+        self.assertIsNone(planner.plan)
+
+    def test_cancel_during_recognized_gesture_authoring_discards_result(self):
+        entered,release=threading.Event(),threading.Event()
+        def repair(*args):
+            entered.set();release.wait(3)
+            return DRAFT
+        planner=PromptPlanner()
+        with patch('core.prompt_planner.gesture_plan',side_effect=MotionRejected('Clearance blocked')):
+            planner.submit('Wave right hand',reviser=repair)
+            self.assertTrue(entered.wait(2))
+            planner.cancel();release.set()
+            status=self.wait(planner)
+        self.assertEqual(status['state'],'cancelled')
+        self.assertIsNone(planner.plan)
+
+    def test_cancel_by_job_id_cannot_cancel_newer_planning_job(self):
+        planner = PromptPlanner()
+        planner.submit('Blow a kiss',trajectory=DRAFT)
+        old = self.wait(planner)['id']
+        planner.worker.join(2)
+        planner.submit('Blow a kiss',trajectory=DRAFT)
+        planner.cancel(job_id=old)
+        self.assertEqual(self.wait(planner)['state'],'proposed')
+        self.assertFalse(planner.cancelled.is_set())
+
     def test_repeated_failure_stops_after_three_attempts(self):
         repair = Mock(return_value=UNREACHABLE)
         planner = PromptPlanner()
@@ -85,6 +180,18 @@ class RevisionTests(unittest.TestCase):
         self.assertIn('after 3 attempt', status['message'])
         self.assertRegex(status['message'], 'unreachable|joints jump')
         self.assertIsNone(planner.plan)
+
+    def test_remaining_attempt_budget_is_respected(self):
+        repair = Mock(return_value=UNREACHABLE)
+        planner = PromptPlanner()
+        planner.submit('Blow a kiss',trajectory=UNREACHABLE,reviser=repair,attempt_limit=2)
+        status = self.wait(planner)
+        self.assertEqual(status['state'],'blocked')
+        self.assertEqual(status['attempt'],2)
+        repair.assert_called_once()
+        for limit in (0,4,True):
+            with self.assertRaisesRegex(ValueError,'attempt limit'):
+                planner.submit('Blow a kiss',trajectory=DRAFT,attempt_limit=limit)
 
     def test_first_success_never_calls_revision_provider(self):
         factory = Mock()
