@@ -28,6 +28,8 @@ from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+from spectacles.voice_inbox import VoiceInbox
 PY = os.path.join(ROOT, ".venv/bin/python")
 STREAMS = {"head": "http://localhost:8081/cam", "twin": "http://localhost:8082/twin",
            "wrist_l": "http://localhost:8080/cam/0", "wrist_r": "http://localhost:8080/cam/2"}
@@ -100,6 +102,7 @@ _, wr_lbl = tile(row, "wrist_r", "Right wrist"); _.pack(side="left")
 # ---- AI pane (under the cameras): a VLM drives one arm through the harness, one accepted move at a time ------
 PREVIEW = "runs/ui_preview.json"                      # each proposal, as a plan file the twin previews (hold=1)
 SPECTACLES_REVIEW = "runs/spectacles_review.json"
+VOICE_INBOX = VoiceInbox(os.path.join(ROOT, "runs/spectacles_voice.json"))
 AI_LOG = "/tmp/harness_ui.log"                        # every line of every AI session (the pane's log is not kept otherwise)
 ai = {"p": None, "pending": False, "streamer": None}
 aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
@@ -525,6 +528,14 @@ def drain():
         pass
     if proc["t0"]:
         rec_lbl.configure(text=f"● {proc['kind'].upper()}  {proc['result']}   {time.time() - proc['t0']:3.0f} / {proc['secs']:g} s")
+    if not ai_running() and not (proc["p"] and proc["p"].poll() is None):
+        command = VOICE_INBOX.take()
+        if command and isinstance(command.get("text"), str):
+            ai_mode.set("dry run")
+            ai_task.set(command["text"] + " (Voice request: use only the arm motions this harness supports; "
+                        "if walking or turning the robot base is required, explain that limitation and do not substitute an arm action.)")
+            ai_log("\n🎙 Spectacles request: " + command["text"] + "\n")
+            ai_run()
     root.after(100, drain)
 
 _resize = {"job": None}

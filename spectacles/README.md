@@ -110,11 +110,16 @@ The path starts at the reported hand, not the tag. The tag-to-robot offsets are 
 
 The desktop AI pane already asks Accept/Reject at each `PROPOSAL` before the harness can send an arm move. The Lens now shows that same pending proposal with its hand path. Spectacles' built-in Gesture Module supports pinches; it does not provide a built-in thumbs-up/down classifier. **Pinch the right hand twice within four seconds to Accept, or the left hand twice to Reject.** The first pinch only selects the choice; the second sends it. The card appears only while a proposal is pending. Scan both shoulder tags first so the path is calibrated; the gestures are ignored otherwise. A lost network connection also disables glasses decisions. The desktop buttons and `x` e-stop remain available.
 
+When there is no proposal to review, **double-pinch the right hand to start listening**, speak a request, then **double-pinch the right hand again to send** its transcript to Claude on Artur's Mac. A left-hand pinch cancels dictation. The Lens uses Spectacles' AsrModule and shows the live transcript in a head-following card; microphone permission and internet access are needed on Spectacles. The phone and USB cable are not the audio transport. The feed acknowledges when it has queued the text; Artur's Reins desktop UI consumes the mailbox and starts a **dry-run** Claude session, so speech by itself cannot move the robot. A new proposal then appears in the glasses for review. If the UI is already busy, one spoken request waits in the mailbox; a second is rejected until the first is consumed. This path uses Claude CLI on Artur's Mac and does not need the separate GPT-Live PR's OpenAI or Tyto keys. The merged `voice/` service remains an optional computer-microphone prototype.
+
+The current Claude harness controls one arm. The walking code in this repo previews supplied `base_keyframes` in AR, but the harness cannot yet plan or execute a spoken walking request. A request such as “walk one metre forward and turn around” can be transcribed and delivered, but will not produce a valid walking proposal until the controlling agent gains a gait planner/executor. Do not treat an arm-only proposal as fulfillment of that request.
+
 On **Artur's Mac**, update this repo and start the feed from the very same preview file that his UI/harness writes:
 
 ```sh
 .venv/bin/python spectacles/plan_feed.py runs/ui_preview.json --robot-iface en8 \
-  --review-file runs/spectacles_review.json
+  --review-file runs/spectacles_review.json \
+  --voice-inbox runs/spectacles_voice.json
 .venv/bin/python tools/reins_ui.py --iface en8
 ```
 
