@@ -36,9 +36,11 @@ var lastNetworkError = "";
 var liveLogged = false;
 var markerVisibleLastFrame = false;
 var observedTags = {left:null, right:null};
+var calibrationIssue = "";
+var lastCalibrationIssueLogAt = -1000;
 // Lens Studio's image-marker pose scale follows its configured printed size.
 // A pair of shoulder centres lets us correct for cut-out tags printed smaller
-// or larger than the 10 cm asset setting without changing the robot geometry.
+// or larger than the 5 cm asset setting without changing the robot geometry.
 var worldCmPerRobotCm = 1;
 var statusObject = null;
 var statusVisual = null;
@@ -215,8 +217,8 @@ function robotToMarker(p) {
     return [-p[1] * cm, p[0] * cm, p[2] * cm];
 }
 
-function observeMarker(tracker, name) {
-    if (!tracker || !tracker.isTracking()) { return null; }
+function observeMarker(tracker, name, foundEvent) {
+    if (!tracker || (!foundEvent && !tracker.isTracking())) { return null; }
     var t = tracker.getTransform();
     var rotation = t.getWorldRotation();
     var pos = t.getWorldPosition();
@@ -243,6 +245,24 @@ function observeMarker(tracker, name) {
     return pos;
 }
 
+// Keep even a short marker acquisition. Polling alone can miss a tag that is
+// found and lost between UpdateEvent frames while the wearer scans across it.
+function watchMarker(tracker, name) {
+    if (!tracker) {
+        print("R1 AR: " + name + " marker tracker is missing");
+        return;
+    }
+    if (!tracker.marker) {
+        print("R1 AR: " + name + " marker image is missing");
+    }
+    tracker.onMarkerFound = function () {
+        print("R1 AR: " + name + " marker found event");
+        observeMarker(tracker, name, true);
+    };
+}
+watchMarker(script.leftMarker, "left");
+watchMarker(script.rightMarker, "right");
+
 function placeAnchor(position, rotation) {
     var base = anchor.getTransform();
     var firstCalibration = !tagAnchored;
@@ -258,18 +278,33 @@ function placeAnchor(position, rotation) {
     if (firstCalibration && latestTrajectory) { applyTrajectory(latestTrajectory); }
 }
 
+function rejectCalibration(reason) {
+    calibrationIssue = reason;
+    if (getTime() - lastCalibrationIssueLogAt >= 3) {
+        print("R1 AR: calibration rejected: " + reason);
+        lastCalibrationIssueLogAt = getTime();
+    }
+    return false;
+}
+
 function calibrateFromBothTags() {
     var left = observedTags.left, right = observedTags.right;
-    if (!left || !right || Math.abs(left.time-right.time) > 10) { return false; }
+    if (!left || !right || Math.abs(left.time-right.time) > 30 ||
+        getTime() - Math.max(left.time, right.time) > 30) { return false; }
     var a=left.position, b=right.position;
     // Spectacles world has +y vertical. R1 robot-left is right-tag -> left-tag.
     var lateral = [a.x-b.x, 0, a.z-b.z];
     var span = Math.sqrt(lateral[0]*lateral[0]+lateral[2]*lateral[2]);
-    if (span < 8 || span > 60) { return false; } // cm; reject unrelated detections
+    if (span < 8 || span > 60) {
+        return rejectCalibration("shoulder span " + span.toFixed(1) + " cm");
+    } // cm; reject unrelated detections
     var expectedSpan = 2 * script.tagSideM * 100;
     if (expectedSpan <= 0) { return false; }
     var measuredScale = span / expectedSpan;
-    if (measuredScale < 0.35 || measuredScale > 2.5) { return false; }
+    if (measuredScale < 0.35 || measuredScale > 2.5) {
+        return rejectCalibration("marker scale " + measuredScale.toFixed(2));
+    }
+    calibrationIssue = "";
     if (Math.abs(measuredScale - worldCmPerRobotCm) > 0.01) {
         worldCmPerRobotCm = measuredScale;
         if (latestTrajectory) { applyTrajectory(latestTrajectory); }
@@ -292,9 +327,12 @@ function calibrateFromBothTags() {
 
 function calibrationPrompt() {
     var now = getTime();
-    var leftSeen = observedTags.left && now - observedTags.left.time <= 10;
-    var rightSeen = observedTags.right && now - observedTags.right.time <= 10;
-    if (leftSeen && rightSeen) { return "BOTH TAGS SEEN\nKEEP THEM IN VIEW"; }
+    var leftSeen = observedTags.left && now - observedTags.left.time <= 30;
+    var rightSeen = observedTags.right && now - observedTags.right.time <= 30;
+    if (leftSeen && rightSeen) {
+        return calibrationIssue ? "BOTH TAGS SEEN\n" + calibrationIssue.toUpperCase() :
+            "BOTH TAGS SEEN\nCHECKING ALIGNMENT";
+    }
     if (leftSeen) { return "LEFT TAG FOUND\nSCAN RIGHT SHOULDER"; }
     if (rightSeen) { return "RIGHT TAG FOUND\nSCAN LEFT SHOULDER"; }
     return "CALIBRATE R1\nSCAN BOTH SHOULDER TAGS";
