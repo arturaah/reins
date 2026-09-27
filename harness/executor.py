@@ -158,8 +158,10 @@ class ArmExecutor:
         if proposal.kind == "move":
             want, got = float(np.linalg.norm(requested)), float(np.dot(achieved, requested) / max(np.linalg.norm(requested), 1e-9))
             parts.append(f"moved {got * 100:.1f} of {want * 100:.1f} cm")
-            if got < 0.5 * want:
+            if got < 0.3 * want:
                 parts.append("-> blocked or in contact, do NOT repeat this move")
+            elif got < 0.75 * want:
+                parts.append("(the arm sags under its own weight at these gains; the rest may come with one more step)")
         elif proposal.kind == "rotate":
             parts.append(f"wrist rolled to {math.degrees(v.roll):.0f} deg")
         if v.clamped:

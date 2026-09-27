@@ -134,7 +134,9 @@ class Episode:
             history.insert(0, token); history = history[:int(lp["history_len"])]
             self.log(f"   -> {result.feedback or 'ok'}")
             self.record(step, packet, prompt, resp, stage, state, action, result, extra)
-            if decision is not None and decision.plan and wrist is False and not result.ik_fail and not result.clamped and not result.declined:
+            stalled = (result.ok and result.requested_dp is not None and np.linalg.norm(result.requested_dp) > 1e-6
+                       and float(result.achieved_dp @ result.requested_dp) < 0.3 * float(np.linalg.norm(result.requested_dp)) ** 2)
+            if decision is not None and decision.plan and wrist is False and not result.ik_fail and not result.clamped and not result.declined and not stalled:
                 queue = decision.plan[1:int(lp["chunk_max"])]
             stage_steps += 1
         return self.finish({"success": False, "reason": "max steps", "steps": int(lp["max_steps"])})
@@ -147,7 +149,7 @@ class Episode:
         if last is not None:
             if last.ok and last.requested_dp is not None and np.linalg.norm(last.requested_dp) > 1e-6:
                 want = np.linalg.norm(last.requested_dp); got = float(last.achieved_dp @ last.requested_dp / want)
-                if got < 0.7 * want:
+                if got < 0.3 * want:
                     stall = f"Last move achieved {got * 100:.1f} of {want * 100:.1f} cm -> already in contact, do NOT repeat it."
             if last.clamped:
                 clamped = "; ".join(last.notes)

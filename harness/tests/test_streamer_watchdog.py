@@ -35,6 +35,7 @@ def streamer(cfg, monkeypatch):
     monkeypatch.setattr(am, "ChannelPublisher", FakePub)
     monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start (balance control)"))
     cfg["robot"]["weight_ramp_s"] = 0.6; cfg["streamer"]["watchdog_s"] = 0.2
+    cfg["robot"]["arm_kp_scale"] = 1.5; cfg["robot"]["head_pitch_rad"] = 0.35
     st = am.Streamer(cfg, "lo0", log=lambda *a: None)
     st.sent = []
     def follow(cmd):                                    # the fake robot tracks every command perfectly and keeps a log
@@ -86,6 +87,16 @@ def test_refusal_is_reported_and_droop_gets_a_lead_in(streamer):
     assert r["ok"] is False and "over the 0.8 rad/s cap" in r["error"]           # a real violation is still refused, and said so
     r = st.dispatch("engage", {})
     assert r["ok"] is True and r["engaged"]
+
+
+def test_gain_scale_and_head_pitch(streamer):
+    st = streamer
+    assert st.slots[am.JOINT_TO_SLOT["right_shoulder_pitch_joint"]] == (75.0, 2.0) and st.slots[am.JOINT_TO_SLOT["left_wrist_roll_joint"]] == (45.0, 2.0)
+    assert st.slots[am.WAIST_YAW] == (50.0, 3.0) and st.slots[am.HEAD[0]] == (15.0, 1.0)      # waist and head gains untouched
+    st.last_client = time.time(); st.serving = True
+    assert st.engage() == ""
+    assert st.targets[am.HEAD[0]] == 0.35 and st.targets[am.HEAD[1]] == 0.0                # pitch commanded, yaw held
+    assert abs(st.sent[-1][0] - 0.0) < 1e-9                                                  # arms held where measured
 
 
 def test_release_during_frames_is_reported(streamer):

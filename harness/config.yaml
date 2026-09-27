@@ -7,6 +7,10 @@ robot:
   arm: right                                   # single-arm mode: left | right
   dual_arm: false
   hold_head: true                              # keep head pitch/yaw at their measured values while engaged
+  head_pitch_rad: 0.35                         # ...except pitch: look down this much on engage (positive = down, URDF y axis,
+                                               # range +-0.63) so the head camera sees the hand; null = hold the measured pitch
+  arm_kp_scale: 1.5                            # Unitree's example arm gains x this. At 1.0 the hand sagged 2.5 cm per 4 cm forward
+                                               # step on 2026-09-27, so every MV_UP read as "blocked"; 1.5 = kp 75/75/60/60/45
   # Where an episode starts: upper arm down, forearm horizontal forward, hand tip 30 cm ahead at 75% reach
   # (0.30, -0.15, 0.78) m. The controller's own standing pose hangs the arm nearly straight down: hand 14 cm under
   # table height, at its reach limit, so nothing can be done from there. Not yet executed on the robot.

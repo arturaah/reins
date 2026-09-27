@@ -9,8 +9,14 @@ FSM 811): the streamer engaged and its client watchdog fired during its own 1 s 
 the handle thread was inside the command and the client's heartbeat waits behind the call lock, so
 the arms were released before any move; fixed (the watchdog pauses while a command is being served;
 the client now refuses to continue when the engage or frames reply says the streamer is no longer
-engaged; `harness/tests/test_streamer_watchdog.py` reproduces it with fakes). A successful live
-move is still outstanding.
+engaged; `harness/tests/test_streamer_watchdog.py` reproduces it with fakes). First moves under
+AI command at 12:08 the same day (right arm, `claude -p`, dialog + Accept per move). What that run showed:
+with Unitree's example gains (kp 50/50/40/40/30) the hand sagged 2.5 cm per 4 cm forward step and gained
+only 1.5 cm per 4 cm up step, so every MV_UP read as "blocked" and the model kept raising; and the head
+camera, looking straight ahead, never had the hand in frame, so the model could not judge its own hand.
+Hence `robot.arm_kp_scale` (1.5) and `robot.head_pitch_rad` (0.35, the camera looks down at the
+workspace on engage), and the stall note only below 30 % of the requested distance, with a sag note
+between 30 and 75 %. A stalled move also drops the rest of an action chunk.
 
 ## Demonstrations and the operator veto (2026-09-27)
 

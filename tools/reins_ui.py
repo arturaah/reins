@@ -384,7 +384,8 @@ def ai_run():
     if demos: cmd += ["--demos", *demos]
     if live:
         if not messagebox.askokcancel("AI control on the robot",
-                "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session.\n"
+                "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session; the head tilts down "
+                "to look at the workspace.\n"
                 f"First proposal: the {ai_arm.get()} arm's start pose (forearm forward). Every move is shown in the twin first and "
                 "sent only when you press Accept; Reject asks the model for something else; Stop releases the arms.\n\n"
                 "Robot standing in FSM 4 or 811, arms clear, remote in hand."):
@@ -452,6 +453,9 @@ def ai_stop():
 def ai_finished(code):
     ai["pending"] = False; accept_btn.state(["disabled"]); reject_btn.state(["disabled"]); ai_prop.configure(text="")
     cockpit("/preview/stop"); reload_files()                       # the session's accepted moves are now a recording (✓) in both lists
+    st = ai.get("streamer")
+    if st and st.poll() is None:                                    # released by now; a fresh one at the next Run picks up current code
+        st.send_signal(signal.SIGINT); ai_log("streamer stopped; the next live Run starts a fresh one\n")
     ai_log("■ " + {0: "session ended", 130: "stopped on request", -2: "stopped on request"}.get(code, f"session ended with code {code}") + f"   (full log: {AI_LOG})\n")
 
 run_btn = ttk.Button(abtns, text="Run", style="Go.TButton", width=9, command=ai_run); run_btn.pack(side="left")

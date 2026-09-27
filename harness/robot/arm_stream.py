@@ -10,7 +10,9 @@ over a local TCP socket. Safety it enforces by itself, whatever the client says:
     socket and cannot heartbeat, and a dead client shows up as a closed socket instead
   - tracking error over limits.tracking_abort_rad for 0.3 s, or rt/lowstate stale for 0.5 s -> ramp down
   - per-frame joint speed re-checked against limits.max_joint_vel_rad_s; a faster frame is refused
-  - waist yaw and head pitch/yaw are held at their measured values with Unitree's gains (robot.hold_head)
+  - waist yaw and head pitch/yaw are held at their measured values with Unitree's gains (robot.hold_head); with
+    robot.head_pitch_rad the head pitch is commanded there on engage instead, so the head camera sees the hand
+  - arm gains are Unitree's example gains times robot.arm_kp_scale (gravity droop at 1.0 was 2 to 3 cm per 4 cm step)
 Commands (one JSON object per line):  {"cmd": "hello"} {"cmd": "state"} {"cmd": "engage"}
   {"cmd": "frames", "arm": "right", "frames": [[q1..q5], ...], "dt": 0.02}   (blocks until streamed)
   {"cmd": "freeze"} {"cmd": "release"} {"cmd": "heartbeat"} (no reply)
@@ -57,10 +59,12 @@ class Streamer:
         self.pub = ChannelPublisher("rt/arm_sdk", LowCmd_); self.pub.Init()
         self.crc = CRC(); self.cmd = unitree_hg_msg_dds__LowCmd_()
         self.slots = {}                                     # slot -> (kp, kd)
+        scale = float(cfg["robot"].get("arm_kp_scale", 1.0))     # >1 stiffens the arms against gravity droop
         for side in ("left", "right"):
             for n in ARM_JOINTS[side]:
                 kp, kd = GAINS[n[len(side) + 1:-len("_joint")]]
-                self.slots[JOINT_TO_SLOT[n]] = (kp, kd)
+                self.slots[JOINT_TO_SLOT[n]] = (kp * scale, kd)
+        self.head_pitch = cfg["robot"].get("head_pitch_rad")          # None: hold the head where it is; else look there on engage
         self.slots[WAIST_YAW] = (50.0, 3.0)
         if cfg["robot"]["hold_head"]:
             for s in HEAD: self.slots[s] = (15.0, 1.0)
@@ -108,6 +112,8 @@ class Streamer:
             return f"refused: FSM {fsm} = {name}; the arm topic only takes effect in {sorted(FSM_ARM_OK)}"
         with self.lock:
             self.targets = self.measured()                  # hold everything where it is
+            if self.head_pitch is not None and HEAD[0] in self.slots:
+                self.targets[HEAD[0]] = float(self.head_pitch)   # the head camera looks at the workspace (positive = down)
             self.engaged = True
         self.err_since = None
         self.log(f"engage: FSM {fsm} = {name}; ramping weight up over {self.ramp_s} s")
