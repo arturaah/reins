@@ -70,6 +70,7 @@ var voiceCommandId = "";
 var voiceSequence = 0;
 var voiceGestureLockUntil = 0;
 var microphoneBlocked = false;
+var voiceSessionId = 0;
 
 function voiceText() {
     return (voiceFinal.join(" ") + " " + voicePartial).trim();
@@ -89,6 +90,7 @@ function stopVoice(send) {
         return;
     }
     voiceListening = false;
+    voiceSessionId++;
     voiceSendRequestedAt = -1;
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
     voiceNotice("VOICE CANCELLED");
@@ -99,12 +101,13 @@ function startVoice() {
     if (microphoneBlocked) { voiceNotice("MICROPHONE PERMISSION DENIED"); return; }
     if (!asrModule) { voiceNotice("MICROPHONE UNAVAILABLE"); return; }
     voiceFinal = []; voicePartial = ""; voiceSendRequestedAt = -1;
+    var sessionId = ++voiceSessionId;
     try {
         var options = AsrModule.AsrTranscriptionOptions.create();
         options.mode = AsrModule.AsrMode.HighAccuracy;
         options.silenceUntilTerminationMs = 1200;
         options.onTranscriptionUpdateEvent.add(function(update) {
-            if (!voiceListening) { return; }
+            if (!voiceListening || sessionId !== voiceSessionId) { return; }
             print("R1 AR voice: ASR update final=" + !!update.isFinal +
                   " chars=" + String(update.text || "").length);
             if (update.isFinal) {
@@ -122,7 +125,9 @@ function startVoice() {
             }
         });
         options.onTranscriptionErrorEvent.add(function(code) {
+            if (sessionId !== voiceSessionId) { return; }
             voiceListening = false;
+            voiceSessionId++;
             microphoneBlocked = true;
             voiceNotice("SPEECH ERROR " + code);
         });
@@ -132,6 +137,7 @@ function startVoice() {
         voiceNotice("LISTENING");
     } catch (e) {
         voiceListening = false;
+        voiceSessionId++;
         microphoneBlocked = true;
         voiceNotice("MICROPHONE PERMISSION DENIED");
         print("R1 AR voice start failed: " + e);
@@ -140,6 +146,7 @@ function startVoice() {
 function finishVoiceSend() {
     if (!voiceListening) { return; }
     voiceListening = false;
+    voiceSessionId++;
     voiceSendRequestedAt = -1;
     var phrase = voiceText().slice(0, 500);
     try { asrModule.stopTranscribing(); } catch (e) { print("R1 AR voice stop: " + e); }
@@ -579,13 +586,17 @@ function applyTrajectory(message) {
     var incoming = message.review;
     if (incoming && typeof incoming.id === "string" && incoming.id.length >= 16 &&
         (incoming.mode === "live" || incoming.mode === "dry-run" || incoming.mode === "sim")) {
-        if (voiceListening) { stopVoice(false); }
         if (!pendingReview || pendingReview.id !== incoming.id) {
+            // A new proposal takes the gesture and HUD priority immediately.
+            if (voiceListening) { stopVoice(false); }
+            voicePinchAt = -1000;
+            voiceGestureLockUntil = 0;
             reviewChoice = ""; reviewSent = false; reviewMessage = "";
             print("R1 AR: proposal ready: " + incoming.text);
         }
         pendingReview = incoming;
     } else {
+        if (pendingReview) { voicePinchAt = -1000; }
         pendingReview = null; reviewChoice = ""; reviewSent = false; reviewMessage = "";
     }
     latestTrajectory = message;
