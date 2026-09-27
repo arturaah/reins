@@ -78,6 +78,24 @@ def hand_xyz(model: mujoco.MjModel, data: mujoco.MjData, side="left") -> np.ndar
     return data.site_xpos[site].copy()
 
 
+def arrow_segments(pts, length=0.05, radius=0.015):
+    """Wireframe pyramid at a path's end pointing along its final motion, as (p0, p1) line pairs; empty for a static path.
+    The direction comes from the last `length` of arc rather than the last two samples, so sample noise cannot flip it."""
+    pts = np.asarray(pts, dtype=float)
+    if len(pts) < 2: return []
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1); total = float(seg.sum())
+    if total < 0.01: return []
+    length = min(length, total / 2); radius = min(radius, length * 0.3)
+    k, acc = len(pts) - 1, 0.0
+    while k > 0 and acc < length: acc += seg[k - 1]; k -= 1
+    tip = pts[-1]; d = tip - pts[k]; n = np.linalg.norm(d)
+    if n < 1e-6: return []
+    d = d / n; side = np.cross(d, [0.0, 0.0, 1.0])
+    side = side / np.linalg.norm(side) if np.linalg.norm(side) > 1e-6 else np.array([0.0, 1.0, 0.0])
+    up = np.cross(d, side); base = tip - d * length
+    corners = [base + side * radius, base + up * radius, base - side * radius, base - up * radius]
+    return [(c, tip) for c in corners] + list(zip(corners, corners[1:] + corners[:1]))
+
 def draw_path(viewer, paths: dict) -> None:
     colors = [np.array(c, dtype=np.float32) for c in
               ((0, 1, 1, .55), (1, .35, .1, .55))]
@@ -86,7 +104,7 @@ def draw_path(viewer, paths: dict) -> None:
         scene.ngeom = 0
         for index, points in enumerate(paths.values()):
             color = colors[index % len(colors)]
-            for start, end in zip(points, points[1:]):
+            for start, end in list(zip(points, points[1:])) + arrow_segments(points):
                 if scene.ngeom >= scene.maxgeom:
                     return
                 if np.linalg.norm(end - start) < 1e-4:

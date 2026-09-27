@@ -24,7 +24,7 @@ For a quick desk detection test, serve the project directory and open `Print/scr
 - After both tags have been sighted within ten seconds, the Lens computes a robot world anchor from their centres and the estimated tag height. The camera has Device Tracking in World mode, so the paths should remain at the robot while the wearer walks around. The last calibrated pose is retained when a marker leaves view; either tag then corrects translation. This behavior still needs an on-glasses walking test.
 - This scene sets `allowTemporaryAnchor` false and hides both lines until the pair is calibrated, avoiding misleading paths at a random initial position.
 
-The offline mock starts at the neutral hand sites from the MuJoCo model, `[0.2909,±0.1386,0.771]` m, and reaches forward and upward. It is only a plausible preview, used until a real trajectory arrives; the actual hand start must come from a plan resolved against the robot's measured joints. Cyan is left; orange is right. `pathRadiusCm` controls tube thickness.
+The offline mock starts at the neutral hand sites from the MuJoCo model, `[0.2909,±0.1386,0.771]` m, and reaches forward and upward. It is only a plausible preview, used until a real trajectory arrives; the actual hand start must come from a plan resolved against the robot's measured joints. Cyan is left; orange is right. `pathRadiusCm` controls tube thickness. Each path ends in an arrowhead, a pyramid whose apex is the destination and whose base sits about five tube radii back along the path, so the direction of travel is visible; the tube stops at that base. The arrowhead is drawn by the Lens script, so the Lens must be resent after this change.
 
 ## Trajectory feed
 

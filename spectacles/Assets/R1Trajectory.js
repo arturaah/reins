@@ -324,20 +324,66 @@ function add(a, b, scale) {
     return [a[0]+b[0]*scale, a[1]+b[1]*scale, a[2]+b[2]*scale];
 }
 
+function sub(a, b) {
+    return [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+}
+function frame(dir) {
+    var side = unit(cross(dir, [0,1,0])) || unit(cross(dir, [1,0,0]));
+    return {side: side, up: unit(cross(dir, side))};
+}
+function pathLength(cm) {
+    var total = 0;
+    for (var i=1; i<cm.length; i++) {
+        var d = sub(cm[i], cm[i-1]);
+        total += Math.sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);
+    }
+    return total;
+}
+// The path up to the point `len` cm of arc before its end, so a tube stops where an
+// arrowhead's base sits. null when the path is shorter than len.
+function trimEnd(cm, len) {
+    var remaining = len;
+    for (var i=cm.length-1; i>0; i--) {
+        var a = cm[i-1], b = cm[i], d = sub(b, a);
+        var seg = Math.sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);
+        if (seg >= remaining) {
+            var t = seg > 0 ? (seg - remaining) / seg : 0;
+            var kept = cm.slice(0, i);
+            kept.push(add(a, d, t));
+            return kept;
+        }
+        remaining -= seg;
+    }
+    return null;
+}
+
 // A four-sided tube is visible from any angle and does not depend on line width.
-function drawTube(points, visual, pointToCm, radiusOverride) {
+// withArrow ends the tube in a pyramid whose apex is the last point, so the direction of travel is visible.
+function drawTube(points, visual, pointToCm, radiusOverride, withArrow) {
     if (!isPath(points)) { return; }
     var vertices = [], indices = [];
     var radius = radiusOverride || Math.max(0.15, Math.min(3, script.pathRadiusCm));
     var convert = pointToCm || robotToMarker;
-    for (var i=0; i<points.length-1; i++) {
-        var a = convert(points[i]), b = convert(points[i+1]);
-        var dir = unit([b[0]-a[0], b[1]-a[1], b[2]-a[2]]);
+    var cm = points.map(function (p) { return convert(p); });
+    var tube = cm, head = null;
+    if (withArrow) {
+        var total = pathLength(cm);
+        var headLen = Math.min(Math.max(3, radius * 5), total / 2);
+        var trimmed = total >= 1 ? trimEnd(cm, headLen) : null;
+        var headDir = trimmed ? unit(sub(cm[cm.length-1], trimmed[trimmed.length-1])) : null;
+        if (headDir) {
+            tube = trimmed;
+            head = {tip: cm[cm.length-1], dir: headDir, len: headLen,
+                    radius: Math.min(radius * 2.5, headLen * 0.5)};
+        }
+    }
+    for (var i=0; i<tube.length-1; i++) {
+        var a = tube[i], b = tube[i+1];
+        var dir = unit(sub(b, a));
         if (!dir) { continue; }
-        var side = unit(cross(dir, [0,1,0])) || unit(cross(dir, [1,0,0]));
-        var up = unit(cross(dir, side));
-        var corners = [side, up, [-side[0],-side[1],-side[2]],
-                       [-up[0],-up[1],-up[2]]];
+        var f = frame(dir);
+        var corners = [f.side, f.up, [-f.side[0],-f.side[1],-f.side[2]],
+                       [-f.up[0],-f.up[1],-f.up[2]]];
         var base = vertices.length / 3;
         for (var ring=0; ring<2; ring++) {
             var centre = ring === 0 ? a : b;
@@ -351,6 +397,20 @@ function drawTube(points, visual, pointToCm, radiusOverride) {
             indices.push(base+edge,base+next,base+4+edge,
                          base+next,base+4+next,base+4+edge);
         }
+    }
+    if (head) {
+        var hf = frame(head.dir);
+        var headBase = add(head.tip, head.dir, -head.len);
+        var headCorners = [hf.side, hf.up, [-hf.side[0],-hf.side[1],-hf.side[2]],
+                           [-hf.up[0],-hf.up[1],-hf.up[2]]];
+        var h0 = vertices.length / 3;
+        for (var hc=0; hc<4; hc++) {
+            var hp = add(headBase, headCorners[hc], head.radius);
+            vertices.push(hp[0],hp[1],hp[2]);
+        }
+        vertices.push(head.tip[0],head.tip[1],head.tip[2]);
+        for (var he=0; he<4; he++) { indices.push(h0+he, h0+(he+1)%4, h0+4); }
+        indices.push(h0, h0+2, h0+1, h0, h0+3, h0+2);   // base cap, facing back along the path
     }
     if (!indices.length) { return; }
     var mesh = new MeshBuilder([{name:"position",components:3}]);
@@ -418,7 +478,7 @@ function applyTrajectory(message) {
             drawPoint(points[0], visual);
             return;
         }
-        drawTube(points, visual);
+        drawTube(points, visual, null, 0, true);   // arrowhead at the destination
     }
     drawHand(message.hands.left, leftVisual);
     drawHand(message.hands.right, rightVisual);

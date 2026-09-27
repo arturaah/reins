@@ -7,12 +7,14 @@ cameras (tools/camstream.py on the Jetson, forwarded to port 8080). Read-only.
 
 Trajectory preview: GET /preview?file=sim/plans/arm_lift_dryrun.json loads the
 resolved plan (what arm_lift streams, lead-in and return included) and draws both
-hands' full paths as lines; a translucent ghost of the arms plays the plan in a
+hands' full paths as lines, each ending in an arrowhead at the destination; a translucent ghost of the arms plays the plan in a
 loop with a progress caption. GET /preview/stop ends it. With &hold=1 the preview
 loops until stopped and stays on top even while the arm topic is live: that is
 how the window's AI pane shows a proposed move while the harness streamer holds
 the arms, until the operator presses Accept (the window then stops the preview,
-so the yellow SENDING ghost shows the real motion) or Reject.
+so the yellow SENDING ghost shows the real motion) or Reject. A plan with base_keyframes (a
+whole-body step from the harness, or spectacles/make_walk_plan.py) walks a translucent ghost of
+the whole robot along its floor path, drawn as a line with the end pose marked.
 Whenever anything publishes on rt/arm_sdk with weight > 0 (arm_lift --execute,
 teach.py, teleop), the ghost switches to the commanded joint targets read off
 that topic, in yellow, captioned SENDING: the twin then shows exactly what is
@@ -108,7 +110,12 @@ def load_plan(path):
     times = np.array([float(f["time_s"]) for f in kfs])
     frames = np.array([[float(f["joint_targets_rad"][n]) for n in adr] for f in kfs])
     gaps = np.diff(times); linear = len(gaps) > 0 and float(np.median(gaps)) < 0.25
-    plan = {"times": times, "frames": frames, "adr": list(adr.values()), "held": held, "linear": linear}
+    plan = {"times": times, "frames": frames, "adr": list(adr.values()), "held": held, "linear": linear, "base": None}
+    bk = src.get("base_keyframes")
+    if bk:                                                          # planar base path: origin = the robot's current base pose
+        bt = np.array([float(f["time_s"]) for f in bk]); bx = np.array([[float(f["x_m"]), float(f["y_m"]), float(f["yaw_rad"])] for f in bk])
+        plan["base"] = lambda t: np.array([np.interp(t, bt, bx[:, 0]), np.interp(t, bt, bx[:, 1]), np.interp(t, bt, np.unwrap(bx[:, 2]))])
+        plan["base_end"] = bx[-1]
     def pose(t):
         i = int(np.searchsorted(times, t, side="right") - 1); i = max(0, min(i, len(times) - 2))
         t0, t1 = times[i], times[i + 1]; x = (t - t0) / (t1 - t0) if t1 > t0 else 1.0
@@ -119,13 +126,21 @@ def load_plan(path):
     scratch.qpos[:] = 0.0; scratch.qpos[3] = 1.0
     for k, v in held.items(): scratch.qpos[k] = v
     paths = {side: [] for side in WRIST}
+    floor = []
     for t in np.arange(0.0, times[-1] + 1e-9, 0.1):
         q = pose(t)
         for k, v in zip(plan["adr"], q): scratch.qpos[k] = v
         mujoco.mj_forward(model, scratch)
+        base = plan["base"](t) if plan["base"] else None
         for side, b in WRIST.items():
-            paths[side].append(scratch.xpos[b] + scratch.xmat[b].reshape(3, 3) @ TIP)
+            p = scratch.xpos[b] + scratch.xmat[b].reshape(3, 3) @ TIP
+            if base is not None:                                   # carried along by the walking base
+                x, y, yaw = base; c, s = np.cos(yaw), np.sin(yaw)
+                p = np.array([x + c * p[0] - s * p[1], y + s * p[0] + c * p[1], p[2]])
+            paths[side].append(p)
+        if base is not None: floor.append([base[0], base[1], 0.01])
     plan["paths"] = {side: np.array(p) for side, p in paths.items()}
+    plan["floor"] = np.array(floor) if floor else None
     return plan, src.get("name", os.path.basename(path)), float(times[-1])
 
 def add_line(scn, p0, p1, rgba, width=4.0):
@@ -140,6 +155,24 @@ def add_sphere(scn, p, rgba, r=0.02):
     mujoco.mjv_initGeom(scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_SPHERE, np.array([r, 0, 0]), np.asarray(p, dtype=float),
                         np.eye(3).ravel(), np.array(rgba, dtype=np.float32))
     scn.ngeom += 1
+
+def arrow_segments(pts, length=0.05, radius=0.015):
+    """Wireframe pyramid at a path's end pointing along its final motion, as (p0, p1) line pairs; empty for a static path.
+    The direction comes from the last `length` of arc rather than the last two samples, so sample noise cannot flip it."""
+    pts = np.asarray(pts, dtype=float)
+    if len(pts) < 2: return []
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1); total = float(seg.sum())
+    if total < 0.01: return []
+    length = min(length, total / 2); radius = min(radius, length * 0.3)
+    k, acc = len(pts) - 1, 0.0
+    while k > 0 and acc < length: acc += seg[k - 1]; k -= 1
+    tip = pts[-1]; d = tip - pts[k]; n = np.linalg.norm(d)
+    if n < 1e-6: return []
+    d = d / n; side = np.cross(d, [0.0, 0.0, 1.0])
+    side = side / np.linalg.norm(side) if np.linalg.norm(side) > 1e-6 else np.array([0.0, 1.0, 0.0])
+    up = np.cross(d, side); base = tip - d * length
+    corners = [base + side * radius, base + up * radius, base - side * radius, base - up * radius]
+    return [(c, tip) for c in corners] + list(zip(corners, corners[1:] + corners[:1]))
 
 def draw_preview(scn):
     """Ghost arms (commanded targets while the arm topic is live, else the plan's playback) plus the plan's hand paths,
@@ -177,7 +210,7 @@ def draw_preview(scn):
     if plan:
         for side, pts in plan["paths"].items():
             w = pts @ R.T + P
-            for p0, p1 in zip(w[:-1], w[1:]): add_line(scn, p0, p1, PATH_RGBA[side])
+            for p0, p1 in list(zip(w[:-1], w[1:])) + arrow_segments(w): add_line(scn, p0, p1, PATH_RGBA[side])
     for side in WRIST:
         add_sphere(scn, ghost.xpos[WRIST[side]] + ghost.xmat[WRIST[side]].reshape(3, 3) @ TIP, PATH_RGBA[side])
     return caption

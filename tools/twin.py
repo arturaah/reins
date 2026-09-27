@@ -103,14 +103,32 @@ def pose(model, data, adr, q_by_name):
     mujoco.mj_kinematics(model, data)
 
 
+def arrow_segments(pts, length=0.05, radius=0.015):
+    """Wireframe pyramid at a path's end pointing along its final motion, as (p0, p1) line pairs; empty for a static path.
+    The direction comes from the last `length` of arc rather than the last two samples, so sample noise cannot flip it."""
+    pts = np.asarray(pts, dtype=float)
+    if len(pts) < 2: return []
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1); total = float(seg.sum())
+    if total < 0.01: return []
+    length = min(length, total / 2); radius = min(radius, length * 0.3)
+    k, acc = len(pts) - 1, 0.0
+    while k > 0 and acc < length: acc += seg[k - 1]; k -= 1
+    tip = pts[-1]; d = tip - pts[k]; n = np.linalg.norm(d)
+    if n < 1e-6: return []
+    d = d / n; side = np.cross(d, [0.0, 0.0, 1.0])
+    side = side / np.linalg.norm(side) if np.linalg.norm(side) > 1e-6 else np.array([0.0, 1.0, 0.0])
+    up = np.cross(d, side); base = tip - d * length
+    corners = [base + side * radius, base + up * radius, base - side * radius, base - up * radius]
+    return [(c, tip) for c in corners] + list(zip(corners, corners[1:] + corners[:1]))
+
 def draw(viewer, paths, commanded):
-    """Plan paths as lines, commanded hand tips as spheres, into the viewer's user scene."""
+    """Plan paths as lines ending in an arrowhead, commanded hand tips as spheres, into the viewer's user scene."""
     with viewer.lock():
         scn = viewer.user_scn
         scn.ngeom = 0
         for side, pts in paths.items():
             rgba = np.array((*COLORS[side], .5), dtype=np.float32)
-            for a, b in zip(pts, pts[1:]):
+            for a, b in list(zip(pts, pts[1:])) + arrow_segments(pts):
                 if scn.ngeom >= scn.maxgeom:
                     return
                 if np.linalg.norm(b - a) < 1e-4:
