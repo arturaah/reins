@@ -1,5 +1,8 @@
 # Reins live voice
 
+For the time-limited demo, use [the laptop microphone launcher](DEMO.md):
+`bash tools/voice_demo.sh`. It also works with the robot disconnected.
+
 GPT-Live-1 handles listening, conversation and streaming speech. It delegates robot
 questions to an independent text backend only when needed. The supplied GPT-5-mini
 adapter is a local test stand-in; the team's harness, model selection and action
