@@ -4,7 +4,13 @@ Semantic end-effector-delta harness after Show-Harness (arXiv 2609.10522) and Ro
 (arXiv 2609.22966), built on this repo's `rt/arm_sdk` streaming path. Status 2026-09-27: sim and
 tests pass; `dry-run` verified against the robot in FSM 0 and 811 (real joints, real head camera,
 nothing published), including the window's PROPOSAL / Accept / Reject protocol with `claude -p`
-and recorded demonstrations in the prompt; the streamer and `live` have not run on the robot yet.
+and recorded demonstrations in the prompt. First `live` attempt 2026-09-27 11:01 (window, right arm,
+FSM 811): the streamer engaged and its client watchdog fired during its own 1 s engage ramp, because
+the handle thread was inside the command and the client's heartbeat waits behind the call lock, so
+the arms were released before any move; fixed (the watchdog pauses while a command is being served;
+the client now refuses to continue when the engage or frames reply says the streamer is no longer
+engaged; `harness/tests/test_streamer_watchdog.py` reproduces it with fakes). A successful live
+move is still outstanding.
 
 ## Demonstrations and the operator veto (2026-09-27)
 

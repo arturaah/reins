@@ -25,7 +25,7 @@ from . import config as hcfg
 from .demos import load_demos
 from .executor import ArmExecutor
 from .feedback import FeedbackStore
-from .kinematics import ArmKinematics
+from .kinematics import ROOT, ArmKinematics
 from .perception import Perception, height_above_table_cm
 from .recorder import Recorder, load_step
 from .safety import SafetyGate
@@ -149,6 +149,8 @@ def run_episode(a, cfg, mode):
         print(json.dumps(summary, indent=1, default=str))
         if stats.count:
             print(f"inference: {stats.count} call(s) logged to {stats.path.relative_to(stats.path.parents[1])}, plot {cfg['stats']['plot']}")
+        path, msg = rec.export_recording(ex.arm, cfg["recorder"].get("export_dir"))
+        print(f"EXPORTED {path.relative_to(ROOT) if path and path.is_relative_to(ROOT) else path}: {msg}" if path else f"no recording exported: {msg}")
     finally:
         if mode == "live":
             backend.release()

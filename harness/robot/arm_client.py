@@ -60,6 +60,9 @@ class ArmClientBackend(Backend):
         r = self.call({"cmd": "engage"}, timeout=15.0)
         if not r.get("ok"):
             raise RuntimeError(f"engage refused: {r.get('error')}")
+        if not r.get("engaged"):
+            raise RuntimeError(f"the streamer released right after engaging: {r.get('reason') or 'unknown reason'}")
+        self.log(f"streamer: engaged, weight {r.get('weight', 0):.2f}")
 
     def release(self):
         try:
@@ -76,6 +79,8 @@ class ArmClientBackend(Backend):
                       timeout=len(frames) * dt + 10.0)
         if not r.get("ok"):
             raise RuntimeError(f"streamer refused the frames: {r.get('error')}")
+        if not r.get("engaged"):
+            raise RuntimeError(f"the streamer released during the move: {r.get('reason') or 'unknown reason'}")
 
     def hand(self, arm, closed):
         return "this robot has no hand: nothing to grasp with, the arm paused"

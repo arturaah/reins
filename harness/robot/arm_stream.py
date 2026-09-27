@@ -5,7 +5,9 @@ Runs on its own (a Terminal on the Mac, or the Jetson), holds the arms at their 
 over a local TCP socket. Safety it enforces by itself, whatever the client says:
   - refuses to engage outside FSM 4/811; queries the FSM read-only first
   - weight ramps 0->1 over robot.weight_ramp_s on engage and 1->0 on release, abort, Ctrl-C and loss of client
-  - watchdog: no bytes from the client for streamer.watchdog_s while engaged -> ramp down (the loop died)
+  - watchdog: no bytes from the client for streamer.watchdog_s while engaged -> ramp down (the loop died); it pauses
+    while a command from that client is being served (engage ramp, frames), since the client is then waiting on the
+    socket and cannot heartbeat, and a dead client shows up as a closed socket instead
   - tracking error over limits.tracking_abort_rad for 0.3 s, or rt/lowstate stale for 0.5 s -> ramp down
   - per-frame joint speed re-checked against limits.max_joint_vel_rad_s; a faster frame is refused
   - waist yaw and head pitch/yaw are held at their measured values with Unitree's gains (robot.hold_head)
@@ -67,6 +69,7 @@ class Streamer:
         self.weight = 0.0
         self.engaged = False
         self.last_client = time.time()
+        self.serving = False                                # a client command is in dispatch: its silence is expected
         self.err_since = None
         self.stop = threading.Event()
         self.reason = ""
@@ -127,7 +130,7 @@ class Streamer:
             if self.engaged:
                 if self.reader.age() > 0.5:
                     self.release("ABORT: rt/lowstate stale", 0.5)
-                elif time.time() - self.last_client > self.watchdog_s:
+                elif not self.serving and time.time() - self.last_client > self.watchdog_s:
                     self.release("ABORT: client heartbeat lost", 1.0)
                 else:
                     m = self.measured()
@@ -224,10 +227,13 @@ class Streamer:
                 cmd = req.get("cmd")
                 if cmd == "heartbeat":
                     continue
+                self.serving = True
                 try:
                     resp = self.dispatch(cmd, req)
                 except Exception as e:
                     resp = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+                finally:
+                    self.last_client = time.time(); self.serving = False
                 conn.sendall((json.dumps(resp) + "\n").encode())
 
     def dispatch(self, cmd, req):

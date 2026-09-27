@@ -83,6 +83,16 @@ the sim contract first (moving arm at 50 Hz, other arm and waist held), which th
 as ghost arms: `GET /preview?file=runs/ui_preview.json&hold=1` keeps it on top until
 `/preview/stop`, even while the streamer holds the arms with weight 1.
 
+## Every session becomes a recording
+
+When an episode ends (any mode), its accepted, executed moves are exported to
+`recordings/ai_<mode>_<task>_<time>.json` in the sim contract (`recorder.export_dir`): commanded
+joint targets of both arms and the waist, each move taking the duration the gate gave it, then
+0.5 s, with the thinking time removed; a contact sheet is built from the images the model saw
+before each move, so the recording shows up with ✓ in the window's context list and can be
+selected as a demonstration for the next session, dry-run it and replayed with `tools/arm_lift.py`
+like a taught skill. A dry-run export is the pretend trajectory (what would have been sent).
+
 ## Inference time vs context
 
 Every VLM call appends a line to `stats.path` (`runs/inference_log.jsonl`): latency, the tokens the
@@ -95,7 +105,7 @@ sessions grey. The window shows it under the twin and reloads it whenever the fi
 ## Desktop window: the AI pane
 
 `tools/reins_ui.py` (started by `tools/start_all.sh`) has this loop under the cameras: task, dry
-run | live, arm, step profile, floor z (`workspace.table_z_m`), a multi-select list of recordings
+run | live, arm, step profile, floor z (`workspace.table_z_m`), a click-to-toggle list of recordings
 as context (✓ = has a contact sheet), Run / Stop, the current proposal with Accept / Reject and a
 feedback field that goes to the model with either answer, the session log, and under the twin the
 inference-time-vs-context plot. It runs exactly
@@ -124,7 +134,8 @@ publishes nothing, so the whole Accept / Reject flow can be rehearsed on the sta
 
 `harness/robot/arm_stream.py` is the single publisher. It refuses to engage outside FSM 4/811,
 ramps the blend weight over 1 s both ways, holds waist yaw and head at their measured values,
-re-checks every frame's joint speed, and ramps down by itself on: client heartbeat lost for 0.5 s,
+re-checks every frame's joint speed, and ramps down by itself on: client heartbeat lost for 0.5 s
+(paused while it is serving that client's command, since the client cannot heartbeat then),
 client disconnect (the loop process died), `rt/lowstate` stale for 0.5 s, tracking error over
 0.6 rad for 0.3 s, Ctrl-C. When the weight is 0 the robot's own controller has the arms.
 

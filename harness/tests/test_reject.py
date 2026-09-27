@@ -79,7 +79,8 @@ def test_start_pose_rejection_is_reported(rig):
 
 def run_cli(args, stdin, tmp_path):
     cmd = [sys.executable, "-m", "harness", "--set", f"recorder.root={tmp_path}", "--set", f"stats.path={tmp_path}/log.jsonl",
-           "--set", f"stats.plot={tmp_path}/plot.png", "--set", f"feedback.path={tmp_path}/fb.jsonl", *args]
+           "--set", f"stats.plot={tmp_path}/plot.png", "--set", f"feedback.path={tmp_path}/fb.jsonl",
+           "--set", f"recorder.export_dir={tmp_path}/recordings", *args]
     return subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=180, cwd=ROOT,
                           env={**os.environ, "MUJOCO_GL": "cgl"})
 

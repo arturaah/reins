@@ -90,6 +90,7 @@ vlm:
 
 recorder:
   root: runs
+  export_dir: recordings     # every episode's accepted moves become recordings/ai_<mode>_<task>_<time>.json (+ contact sheet)
 
 demos:                       # recordings as demonstrations (harness/demos.py, tools/framelog.py)
   max_moments: 8             # contact sheet columns: Douglas-Peucker key moments of the joint-space path, at most this many

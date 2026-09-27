@@ -1,11 +1,15 @@
-"""Write every step of an episode to runs/<mode>_<timestamp>_<slug>/ so prompts can be replayed offline."""
+"""Write every step of an episode to runs/<mode>_<timestamp>_<slug>/ so prompts can be replayed offline, and export the
+episode's accepted moves as a recording (recordings/ai_*.json plus a contact sheet from the step images) that the
+trajectory tools replay and the AI pane offers as context."""
 import json
+import math
+import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-from .kinematics import ROOT
+from .kinematics import ARM_JOINTS, ROOT
 
 
 def _json(o):
@@ -61,6 +65,53 @@ class Recorder:
         self.meta["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S"); self.meta["summary"] = summary
         self._write("meta.json", self.meta)
         return self.dir
+
+    def export_recording(self, arm, out_dir=None, pause_s=0.5, name=None):
+        """The episode's executed moves as a replayable recording in the sim contract, with a contact sheet built from the
+        images the model saw before each move. Time is compressed: each move takes the duration the gate gave it (from the
+        joint change and the speed cap), then pause_s; the thinking time between moves is dropped. Samples are dense
+        (20 Hz, cosine-eased like the streamed frames) so tools/arm_lift.py treats the file as a recording: it keeps the
+        first sample and approaches it from the measured pose with a lead-in. -> (path, message)."""
+        steps = [json.loads(l) for l in self.steps_file.read_text().splitlines() if l.strip()] if self.steps_file.exists() else []
+        moves = [s for s in steps if s.get("ok") and s.get("q_target") and s.get("joints_before")]
+        if not moves:
+            return None, "no executed moves to export"
+        lim = self.meta["config"]["limits"]
+        names = ARM_JOINTS[arm]
+        keep = ARM_JOINTS["left"] + ARM_JOINTS["right"] + ["waist_yaw_joint"]      # what the arm topic carries (no waist roll)
+        hz, kfs, frames, t = 20.0, [], {}, 0.0
+        for s in moves:
+            before = {k: round(float(v), 5) for k, v in s["joints_before"].items() if k in keep}
+            after = dict(before); after.update({n: round(float(v), 5) for n, v in zip(names, s["q_target"])})
+            dq = max(abs(after[n] - before.get(n, after[n])) for n in names)
+            dur = max(float(lim["min_move_s"]), dq / float(lim["max_joint_vel_rad_s"]) * math.pi / 2)
+            d = self.dir / f"step_{int(s['step']):03d}"
+            for fname, cam in (("context.jpg", "context"), ("left.jpg", "left wrist"), ("right.jpg", "right wrist")):
+                if (d / fname).exists():
+                    frames.setdefault(cam, []).append((t, (d / fname).read_bytes()))
+            n = max(1, int(round(dur * hz)))
+            for i in range(n + 1):                                   # the move, cosine-eased, one sample per 1/hz
+                r = 0.5 - 0.5 * math.cos(math.pi * i / n)
+                kfs.append({"time_s": round(t + dur * i / n, 3),
+                            "joint_targets_rad": {k: round(before[k] + (after[k] - before[k]) * r, 5) for k in before}})
+            t += dur
+            for i in range(1, int(round(pause_s * hz)) + 1):         # then hold
+                kfs.append({"time_s": round(t + i / hz, 3), "joint_targets_rad": dict(after)})
+            t += pause_s
+        mode, task = self.meta["mode"], self.meta["task"]
+        slug = "".join(c if c.isalnum() else "_" for c in task.lower()).strip("_")[:32] or "task"
+        name = name or f"ai_{mode}_{slug}_{time.strftime('%Y%m%d_%H%M%S')}"
+        out = Path(out_dir) if out_dir else ROOT / "recordings"
+        out.mkdir(parents=True, exist_ok=True)
+        path = out / f"{name}.json"
+        path.write_text(json.dumps({"schema_version": 1, "name": name, "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                    "source": f"harness episode ({mode}): commanded targets of the {len(moves)} accepted moves, thinking time removed",
+                                    "task": task, "arm": arm, "run_dir": str(self.dir), "duration_s": kfs[-1]["time_s"], "keyframes": kfs}, indent=1) + "\n")
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from tools.framelog import save_sheet                      # no SDK in there; it lives with the recording tools
+        msg = save_sheet(path, [(k["time_s"], k["joint_targets_rad"]) for k in kfs], frames)
+        return path, f"{len(moves)} accepted move(s), {kfs[-1]['time_s']:.1f} s; {msg}"
 
 
 def load_step(run_dir, i):
