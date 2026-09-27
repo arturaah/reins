@@ -119,9 +119,14 @@ class Feed:
         # Search only at or after the last measured position. Progress never
         # moves backwards, and a viewer can join during an ongoing execution.
         errors = np.sqrt(np.mean((self.joints[start:] - measured) ** 2, axis=1))
-        candidate = start + int(np.argmin(errors))
-        if errors[candidate - start] > 0.25:
+        best_error = float(np.min(errors))
+        if best_error > 0.25:
             return self.live_text or self.text
+        # A dry-run can revisit the same joint pose on its return leg (or
+        # hold it across many samples). Measurement noise can make a much
+        # later sample marginally closer and otherwise erase the whole path.
+        # Keep the earliest sample whose fit is effectively as good.
+        candidate = start + int(np.flatnonzero(errors <= best_error + 0.01)[0])
         if self.progress is None:
             if not state.commanding:
                 return self.text

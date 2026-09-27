@@ -82,6 +82,35 @@ class PlanFeedTests(unittest.TestCase):
             self.assertEqual(len(new_plan["hands"]["right"]), 101)
             self.assertNotIn("progress_source", new_plan)
 
+    def test_return_leg_does_not_erase_outbound_path(self):
+        model = mujoco.MjModel.from_xml_path(str(MJCF))
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "return.json"
+            path.write_text(json.dumps({
+                "schema_version": 1, "name": "out and back", "duration_s": 4,
+                "keyframes": [
+                    {"time_s": 0, "joint_targets_rad": {"right_shoulder_pitch_joint": 0}},
+                    {"time_s": 2, "joint_targets_rad": {"right_shoulder_pitch_joint": 0.8}},
+                    {"time_s": 4, "joint_targets_rad": {"right_shoulder_pitch_joint": 0}},
+                ],
+            }))
+            feed = Feed(model, path, 101)
+            state = RelayState()
+
+            def measured(angle):
+                state.update({"type": "r1_state", "version": 1,
+                              "q": {"right_shoulder_pitch_joint": angle},
+                              "cmd": {"weight": 1}})
+                return json.loads(feed.current(state))
+
+            outbound = measured(0.397)
+            self.assertLess(feed.progress, 50)
+            self.assertGreater(len(outbound["hands"]["right"]), 50)
+            measured(0.8)
+            returning = measured(0.4)
+            self.assertGreater(feed.progress, 50)
+            self.assertGreater(len(returning["hands"]["right"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
