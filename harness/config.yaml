@@ -9,8 +9,8 @@ robot:
   hold_head: true                              # keep head pitch/yaw at their measured values while engaged
   head_pitch_rad: 0.35                         # ...except pitch: look down this much on engage (positive = down, URDF y axis,
                                                # range +-0.63) so the head camera sees the hand; null = hold the measured pitch
-  fsm_ok_arms: [4, 811]                        # FSM ids in which the streamer engages the arms (the SDK documents 4 and 811; see
-                                               # locomotion.fsm_ok about the unnamed 816 before adding it here)
+  fsm_ok_arms: [4, 811]                        # FSM ids in which the streamer engages the arms (the SDK documents 4 and 811). 816 is
+                                               # what the robot reports once the arms ARE engaged (see locomotion.fsm_ok), never before.
   arm_kp_scale: 1.5                            # Unitree's example arm gains x this. At 1.0 the hand sagged 2.5 cm per 4 cm forward
                                                # step on 2026-09-27, so every MV_UP read as "blocked"; 1.5 = kp 75/75/60/60/45
   # Where an episode starts: upper arm down, forearm horizontal forward, hand tip 30 cm ahead at 75% reach
@@ -110,19 +110,20 @@ recorder:
   export_dir: recordings     # every episode's accepted moves become recordings/ai_<mode>_<task>_<time>.json (+ contact sheet)
 
 locomotion:                  # whole-body steps through the robot's loco service: a velocity for a bounded time, then an explicit stop.
-  enabled: false             # off = the model never sees WALK/TURN. The window's "walk" box sets it per session; needs FSM 811.
-  step_m: 0.30               # WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT
-  turn_deg: 20.0             # TURN_LEFT / TURN_RIGHT
-  param_max_walk_m: 0.60     # WALK <cm> cap, also the per-command cap
+  enabled: false             # off = the model never sees WALK/TURN. The window's "walk" box sets it per session.
+  step_m: 0.50               # WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT (0.30 was too little to see, 2026-09-27)
+  turn_deg: 30.0             # TURN_LEFT / TURN_RIGHT
+  param_max_walk_m: 1.00     # WALK <cm> cap, also the per-command cap ("walk 1 m forward" is one command)
   param_max_turn_deg: 45.0   # TURN <deg> cap
   speed_mps: 0.25
   turn_speed_rps: 0.4
   max_total_m: 5.0           # per episode; then walks are refused
   max_total_turn_deg: 360.0
   settle_s: 1.0              # after the stop, before odometry and the next images
-  fsm_ok: [811]              # FSM ids in which the streamer forwards a walk. 2026-09-27: GetFsmId alternated 811/816 while standing
-                             # and a walk sent in 811 did not move the robot; what 816 is (a walking mode toggled on the remote?) is
-                             # unconfirmed. Add it here only once confirmed: the streamer refuses walks in any other state.
+  fsm_ok: [811]              # FSM ids in which the streamer sends the velocity command. Before every step it hands the arms back
+                             # to the controller: any weight > 0 on rt/arm_sdk puts the R1 into 816 (ArmSdkLoco), in which every
+                             # walk was refused here, and the robot is back in 811 the moment the weight is 0 (2026-09-27).
+  fsm_wait_s: 2.0            # how long to wait for an allowed FSM after the arms are released
 
 demos:                       # recordings as demonstrations (harness/demos.py, tools/framelog.py)
   max_moments: 8             # contact sheet columns: Douglas-Peucker key moments of the joint-space path, at most this many

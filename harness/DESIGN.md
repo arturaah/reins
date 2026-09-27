@@ -143,9 +143,15 @@ one against the other. It is deliberately not passed off as a camera.
 The original ground rule "never command legs or locomotion" is relaxed: with `locomotion.enabled`
 the model may step the whole robot through the loco service's velocity command, bounded per step,
 per episode, and behind the same Accept as an arm move. It stays off by default, is refused outside
-FSM 811 by the streamer itself, and a walk is never part of an open-loop chunk. The camera rides on
-the body, so walks are in the body frame and the prompt says to judge again after each one. Not yet
-executed on the robot.
+`locomotion.fsm_ok` (811) by the streamer itself, and a walk is never part of an open-loop chunk. The
+camera rides on the body, so walks are in the body frame and the prompt says to judge again after each
+one. First live attempts (2026-09-27 afternoon) found that the arm topic and walking exclude each other
+on the R1: any weight above 0 on `rt/arm_sdk` puts the robot into FSM 816 (ArmSdkLoco), the walks sent
+there were refused, and the one sent in 811 moved nothing. The streamer therefore hands the arms back to
+the controller for every step and takes them again afterwards, and logs the controller's answer to the
+velocity command; whether this firmware obeys SDK velocity commands at all is still open (a public
+report gives code 127 for all of them on ai_sport 1.0.2.154). Steps were also raised from 30 to 50 cm,
+with a named distance walked in one sized command of up to 1 m.
 
 ## Not done yet
 

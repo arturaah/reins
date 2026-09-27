@@ -168,15 +168,27 @@ more Read with `claude -p`).
 
 Off by default, and on only when the task text itself contains the word "walk": the window then starts the
 streamer and the loop with `locomotion.enabled=true`, and the loop refuses a walk otherwise. That adds WALK_FWD /
-WALK_BACK / WALK_LEFT / WALK_RIGHT (30 cm), TURN_LEFT / TURN_RIGHT (20 deg), `WALK <dir> <cm>` (up
-to 60 cm) and `TURN <deg>` (up to 45 deg) to the vocabulary, tells the planner to add an APPROACH
-stage when the target is beyond the arm's reach, and tells the controller to walk only when the
-target is out of reach and to look again afterwards. A step never sits in a plan chunk. The gate
-(`SafetyGate.vet_walk`) caps each step, keeps a per-episode budget (5 m, 360 deg) and turns the
-step into a velocity and a duration; the streamer's `walk` command checks enabled, FSM 811, speed
-and duration again on its own, asks the loco service for that velocity for that long, then sends an
-explicit stop (also on e-stop and Ctrl-C), and reports odometry from `rt/sportmodestate` as the
-achieved (dx, dy, dyaw) in the pre-step frame. Every step is a PROPOSAL behind Accept, written to the
+WALK_BACK / WALK_LEFT / WALK_RIGHT (50 cm), TURN_LEFT / TURN_RIGHT (30 deg), `WALK <dir> <cm>` (up to
+100 cm; a task that names a distance is to be walked in one such command) and `TURN <deg>` (up to 45 deg)
+to the vocabulary, tells the planner to add an APPROACH stage when the target is beyond the arm's reach,
+and tells the controller to walk only when the target is out of reach and to look again afterwards. A
+step never sits in a plan chunk. The gate (`SafetyGate.vet_walk`) caps each step, keeps a per-episode
+budget (5 m, 360 deg) and turns the step into a velocity and a duration; the streamer's `walk` command
+checks enabled, speed and duration again on its own, **hands the arms back to the controller** (weight
+ramped to 0), waits up to `locomotion.fsm_wait_s` for an FSM in `locomotion.fsm_ok` (811), asks the loco
+service for that velocity for that long, logs the controller's answer code, sends an explicit stop whatever
+happens (also on e-stop and Ctrl-C), reports odometry from `rt/odommodestate` as the achieved (dx, dy, dyaw)
+in the pre-step frame, and takes the arms back. The release is not optional: the R1 reports FSM 816
+("ArmSdkLoco" in the R1 table of legion1581/unitree_webrtc_connect; Unitree's SDK does not name it) from the
+first `rt/arm_sdk` message with a weight above 0 until the weight is 0 again (watched on 2026-09-27 with a
+subscribe-only monitor next to a live session: 811 to 816 within half a second of the engage ramp, back to
+811 with the last frame of the release ramp), every walk sent in 816 was refused here, and another R1 EDU
+owner reports that nothing walks in 816, not even the remote (unitreerobotics/unitree_sdk2_python#182). The
+one velocity command that went out in 811 before the release existed (0.25 m/s for 1.2 s) moved nothing and
+its answer code was not logged then; a report of code 127 for every velocity command in every state on
+ai_sport 1.0.2.154 (unitreerobotics/xr_teleoperate#319) says SDK locomotion may be switched off in that
+firmware, so the next live step's logged code decides whether walking is possible from software at all.
+Every step is a PROPOSAL behind Accept, written to the
 preview file as a plan whose arms hold and whose `base_keyframes` (the Spectacles feed's planar base path)
 go from the current pose to the step's end: the twin walks a translucent whole-body ghost along the green
 floor path to the end pose, and the glasses get the same file through the review mailbox. A task that
@@ -227,7 +239,8 @@ ramps the blend weight over 1 s both ways, holds waist yaw and head at their mea
 re-checks every frame's joint speed, and ramps down by itself on: client heartbeat lost for 0.5 s
 (paused while it is serving that client's command, since the client cannot heartbeat then),
 client disconnect (the loop process died), `rt/lowstate` stale for 0.5 s, tracking error over
-0.6 rad for 0.3 s, Ctrl-C. When the weight is 0 the robot's own controller has the arms.
+0.6 rad for 0.3 s, Ctrl-C. When the weight is 0 the robot's own controller has the arms. For a walk it
+hands the arms back first and takes them again afterwards (see Locomotion).
 
 ## Runs
 

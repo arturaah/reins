@@ -13,9 +13,12 @@ over a local TCP socket. Safety it enforces by itself, whatever the client says:
   - waist yaw and head pitch/yaw are held at their measured values with Unitree's gains (robot.hold_head); with
     robot.head_pitch_rad the head pitch is commanded there on engage instead, so the head camera sees the hand
   - arm gains are Unitree's example gains times robot.arm_kp_scale (gravity droop at 1.0 was 2 to 3 cm per 4 cm step)
-  - walk: {"cmd": "walk", "vx", "vy", "vyaw", "duration"} asks the loco service for that velocity for that long, then
-    sends an explicit stop; only with locomotion.enabled in its own config, only in FSM 811, velocities and duration
-    capped by the config on its own; odometry from rt/sportmodestate comes back as {dx, dy, dyaw} in the pre-walk frame
+  - walk: {"cmd": "walk", "vx", "vy", "vyaw", "duration"} hands the arms back to the controller first (any weight > 0 on
+    rt/arm_sdk puts the R1 into FSM 816 ArmSdkLoco, in which every walk was refused; it is back in 811 at weight 0), waits
+    for an allowed FSM (locomotion.fsm_ok, fsm_wait_s), asks the loco service for that velocity for that long, logs the
+    controller's answer code, sends an explicit stop whatever happens, and takes the arms back; only with
+    locomotion.enabled in its own config, velocities and duration capped by the config on its own; odometry from
+    rt/odommodestate comes back as {dx, dy, dyaw} in the pre-walk frame
 Commands (one JSON object per line):  {"cmd": "hello"} {"cmd": "state"} {"cmd": "engage"}
   {"cmd": "frames", "arm": "right", "frames": [[q1..q5], ...], "dt": 0.02}   (blocks until streamed)
   {"cmd": "freeze"} {"cmd": "release"} {"cmd": "heartbeat"} (no reply)
@@ -47,6 +50,10 @@ from .lowstate import FSM_ARM_OK, JOINT_TO_SLOT, LowStateReader, query_fsm
 GAINS = {"shoulder_pitch": (50.0, 2.0), "shoulder_roll": (50.0, 2.0), "shoulder_yaw": (40.0, 2.0),
          "elbow": (40.0, 2.0), "wrist_roll": (30.0, 2.0)}
 WAIST_YAW, HEAD = 13, (29, 30)
+# answers to a velocity command that the SDK's error lists do not name
+CODE_HINTS = {127: " (127 is in none of the SDK's error lists; another R1 EDU on ai_sport 1.0.2.154 gets it for every velocity "
+                   "command in every state, unitreerobotics/xr_teleoperate#319, which points at SDK locomotion being switched off "
+                   "in that firmware)"}
 
 
 def _loco():
@@ -118,46 +125,79 @@ class Streamer:
         o = self.odom
         return (list(o["pos"]), o["yaw"]) if o["pos"] is not None and time.time() - o["t"] < 1.0 else None
 
+    def _await_fsm(self, ok, wait_s):
+        """Poll the FSM until it is one of ok, for up to wait_s (the R1 leaves 816 the moment the arm weight is 0)."""
+        t0 = time.time()
+        while True:
+            fsm, name = query_fsm()
+            if fsm in ok or time.time() - t0 >= wait_s:
+                return fsm, name
+            time.sleep(0.25)
+
+    def _retake(self, held):
+        """After a step: the arms back under the streamer when it held them before; '' or why not."""
+        if not held:
+            return ""
+        err = self.engage()
+        if err:
+            self.log(f"walk: the arms are NOT held again: {err}")
+            return f"the arms could not be taken back after the step: {err}"
+        return ""
+
     def walk(self, vx, vy, vyaw, duration):
-        """-> (error, odometry). The streamer checks everything itself: enabled, FSM 811, caps, then velocity for
-        duration seconds and an explicit stop, whatever happens."""
+        """-> (error, odometry). The streamer checks everything itself: enabled, caps, an allowed FSM. It hands the arms
+        back to the controller for the step (any weight > 0 on rt/arm_sdk puts the R1 into FSM 816 ArmSdkLoco, in which
+        every walk was refused; it is back in 811 at weight 0), asks the loco service for the velocity for duration
+        seconds, sends an explicit stop whatever happens, then takes the arms back if it held them before."""
         lo = self.loco
         if not lo.get("enabled", False):
             return "walking is disabled in the streamer's config (locomotion.enabled)", None
-        fsm, name = query_fsm()
-        fsm_ok = {int(v) for v in (lo.get("fsm_ok") or [811])}      # which FSM ids may walk: the operator's list (config), 811 by default
-        if fsm not in fsm_ok:
-            return f"refused: walking is allowed in FSM {sorted(fsm_ok)} (locomotion.fsm_ok); the robot is in {fsm} = {name}", None
         v, w = float(lo["speed_mps"]), float(lo["turn_speed_rps"])
         if abs(vx) > v * 1.05 or abs(vy) > v * 1.05 or abs(vyaw) > w * 1.05:
             return f"refused: velocity over the cap ({v} m/s, {w} rad/s)", None
         t_max = max(float(lo["param_max_walk_m"]) / v, math.radians(float(lo["param_max_turn_deg"])) / w) * 1.05 + 0.3
         if not (0.0 < duration <= t_max):
             return f"refused: duration {duration:.1f} s over the cap ({t_max:.1f} s)", None
+        fsm_ok = {int(x) for x in (lo.get("fsm_ok") or [811])}      # which FSM ids may walk: the operator's list (config), 811 by default
+        held = self.engaged
+        if held:
+            self.release("walk: the arms go back to the controller for the step (the arm topic puts the R1 into FSM 816, which did not walk)")
+        fsm, name = self._await_fsm(fsm_ok, float(lo.get("fsm_wait_s", 2.0)))
+        if fsm not in fsm_ok:
+            back = self._retake(held)
+            return (f"refused: walking is allowed in FSM {sorted(fsm_ok)} (locomotion.fsm_ok); the robot is in {fsm} = {name}"
+                    + (" even with the arm topic released" if held else "") + (f"; {back}" if back else "")), None
         before = self._odom_now()
         lc = _loco()
         self.walking = True
-        self.log(f"walk: vx={vx:+.2f} vy={vy:+.2f} m/s yaw={vyaw:+.2f} rad/s for {duration:.1f} s")
-        code = None
+        self.log(f"walk: vx={vx:+.2f} vy={vy:+.2f} m/s yaw={vyaw:+.2f} rad/s for {duration:.1f} s in FSM {fsm}")
+        err = ""
         try:
             code = lc.SetVelocity(float(vx), float(vy), float(vyaw), float(duration))
+            self.log(f"walk: the controller answered {code} to the velocity command")
             if code not in (0, None):
-                return f"the controller refused the velocity command (code {code}); nothing moved", None
-            time.sleep(float(duration))
+                err = f"the controller refused the velocity command (code {code}){CODE_HINTS.get(code, '')}; nothing moved"
+            else:
+                time.sleep(float(duration))
         finally:
             try:
                 lc.StopMove()
             finally:
                 self.walking = False
-        time.sleep(float(lo.get("settle_s", 1.0)))
-        after = self._odom_now()
-        if before is None or after is None:
-            return "", None
-        (p0, y0), (p1, y1) = before, after
-        dxw, dyw = p1[0] - p0[0], p1[1] - p0[1]
-        c, s = math.cos(-y0), math.sin(-y0)
-        dyaw = (y1 - y0 + math.pi) % (2 * math.pi) - math.pi
-        return "", {"dx": c * dxw - s * dyw, "dy": s * dxw + c * dyw, "dyaw": dyaw}
+        odom = None
+        if not err:
+            time.sleep(float(lo.get("settle_s", 1.0)))
+            after = self._odom_now()
+            if before is not None and after is not None:
+                (p0, y0), (p1, y1) = before, after
+                dxw, dyw = p1[0] - p0[0], p1[1] - p0[1]
+                c, s = math.cos(-y0), math.sin(-y0)
+                dyaw = (y1 - y0 + math.pi) % (2 * math.pi) - math.pi
+                odom = {"dx": c * dxw - s * dyw, "dy": s * dxw + c * dyw, "dyaw": dyaw}
+        back = self._retake(held)
+        if back:
+            err = (err + "; " if err else "the step was sent, but ") + back
+        return err, odom
 
     def stop_walking(self):
         if self.walking:

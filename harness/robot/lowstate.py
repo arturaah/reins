@@ -16,8 +16,16 @@ SLOT_TO_JOINT = {
 }
 JOINT_TO_SLOT = {v: k for k, v in SLOT_TO_JOINT.items()}
 HEAD_SLOTS = {29: "head_pitch", 30: "head_yaw"}
-FSM_NAMES = {0: "ZeroTorque", 1: "Damp", 4: "StandUp", 811: "Start (balance control)",
-             816: "unnamed in the SDK (seen alternating with 811 while standing, 2026-09-27; meaning unconfirmed)"}
+# Unitree's SDK names 0, 1, 4 and 811 (r1_loco_client.hpp). The others are the R1 table of legion1581/unitree_webrtc_connect
+# (constants.py, read out of the app's protocol), marked (wrtc). 816 verified here on 2026-09-27: the robot reports it from the
+# moment rt/arm_sdk carries a weight > 0 and is back in 811 the moment the weight is 0 again (harness/README.md, Locomotion).
+FSM_NAMES = {0: "ZeroTorque", 1: "Damp", 4: "StandUp", 5: "Keep (wrtc)", 6: "MoveTo (wrtc)", 7: "SitDown (wrtc)",
+             601: "Dance1 (wrtc)", 602: "Dance2 (wrtc)", 603: "Dance3 (wrtc)", 604: "Twist (wrtc)", 607: "KungFu (wrtc)",
+             608: "JeetKuneDo (wrtc)", 701: "StandUp from the ground (wrtc)", 702: "LieDown (wrtc)", 800: "Motion (wrtc)",
+             811: "Start (balance control)", 812: "AmpMotion (wrtc)", 813: "WalkStraightKnee (wrtc)", 814: "Walk (wrtc)",
+             815: "AmpLocomotion (wrtc)",
+             816: "ArmSdkLoco (wrtc): balance control with the arm topic active; the R1 enters it while rt/arm_sdk carries a weight > 0 and leaves it at weight 0",
+             830: "Loco20Dof (wrtc)", 831: "LocoArmSdk (wrtc)"}
 FSM_ARM_OK = {4, 811}
 _initialized = {}
 

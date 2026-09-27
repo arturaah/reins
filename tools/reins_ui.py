@@ -145,13 +145,25 @@ def vlm_model():
         with open(os.path.join(ROOT, "harness/config.yaml")) as f: return str(yaml.safe_load(f)["vlm"]["model"])
     except Exception:
         return "see harness/config.yaml"
+def loco_cfg():
+    """The step sizes the harness will use, for the pane's texts (harness/config.yaml, locomotion)."""
+    try:
+        import yaml
+        with open(os.path.join(ROOT, "harness/config.yaml")) as f: lo = yaml.safe_load(f)["locomotion"]
+        return {"step_cm": float(lo["step_m"]) * 100, "turn_deg": float(lo["turn_deg"]), "max_cm": float(lo["param_max_walk_m"]) * 100,
+                "total_m": float(lo["max_total_m"])}
+    except Exception:
+        return {"step_cm": 50.0, "turn_deg": 30.0, "max_cm": 100.0, "total_m": 5.0}
+LOCO = loco_cfg()
 ttk.Label(aif, text=f"AI control  (VLM: claude -p on this Mac's Claude login, model {vlm_model()}; every Accept / Reject and its feedback is kept for later sessions)",
           wraplength=SIZES["head"][0]).pack(anchor="w")
 ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
 walk_lbl = tk.Label(aif, text="", bg="#0f1419", fg="#8b949e", anchor="w", wraplength=SIZES["head"][0], justify="left"); walk_lbl.pack(fill="x")
 def walk_changed(*_):                                              # the word walk in the task is the switch for whole-body steps
     on = bool(re.search(r"\bwalk(s|ed|ing)?\b", ai_task.get(), re.IGNORECASE))
-    walk_lbl.configure(text=("walking: ON  (the task says \"walk\": the model may step the whole robot, 30 cm or 20 deg per step, each behind Accept)"
+    walk_lbl.configure(text=(f"walking: ON  (the task says \"walk\": the model may step the whole robot, {LOCO['step_cm']:.0f} cm or "
+                             f"{LOCO['turn_deg']:.0f} deg per step, sized steps up to {LOCO['max_cm']:.0f} cm, each behind Accept; the arms are "
+                             "handed back to the robot for each step)"
                              if on else "walking: off  (arm only; put the word \"walk\" in the task to allow whole-body steps)"),
                        fg="#ff6b6b" if on else "#8b949e")
 ai_task.trace_add("write", walk_changed)
@@ -437,8 +449,9 @@ def ai_run():
             "--spectacles-review", SPECTACLES_REVIEW]
     if demos: cmd += ["--demos", *demos]
     if live:
-        walk_note = ("\nThe task says WALK, so the model may also step the whole robot (30 cm or 20 deg per step, sized steps up to 60 cm, "
-                     "each behind Accept, 5 m per session). Keep 1 m free around the robot and the remote ready.\n") if walk_ok else ""
+        walk_note = (f"\nThe task says WALK, so the model may also step the whole robot ({LOCO['step_cm']:.0f} cm or {LOCO['turn_deg']:.0f} deg "
+                     f"per step, sized steps up to {LOCO['max_cm']:.0f} cm, each behind Accept, {LOCO['total_m']:g} m per session); for each step "
+                     "the arms are handed back to the robot and taken again afterwards. Keep 1.5 m free around the robot and the remote ready.\n") if walk_ok else ""
         if not messagebox.askokcancel("AI control on the robot",
                 "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session; the head tilts down "
                 "to look at the workspace.\n"

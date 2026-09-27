@@ -56,8 +56,8 @@ def test_walk_gate_caps_budget_and_enable(cfg):
     g = SafetyGate(cfg, kin, None, live=False)
     v = g.vet_walk(0.2, 0.0, 0.0)
     assert v.ok and abs(v.vx - 0.25) < 1e-9 and abs(v.duration_s - 0.8) < 1e-9 and v.vy == 0 and v.vyaw == 0
-    v = g.vet_walk(1.0, 0.0, 0.0)
-    assert v.ok and abs(v.dx - 0.6) < 1e-9 and "capped" in v.clamped[0]                       # per-command cap
+    v = g.vet_walk(1.5, 0.0, 0.0)
+    assert v.ok and abs(v.dx - 1.0) < 1e-9 and "capped" in v.clamped[0]                       # per-command cap
     v = g.vet_walk(0.0, 0.0, math.radians(20))
     assert v.ok and abs(v.duration_s - math.radians(20) / 0.4) < 1e-9 and abs(v.vyaw * v.duration_s - math.radians(20)) < 1e-9
     v = g.vet_walk(0.0, 0.0, -math.radians(90))
@@ -108,13 +108,13 @@ def test_episode_walks_when_allowed_and_prompts_say_so(rig):
     assert "THE ROBOT CAN WALK" in vlm.calls[0][1] and "APPROACH" in vlm.calls[0][1]
     prompts = [c[1] for c in vlm.calls if c[0] == "act"]
     assert all("LOCOMOTION: the whole robot can step" in p and "WALK_FWD" in p for p in prompts)
-    assert asked[0][0].startswith("TURN_LEFT: the WHOLE ROBOT steps: turn 20 deg left") and asked[0][1]["walk"][2] > 0
-    assert asked[1][0].startswith("WALK_FWD: the WHOLE ROBOT steps: walk 30 cm forward at 0.25 m/s") and "frames" not in asked[1][1]
-    assert "walk 50 cm forward" in asked[2][0]                                                # under the 60 cm cap
-    assert abs(backend.base[2] - math.radians(20)) < 1e-9 and abs(np.hypot(*backend.base[:2]) - 0.8) < 1e-9
-    assert "walked 30 cm forward" in prompts[2] or "Recent moves, newest first: WALK_FWD" in prompts[2]
+    assert asked[0][0].startswith("TURN_LEFT: the WHOLE ROBOT steps: turn 30 deg left") and asked[0][1]["walk"][2] > 0
+    assert asked[1][0].startswith("WALK_FWD: the WHOLE ROBOT steps: walk 50 cm forward at 0.25 m/s") and "frames" not in asked[1][1]
+    assert "walk 50 cm forward" in asked[2][0]                                                # under the 100 cm cap
+    assert abs(backend.base[2] - math.radians(30)) < 1e-9 and abs(np.hypot(*backend.base[:2]) - 1.0) < 1e-9
+    assert "walked 50 cm forward" in prompts[2] or "Recent moves, newest first: WALK_FWD" in prompts[2]
     assert "the view has changed" in prompts[2]
-    assert ex.gate.walked_m == pytest.approx(0.8)
+    assert ex.gate.walked_m == pytest.approx(1.0)
 
 
 def test_walking_needs_the_word_walk_in_the_task(rig):
@@ -148,7 +148,7 @@ def test_start_pose_waits_for_the_first_arm_stage(rig):
     s = Episode(cfg, vlm, ex, per, None, log=lambda *_: None).run("walk forward, then hover over the block", start_pose=cfg["robot"]["start_pose_rad"]["right"])
     assert s["success"]
     assert [t.split(":")[0] for t in asked] == ["WALK_FWD", "WALK_FWD", "start pose", "MV_UP"]     # walks first, the pose only when the arm stage starts
-    assert abs(backend.base[0] - 0.6) < 1e-9
+    assert abs(backend.base[0] - 1.0) < 1e-9
     assert "IN A STAGE WHOSE MOTION IS APPROACH OR WALK" in [c[1] for c in vlm.calls if c[0] == "act"][0]
     assert "walking instruction with no arm work" in vlm.calls[0][1]
 
@@ -188,7 +188,8 @@ def test_prompts_hide_walking_when_disabled(cfg):
     assert "WALK" not in planner_prompt("task", cfg, "right")
     cfg["locomotion"]["enabled"] = True
     p = controller_prompt("task", stage, pro, [], None, cfg, "right", locomotion=True)
-    assert "WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" in p and "move the body 30 cm" in p
+    assert "WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" in p and "move the body 50 cm" in p
+    assert "up to 100 cm in one command" in p and "WALK forward 100" in p                    # a named distance is one sized command
     assert "MOVE <forward|back|left|right|up|down> <cm>, up to 20 cm" in p                    # sized arm moves are offered too
     assert "THE ROBOT CAN WALK" in planner_prompt("task", cfg, "right")
     assert "THE ROBOT CAN WALK" not in planner_prompt("task", cfg, "right", locomotion=False)
@@ -222,7 +223,7 @@ def test_streamer_walk_command(cfg, monkeypatch):
     monkeypatch.setattr(am, "LowStateReader", FakeReader); monkeypatch.setattr(am, "ChannelPublisher", FakePub)
     monkeypatch.setattr(am, "_odom_sub", lambda cb: None); monkeypatch.setattr(am, "_loco", lambda: FakeLoco())
     monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start (balance control)"))
-    cfg["locomotion"]["settle_s"] = 0.0
+    cfg["locomotion"]["settle_s"] = 0.0; cfg["locomotion"]["fsm_wait_s"] = 0.2
     st = am.Streamer(cfg, "lo0", log=lambda *a: None)
     r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "disabled" in r["error"] and FakeLoco.calls == []
@@ -235,9 +236,10 @@ def test_streamer_walk_command(cfg, monkeypatch):
     assert r["ok"] is False and "over the cap" in r["error"] and FakeLoco.calls == []
     r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 5.0})
     assert r["ok"] is False and "duration" in r["error"]
-    monkeypatch.setattr(am, "query_fsm", lambda: (816, "unnamed"))
-    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    monkeypatch.setattr(am, "query_fsm", lambda: (816, "ArmSdkLoco"))
+    t0 = time.time(); r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "locomotion.fsm_ok" in r["error"] and "816" in r["error"]     # only the operator's list may walk
+    assert time.time() - t0 >= 0.2 and "released" not in r["error"]                            # waited fsm_wait_s; nothing was held
     st.loco["fsm_ok"] = [811, 816]; FakeLoco.calls.clear()
     r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] and FakeLoco.calls[0][0] == "vel"
@@ -248,6 +250,11 @@ def test_streamer_walk_command(cfg, monkeypatch):
     FakeLoco.calls.clear()
     r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
     assert r["ok"] is False and "code 3103" in r["error"] and FakeLoco.calls[-1] == ("stop",)    # refused, still stopped
+    class Blocked(FakeLoco):
+        def SetVelocity(self, *a): FakeLoco.calls.append(("vel", *a)); return 127                   # the undocumented answer of #319
+    monkeypatch.setattr(am, "_loco", lambda: Blocked())
+    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    assert r["ok"] is False and "code 127" in r["error"] and "xr_teleoperate#319" in r["error"]
     monkeypatch.setattr(am, "_loco", lambda: FakeLoco())
     # odometry: a walk of 0.2 m along the heading at yaw 90 deg -> dx 0.2 in the body frame
     monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start"))
@@ -257,3 +264,39 @@ def test_streamer_walk_command(cfg, monkeypatch):
     r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.3})
     assert r["ok"] and abs(r["odom"]["dx"] - 0.2) < 1e-6 and abs(r["odom"]["dy"]) < 1e-6 and abs(r["odom"]["dyaw"] - 0.05) < 1e-9
     FakeLoco.calls.clear(); st.walking = True; st.dispatch("freeze", {}); assert FakeLoco.calls == [("stop",)]  # e-stop stops a walk
+
+
+def test_streamer_hands_the_arms_back_for_a_step(cfg, monkeypatch):
+    """rt/arm_sdk with a weight > 0 puts the R1 into FSM 816, in which it does not walk: the streamer releases the arms before
+    the velocity command (polling the FSM until it is allowed) and engages them again afterwards."""
+    monkeypatch.setattr(am, "LowStateReader", FakeReader); monkeypatch.setattr(am, "ChannelPublisher", FakePub)
+    monkeypatch.setattr(am, "_odom_sub", lambda cb: None)
+    cfg["locomotion"]["enabled"] = True; cfg["locomotion"]["settle_s"] = 0.0; cfg["locomotion"]["fsm_wait_s"] = 1.0
+    cfg["robot"]["weight_ramp_s"] = 0.1; cfg["robot"]["fsm_ok_arms"] = [4, 811]
+    st = am.Streamer(cfg, "lo0", log=lambda *a: None)
+    fsm = {"now": 811}
+    monkeypatch.setattr(am, "query_fsm", lambda: (fsm["now"], "x"))
+    real_send = st.send
+    def send():                                                     # the fake robot: 816 while the weight is > 0, 811 at 0
+        real_send(); fsm["now"] = 816 if st.weight > 0 else 811
+    st.send = send
+    seen = []
+    class Loco(FakeLoco):
+        def SetVelocity(self, *a): seen.append((st.weight, fsm["now"])); FakeLoco.calls.append(("vel", *a))
+    monkeypatch.setattr(am, "_loco", lambda: Loco())
+    assert st.engage() == "" and st.engaged and fsm["now"] == 816
+    FakeLoco.calls.clear()
+    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.1})
+    assert r["ok"], r["error"]
+    assert seen == [(0.0, 811)] and FakeLoco.calls == [("vel", 0.25, 0.0, 0.0, 0.1), ("stop",)]   # sent with the arms released, in 811
+    assert st.engaged and st.weight == 1.0 and r["engaged"] and fsm["now"] == 816                # and the arms are held again
+    st.release(); assert not st.engaged and fsm["now"] == 811
+    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.1})
+    assert r["ok"] and not st.engaged                                                            # not held before: not held after
+    # the FSM never becomes allowed: refused after the wait, with the arms' state reported
+    assert st.engage() == ""
+    monkeypatch.setattr(am, "query_fsm", lambda: (816, "ArmSdkLoco")); cfg["locomotion"]["fsm_wait_s"] = 0.3
+    FakeLoco.calls.clear(); t0 = time.time()
+    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.1})
+    assert r["ok"] is False and "816" in r["error"] and "even with the arm topic released" in r["error"] and time.time() - t0 >= 0.3
+    assert FakeLoco.calls == [] and "could not be taken back" in r["error"] and not st.engaged      # engage is refused in 816 too

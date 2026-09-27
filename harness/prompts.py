@@ -50,7 +50,9 @@ PLANNER_LOCOMOTION = """- THE ROBOT CAN WALK for this task. The arm reaches abou
   no arm stages at all."""
 LOCOMOTION_RULES = """LOCOMOTION: the whole robot can step. WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT move the body {walk_cm:.0f} cm (the
 hand comes along; its position relative to the body does not change), TURN_LEFT / TURN_RIGHT turn the body {turn_deg:.0f} deg,
-or WALK <forward|back|left|right> <cm> and TURN <deg> (positive = left) within the caps. Use them ONLY when the TARGET is
+or WALK <forward|back|left|right> <cm> (up to {walk_max_cm:.0f} cm in one command) and TURN <deg> (positive = left, up to
+{turn_max_deg:.0f} deg). When the task or the stage names a distance or an angle, take it in ONE sized command ("walk 1 m
+forward" -> WALK forward 100), not as a series of small steps. Use them ONLY when the TARGET is
 out of the arm's reach: more than about 40 cm from the hand tip, or the arm keeps reporting unreachable targets. Face the
 TARGET with turns, then WALK_FWD until it is within reach; WALK_BACK when too close. A walk is a single action, never in a
 plan chunk, and the images change afterwards: judge again before the next action. Never walk while the hand is near an
@@ -207,7 +209,9 @@ def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=Fa
                       "ROTATE_CW, ROTATE_CCW, STILL, DONE") + \
         ("" if hand == "none" else ", GRASP, RELEASE") + \
         (", WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" if locomotion else "")
-    loco_text = LOCOMOTION_RULES.format(walk_cm=float(lo.get("step_m", 0.2)) * 100, turn_deg=float(lo.get("turn_deg", 20.0))) if locomotion else ""
+    loco_text = LOCOMOTION_RULES.format(walk_cm=float(lo.get("step_m", 0.2)) * 100, turn_deg=float(lo.get("turn_deg", 20.0)),
+                                        walk_max_cm=float(lo.get("param_max_walk_m", 0.4)) * 100,
+                                        turn_max_deg=float(lo.get("param_max_turn_deg", 45.0))) if locomotion else ""
     contract = (OUTPUT_CONTRACT_DUAL if dual else OUTPUT_CONTRACT).format(vocab=vocab)
     return CONTROLLER.format(
         task=task, stage=stage.get("motion") or stage.get("id", ""), target=stage.get("target", ""),
