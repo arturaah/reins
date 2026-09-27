@@ -9,6 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from .audio import MAX_SECONDS, RATE, robotic_pcm
 from .providers import demo_session
+from .errors import SpeechError
 
 ASSETS = Path(__file__).parent / 'web'
 INPUT_RATE = 16000
@@ -23,11 +24,21 @@ async def conversation(ws, provider):
     awaiting_playback = False
     audio = bytearray()
     started = 0.0
+    turn = 0
 
-    async def respond(*, pcm=None, text=None):
+    async def log_event(event):
+        await ws.send_json({'type': 'log', 'timestamp': time.time(), 'turn': turn, **event})
+        if event['stage'] == 'tyto' and event['status'] == 'nudge' and recording:
+            await ws.send_json({'type': 'nudge'})  # Browser releases the mic and ends this discarded turn.
+
+    if hasattr(provider, 'set_event_sink'):
+        provider.set_event_sink(log_event)
+
+    async def respond(*, pcm=None, text=None, chat=False):
         nonlocal awaiting_playback, busy
         await ws.send_json({'type': 'thinking'})
-        reply = await asyncio.wait_for(provider.reply(pcm=pcm, text=text), 120)
+        call = provider.chat(text) if chat else provider.reply(pcm=pcm, text=text)
+        reply = await asyncio.wait_for(call, 120)
         if reply.heard:
             await ws.send_json({'type': 'transcript', 'role': 'you', 'text': reply.heard[:8000]})
         if reply.said:
@@ -73,6 +84,8 @@ async def conversation(ws, provider):
                     raise ValueError('Audio received outside a recording')
                 if not chunk or len(chunk) % 2 or len(chunk) > 16384 or len(audio) + len(chunk) > MAX_INPUT:
                     raise ValueError('Invalid audio or 30-second recording limit exceeded')
+                if getattr(getattr(provider, 'insight', None), 'line', None):
+                    continue  # Ignore already-in-flight microphone frames after the nudge decision.
                 audio.extend(chunk)
                 if hasattr(provider, 'input_chunk'):
                     endpoint = await provider.input_chunk(chunk)
@@ -93,6 +106,8 @@ async def conversation(ws, provider):
                 if not awaiting_playback or not task or not task.done():
                     raise ValueError('No completed reply to acknowledge')
                 task.result()
+                if hasattr(provider, 'playback_finished'):
+                    await provider.playback_finished()
                 awaiting_playback = busy = False
                 task = None
                 await ws.send_json({'type': 'ready'})
@@ -102,6 +117,7 @@ async def conversation(ws, provider):
                 if type(event.get('sample_rate')) is not int or event['sample_rate'] != INPUT_RATE:
                     raise ValueError('Microphone must provide 16 kHz mono PCM16')
                 audio.clear()
+                turn += 1
                 auto_end = event.get('auto_end') is True
                 if hasattr(provider, 'begin_input'):
                     await provider.begin_input()
@@ -115,24 +131,30 @@ async def conversation(ws, provider):
                 busy = True
                 task = asyncio.create_task(respond(pcm=bytes(audio)))
                 audio.clear()
-            elif action in ('hello', 'text'):
+            elif action in ('hello', 'text', 'chat'):
                 if busy or recording:
                     raise ValueError('Wait for the current turn')
                 text = 'Hello. I am Reins. Ready to talk.' if action == 'hello' else event.get('text')
                 if not isinstance(text, str) or not 1 <= len(text.strip()) <= 1000:
                     raise ValueError('Enter 1 to 1000 characters')
+                if action == 'chat' and not hasattr(provider, 'chat'):
+                    raise ValueError('Conversation mode is not enabled')
                 busy = True
-                task = asyncio.create_task(respond(text=text.strip()))
+                turn += 1
+                task = asyncio.create_task(respond(text=text.strip(), chat=action == 'chat'))
             else:
                 raise ValueError('Unknown voice action')
     finally:
+        if hasattr(provider, 'set_event_sink'):
+            provider.set_event_sink(None)
         audio.clear()
         if task:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
 
-def create_app(*, port=8770, provider='demo', session_factory=demo_session, public_config=None):
+def create_app(*, port=8770, provider='demo', session_factory=demo_session, public_config=None,
+               session_runner=conversation, index_asset='index.html'):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     token = secrets.token_urlsafe(32)
     owner = asyncio.Lock()
@@ -161,11 +183,12 @@ def create_app(*, port=8770, provider='demo', session_factory=demo_session, publ
 
     @app.get('/')
     async def index():
-        return FileResponse(ASSETS / 'index.html')
+        return FileResponse(ASSETS / index_asset)
 
     @app.get('/{asset}')
     async def asset(asset: str):
-        allowed = {'app.js': 'text/javascript', 'mic.js': 'text/javascript', 'style.css': 'text/css'}
+        allowed = {'app.js': 'text/javascript', 'mic.js': 'text/javascript', 'style.css': 'text/css',
+                   'live.js': 'text/javascript', 'live-mic.js': 'text/javascript'}
         if asset not in allowed:
             return JSONResponse({'error': 'Not found'}, status_code=404)
         return FileResponse(ASSETS / asset, media_type=allowed[asset])
@@ -191,16 +214,22 @@ def create_app(*, port=8770, provider='demo', session_factory=demo_session, publ
                     context = session_factory()
                     session = await asyncio.wait_for(context.__aenter__(), 15)
                     try:
-                        await conversation(ws, session)
+                        await session_runner(ws, session)
                     finally:
                         await context.__aexit__(None, None, None)
                 # Bounds stalled provider setup as well as idle connections.
                 await asyncio.wait_for(run(), 15 * 60)
         except WebSocketDisconnect:
             pass
-        except (ValueError, asyncio.TimeoutError):
+        except SpeechError as error:
             with suppress(Exception):
-                await ws.send_json({'type': 'error', 'text': 'Voice turn failed or timed out. Reconnect and try a shorter recording.'})
+                await ws.send_json({'type': 'error', 'code': error.code, 'text': error.public_text})
+        except asyncio.TimeoutError:
+            with suppress(Exception):
+                await ws.send_json({'type': 'error', 'code': 'timeout', 'text': 'Voice session timed out. Reconnect to continue.'})
+        except ValueError:
+            with suppress(Exception):
+                await ws.send_json({'type': 'error', 'code': 'invalid_turn', 'text': 'The voice turn could not be processed. Check the stage log and reconnect.'})
         except Exception:
             # Do not return provider payloads, transcripts, URLs, or credentials in errors/logs.
             with suppress(Exception):

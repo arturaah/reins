@@ -28,6 +28,22 @@ input { background:#111316; color:#fff; border:1px solid #6c7683; border-radius:
 #result { margin-top:14px; }
 #metrics { line-height:1.7; overflow-wrap:anywhere; }
 #acoustics { margin-bottom:18px; }
+.live-transcript { margin-top:14px; padding:12px; border:1px solid #48505a; border-radius:6px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+.processing { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:18px 0; padding:16px; border:1px solid #48505a; border-radius:8px; }
+.processing span { display:block; color:#c4cbd4; font-size:12px; margin-bottom:5px; }
+.processing strong { font-size:14px; font-weight:600; }
+#logPanel { margin-top:16px; }
+.log-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+h2 { font-size:16px; font-weight:600; margin:0; }
+.log-heading button { padding:6px 12px; }
+#pipelineLog { max-height:360px; overflow:auto; margin-top:12px; }
+.log-entry { border-top:1px solid #414852; padding:12px 0; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.log-meta { color:#c4cbd4; font-size:12px; font-variant-numeric:tabular-nums; }
+.log-title { color:#f6f7f8; font-weight:600; }
+.log-text { white-space:pre-wrap; margin-top:4px; }
+.log-error { color:#efbaba; }
+.log-scores { font-variant-numeric:tabular-nums; color:#d7dce2; margin-top:4px; }
+#pipelineLog:focus-visible { outline:2px solid #e0e6ee; outline-offset:3px; }
 @media(max-width:480px) {
   body { padding:14px; }
   section { padding:15px; }

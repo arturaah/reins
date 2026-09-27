@@ -128,3 +128,63 @@ def test_gemini_tts_sends_text_verbatim_and_decodes_expected_wav():
         assert calls[0]['generation_config']['speech_config']==[{'voice':'Charon'}]
         with pytest.raises(ValueError): decode_wav(wav_bytes(b'\0'*1000,16000))
     asyncio.run(run())
+
+
+class LLM:
+    model = 'gpt-5-mini'
+    def __init__(self): self.calls=[]
+    async def respond(self,text): self.calls.append(text); return 'Hello. We can test a conversation.'
+
+
+def test_optional_chat_handles_speech_and_text_but_literal_tts_stays_literal():
+    async def run():
+        stt,tts,llm=STT(),TTS(),LLM()
+        pipeline=AudioPipeline(stt,tts,Acoustics(),llm=llm)
+        pipeline.endpoint=End()
+        spoken=await pipeline.reply(pcm=b'original')
+        assert spoken.heard=='Wave your right hand.'
+        assert spoken.said=='Hello. We can test a conversation.'
+        assert spoken.details['llm_model']=='gpt-5-mini'
+        assert set(spoken.details['timings'])=={'acoustics_s','stt_s','llm_s','tts_s'}
+        typed=await pipeline.chat('Hello')
+        assert typed.heard=='Hello' and typed.said==spoken.said
+        literal=await pipeline.reply(text='Read this exactly.')
+        assert literal.said=='Read this exactly.'
+        assert llm.calls==['Wave your right hand.','Hello']
+        assert tts.calls[-1]=='Read this exactly.'
+    asyncio.run(run())
+
+
+def test_optional_chat_never_receives_flagged_audio_or_silence():
+    async def run():
+        for interference in (0,.9):
+            llm=LLM()
+            pipeline=AudioPipeline(STT(),TTS(),Acoustics(interference),llm=llm)
+            result=await pipeline.reply(pcm=b'original')
+            assert result.details['blocked'] in ('no_speech','competing_speech')
+            assert llm.calls==[]
+        with pytest.raises(ValueError): await AudioPipeline(STT(),TTS(),None).chat('Hello')
+    asyncio.run(run())
+
+
+def test_gpt5_mini_request_and_bounded_session_history():
+    from voice.chat import OpenAIChat
+    async def run():
+        calls=[]
+        async def create(**kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(status='completed',output_text='A short answer.')
+        async def close(): pass
+        chat=OpenAIChat.__new__(OpenAIChat)
+        chat.model='gpt-5-mini';chat.history=[]
+        chat.client=SimpleNamespace(responses=SimpleNamespace(create=create),close=close)
+        for i in range(9): await chat.respond(f'Question {i}')
+        assert len(chat.history)==12
+        assert len(calls[-1]['input'])==13
+        assert calls[-1]['input'][-3]['content']=='Question 7'
+        assert all(c['model']=='gpt-5-mini' and c['store'] is False and 'tools' not in c for c in calls)
+        assert calls[-1]['reasoning']=={'effort':'minimal'}
+        assert 'Your configured language model is gpt-5-mini.' in calls[-1]['instructions']
+        await chat.close()
+        assert chat.history==[]
+    asyncio.run(run())

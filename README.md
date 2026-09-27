@@ -34,8 +34,10 @@ control panel reaches the robot, through `tools/arm_lift.py`.
 
 ## Voice in simulation
 
-The optional [voice lab](voice/README.md) adds speech-to-text to the existing
-prompt box and Gemini/Cartesia text-to-speech for replies. Voice Focus, VAD and
-Tyto 1.1 process microphone input. The team retains its existing LLM and harness.
+The optional [voice lab](voice/README.md) uses GPT-Live-1 for listening and
+streaming speech, with client delegation to an independent robot-LLM backend.
+Voice Focus 2.2 enhances input and Tyto 1.1 requests clearer audio when needed.
+The included GPT-5-mini adapter is a conversation-only test backend with no
+motion tools. Start it with `python -m voice.live --key-file .env.voice`.
 Run the dashboard with `--sim --voice-url http://127.0.0.1:8770/` beside the
 MuJoCo preview. The UI uses a neutral theme with the colourful Reins logo.

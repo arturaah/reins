@@ -1,8 +1,9 @@
-# Optional simulation voice service. Python 3.12 recommended. No robot SDK or conversational model.
+# Optional simulation voice service. Python 3.12 recommended. No robot SDK.
 fastapi>=0.115,<1
 uvicorn[standard]>=0.34,<1
 google-genai==2.25.0
-openai==2.54.0
+openai[realtime]==2.54.0
+websockets>=15,<17
 webrtcvad-wheels==2.0.14
 python-dotenv>=1,<2
 numpy>=1.24,<3

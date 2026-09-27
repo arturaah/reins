@@ -157,7 +157,8 @@ Start the optional [voice service](../../voice/README.md), then run:
 
 `--sim` disables hardware runs on the server, camera/twin readers and calibrated
 observations. The MuJoCo preview and local demo planner still work. The optional
-voice panel uses computer audio, dictates into the existing prompt box and reads
-reply text. Dictation does not submit the form or authorize motion. The text-only
-bridge exposes `window.ReinsVoice.speak(text)` for the team’s future LLM replies. Omit
-`--voice-url` to keep the existing dashboard layout.
+voice panel uses computer audio. GPT-Live handles conversation and delegates
+robot questions through its backend adapter; it does not submit the plan form.
+The optional [cascaded mode](../../voice/CASCADE.md) instead dictates into the
+existing prompt and exposes `window.ReinsVoice.speak(text)` for reply playback.
+Neither mode authorizes motion. Omit `--voice-url` to keep the existing layout.

@@ -1,1 +1,1 @@
-"""Speech input/output adapters; no conversational LLM, harness or robot dependencies."""
+"""Speech input/output with optional test conversation; no harness or robot dependencies."""

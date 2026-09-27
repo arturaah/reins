@@ -1,183 +1,174 @@
-# Reins voice I/O
+# Reins live voice
 
-Speech input and output around the **existing text UI**. This package has no
-conversational LLM, harness, motion catalog or robot SDK dependency. The team can
-keep changing its LLMs without changing the audio pipeline.
+GPT-Live-1 handles listening, conversation and streaming speech. It delegates robot
+questions to an independent text backend only when needed. The supplied GPT-5-mini
+adapter is a local test stand-in; the team's harness, model selection and action
+execution stay behind the `RobotBackend` interface.
+
+This package uses the computer microphone and speaker. It has no robot SDK or
+motion executor, and does not read simulator state or implement R1 microphone
+capture. Voice conversations cannot execute a movement.
 
 ```text
-Computer microphone, 16 kHz mono PCM16
-  ├─ original audio → Voice Focus VAD → end of utterance
-  ├─ original audio → Tyto 1.1 → interference/noise policy
-  └─ Quail Voice Focus → OpenAI STT → existing prompt box
-
-Existing reply text → Gemini or Cartesia TTS → metallic effect → computer speaker
+Microphone, 16 kHz PCM16
+  ├─ original input → Tyto 1.1 → nudge / cancel pending backend result
+  └─ Voice Focus 2.2 → GPT-Live-1 → streaming metallic effect → speaker
+                          ↕ only when backend reasoning is needed
+                 RobotBackend.respond(messages)
+                      GPT-5-mini test adapter
 ```
-
-Dictation inserts text at the prompt box's selection. The user submits it using
-the existing **Generate plan** button. **Read reply** speaks the existing status
-or reply text. Speech does not submit a plan, approve it, or execute a motion.
-The standalone page also provides a literal text-to-speech test.
 
 ## Run locally
 
-Python 3.12 is recommended. Use a separate virtual environment if teammates are
-using the repository environment:
+Use Python 3.12 and a separate environment when sharing the repository:
 
 ```sh
 python3 -m venv .venv-voice
 .venv-voice/bin/python -m pip install -r voice/requirements-aic.txt
-# Only needed for the existing simulation dashboard:
-.venv-voice/bin/python -m pip install mujoco Pillow
+.venv-voice/bin/python -m voice.live --key-file .env.voice
 ```
 
-Set `OPENAI_API_KEY`, `GEMINI_API_KEY` and `AIC_SDK_LICENSE`, or put them in a local
-`.env.voice` and pass `--key-file .env.voice`. Environment values take precedence.
-Keys stay server-side; do not paste them into the browser or commit them.
+The local key file needs `OPENAI_API_KEY` and `AIC_SDK_LICENSE`. Existing environment
+variables take precedence. Keys remain server-side. `.env*`, virtual environments
+and downloaded models are gitignored. Gemini and Cartesia are not used by live mode.
 
-From the repository root, in two terminals:
+Open **http://127.0.0.1:8770/**, check the heading **Live voice · GPT-Live-1**, and
+click **Start conversation**. Allow microphone access. Try “Hello, Reins”, then
+“Ask the robot backend how to move forward.” The greeting can be handled directly;
+the robot request should produce backend start/completion entries in the log.
+
+**Stop**, Escape, hiding or closing the page releases the microphone, stops
+playback, cancels pending backend work and closes the voice connection. Ctrl-C
+stops the service. One voice connection is allowed at a time: Stop an existing
+session before opening another tab. Sessions expire after 15 minutes; reconnect
+to continue. Reload a page after switching the service running on its port.
+
+Useful options:
+
+| Option | Purpose |
+| --- | --- |
+| `--port 8770` | Loopback browser port; 8770 is the default. |
+| `--backend-model gpt-5-mini` | Test backend model; the voice model stays GPT-Live-1. |
+| `--voice cedar` | Supported GPT-Live voice, chosen at session startup. |
+| `--no-metallic` | Compare the natural voice without the local effect. |
+| `--no-voice-focus` | Disable microphone enhancement. |
+| `--no-tyto` | Disable audio analysis and spoken nudges. |
+
+For an unlicensed baseline, install `voice/requirements.txt` and start with both
+`--no-voice-focus --no-tyto`. Only `OPENAI_API_KEY` is required in that mode.
+
+## Backend integration
+
+Implement `RobotBackend.respond(messages)` and `close()` in `voice/live.py`, then
+supply that adapter to `LiveSession`. The input is a bounded conversation snapshot;
+the output is concise verified facts, status or a clarification, up to 800
+characters. Large structured results belong in the team's backend.
+
+GPT-Live client delegation emits an ID and metadata, not function arguments or a
+final user utterance. This adapter collects transcript fragments, passes a
+snapshot to the backend, and returns the result with the matching delegation ID.
+It deduplicates delegation events, cancels superseded requests and discards
+results when newer user speech arrives. Tyto nudges clear the backend transcript
+context and cancel pending requests so unclear speech is not reused later.
+
+The test adapter has no functions or execution tools. Replace it with the team's
+adapter when ready; do not interpret voice transcripts as validated motion
+commands. Execution, permissions, human review and task state remain in that
+backend. Ordinary voice conversation is generated by GPT-Live and is not a
+benchmark of the robot LLM.
+
+## Audio and diagnostics
+
+Input arrives in 20 ms frames. Voice Focus uses `quail-vf-2.2-l-16khz` and reports
+the SDK enhancement strength (80% in the local tests), not a measured percentage
+of noise removed. Models download to `.voice-cache/models` on first launch.
+
+Cedar provides the base voice. A stateful 100–4200 Hz filter, subtle 34 Hz
+modulation, compression and gain reproduce the cascade's metallic effect on each
+output chunk. Sample count is preserved and no full reply is buffered. The base
+voice is different from Charon; this matches the processing, not its speaker
+identity. Playback stops visibly if the queue falls more than two seconds behind.
+
+Barge-in is off for this first integration. While audible output is queued,
+microphone samples are replaced with silence in both browser and server; the
+track stays acquired locally. Listening resumes after a 400 ms speaker tail.
+GPT-Live WebSockets have no audio-done event, so this is an audio-activity gate,
+not a model turn boundary. A long pause within an answer can reopen listening.
+GPT-Live handles conversation timing; a separate VAD does not commit turns.
+
+The **Live pipeline log** shows voice configuration, playback, backend requests,
+results and Tyto readings. Logs retain at most 200 entries in browser memory;
+transcripts retain at most 80 blocks. Clear removes logs; reload clears both.
+Neither is written to disk by the application. API keys and raw provider errors
+are not exposed to the browser.
+
+### Tyto nudges
+
+`tyto-1.1-l-16khz` analyzes original microphone audio before enhancement. The
+collector buffers exact native blocks and starts after five seconds of real
+input. A single background worker analyzes at most once per five new seconds of
+audio. It slows down if inference overruns; jobs never queue up. Analysis pauses
+during playback and resets at discontinuities while preserving cause cooldowns.
+
+The supplied `TytoNudger` policy uses EMA alpha 0.3, risk gate 0.40, episode-clear
+threshold 0.30 and a 30-second cooldown per cause. It can name noise, interfering
+speech or packet loss; loudness, reverb and codec degradation remain informational.
+The log includes raw scores, smoothed scores, the decision and the requested line.
+
+A nudge clears queued audio, cancels backend work and asks GPT-Live to say the
+clarification. GPT-Live may paraphrase or may have started speaking before the
+five-second analysis window. This is not an action-authorization signal or a
+validated multi-speaker detector. Real microphones, room noise and overlap need
+calibration. Exact rendered nudge wording is available in the optional cascade.
+
+## Optional dashboard and cascaded adapters
+
+The standalone voice page is sufficient. To put it beside the MuJoCo preview:
 
 ```sh
-.venv-voice/bin/python -m voice --key-file .env.voice
+.venv-voice/bin/python -m pip install mujoco Pillow
 .venv-voice/bin/python tools/dashboard.py --sim --port 8091 --voice-url http://127.0.0.1:8770/
 ```
 
-Open **http://127.0.0.1:8091/**. Click **Connect**, then **Test greeting**. Click
-**Talk**, allow microphone access and speak. A pause after speech ends the turn;
-**Send** also works manually. Review the dictated text in the existing prompt box.
-After submitting it normally, click **Read reply** to hear the response.
+`--sim` blocks hardware subprocesses server-side and disables robot video feeds,
+calibrated observations and execution. The preview and demo planner remain
+available. GPT-Live uses its backend interface; it does not automatically submit
+the dashboard's plan form or drive its reply-text bridge.
 
-The voice lab alone is at **http://127.0.0.1:8770/**. On that page dictation is
-shown as text, and **Read text** speaks exactly what you enter. It does not ask
-an LLM to answer. Only one voice connection can be active at a time.
+The [cascaded adapters](CASCADE.md) are an alternative for dictation into the
+existing text prompt and literal TTS playback. They include OpenAI batch/streaming
+STT, Gemini/Cartesia TTS, VAD, an optional conversation model and a text-only iframe
+bridge. They are not started by live mode. Use a different port or stop the live
+service before running them.
 
-Use **Stop**, Escape, closing or hiding the page to release the microphone and
-stop playback. Ctrl-C stops each server. The browser releases its microphone
-before inference and playback, preventing its own output from becoming another
-input turn. Continuous listening, wake words and barge-in are not implemented.
-
-Both servers bind to loopback. If changing the dashboard port or using
-`localhost` instead of `127.0.0.1`, pass the exact `--dashboard-origin` to voice.
-Changing the voice port also requires the matching dashboard `--voice-url`.
-
-`--sim` rejects hardware run requests on the server, hides hardware controls,
-and disables camera/twin readers and calibrated observations. The existing
-MuJoCo preview and planner are unchanged. The dashboard now uses a neutral theme
-with the colourful Reins logo retained.
-
-## Speech adapters
-
-Default STT: OpenAI `gpt-transcribe` (`--stt-model` selects a compatible model).
-Default TTS: Gemini's dedicated `gemini-3.8-flash-lite-tts`, **Charon** voice.
-This is exact-text TTS, not Gemini Live speech-to-speech. Output passes through
-a restrained metallic effect: 100–4200 Hz filtering, 34 Hz modulation at 16%
-depth, compression and 65% gain. Use the device's normal volume control.
-
-To use Cartesia, set `CARTESIA_API_KEY` and `CARTESIA_VOICE_ID`, then:
+## Validation and limits
 
 ```sh
-.venv-voice/bin/python -m voice --tts cartesia --key-file .env.voice
-```
-
-Or pass `--tts-voice YOUR_VOICE_ID`. The default model is `sonic-3.6`; `--tts-model`
-selects a compatible model explicitly. Choose a male voice in Cartesia's library
-for the requested character. Cartesia does not require a Gemini key. The adapter
-uses the official bytes endpoint, API version `2026-08-14`, raw PCM16 at 24 kHz.
-
-STT and TTS are independent classes in `speech.py`. A different provider only
-needs async `transcribe(pcm_16khz) -> str` or `speak(text) -> pcm_24khz`, a `model`
-label and async `close()`. `AudioPipeline` in `cascade.py` accepts these adapters.
-It never imports or chooses an LLM. Fish Audio can be added at this same boundary.
-
-## Voice Focus, VAD and Tyto 1.1
-
-The default licensed configuration uses:
-
-- `quail-vf-2.2-l-16khz`: primary speaker enhancement before STT.
-- `vad-vf-2.0-s-16khz`: Voice Focus VAD on the **original** input.
-- `tyto-1.1-l-16khz`: interference, noise and overall risk scores on original input.
-
-Models download to gitignored `.voice-cache/models` on first launch. Processing
-runs locally; model download, SDK license authorization and usage telemetry
-require network access. SDK/core versions and resolved model IDs accompany the
-quality results. There is no fallback that silently bypasses a failed SDK call.
-
-VAD requires at least 240 ms of speech, then 750 ms of silence. Tyto uses full
-5-second windows at 1-second steps and averages their scores. Turns shorter than
-5 seconds are explicitly marked **unscored**; VAD/STT still work. Do not interpret
-an unscored turn as evidence that no competing speaker was present.
-
-The experimental policy holds audio before STT if interfering speech averages
-at least `0.6`, or background noise at least `0.8`. It speaks a fixed request for
-one speaker or clearer audio. Interference takes priority. A 30-second cooldown
-limits repeated spoken prompts, but flagged audio remains blocked throughout.
-Use `--interference-threshold` and `--noise-threshold` to calibrate with real room
-audio. Scores are quality indicators, not a speaker count or a guarantee of
-recognition accuracy. Synthetic tests do not establish real-room performance.
-
-For an unlicensed baseline, install `voice/requirements.txt` and run:
-
-```sh
-.venv-voice/bin/python -m voice --no-voice-focus --no-tyto --vad webrtc --key-file .env.voice
-```
-
-For an entirely offline transport check:
-
-```sh
-.venv-voice/bin/python -m voice --demo
-```
-
-The demo returns a clearly labelled tone. It does not transcribe, synthesize
-speech, load ai-coustics models, or make cloud calls.
-
-## Team integration boundary
-
-The dashboard bridge is deliberately text-only. It checks the configured origin
-and the iframe window on both sides:
-
-- Voice emits `reins-voice-transcript` with `{text}`. The current UI inserts it
-  into `actionPrompt`, preserving its normal submission and review workflow.
-- The team can call `window.ReinsVoice.speak(replyText)` with up to 1,000 characters.
-  It returns `false` when voice is disconnected, recording or playing, or input
-  is invalid. A successful call only requests speech; it does not confirm playback.
-- Internally, `reins-voice-speak` carries the text to the audio iframe.
-  `reins-voice-ready` reports whether another TTS request can be accepted.
-
-The loopback voice WebSocket requires a same-origin session token from `/config`.
-After authenticating with `{token}`, it accepts `start` (16 kHz PCM16), binary
-chunks, `end`, literal `text`, `hello`, `played`, and `stop`. STT-only turns return
-transcripts/results then `ready`; TTS turns return bounded PCM and wait for the
-client's `played` acknowledgement. No LLM or motion commands exist in this protocol.
-
-Audio input is capped at 30 seconds (browser sends at 29); replies at 30 seconds.
-A turn times out at 120 seconds, idle connections after two minutes, and sessions
-after 15 minutes. Reconnect when a session expires. Audio/transcripts remain in
-memory; this app neither stores them nor logs provider payloads. Cloud providers
-receive audio for STT or text for TTS and apply their own data handling policies.
-
-## Robot audio
-
-This PR uses the computer microphone and speaker to test with R1 disconnected.
-It does **not** claim support for R1 microphone capture. An audio-device adapter
-can later supply the same 16 kHz input and play the resampled output through R1's
-speaker, without changing STT/TTS or the team's LLM integration. No robot voice
-mode, persistent setting or movement is changed by this package.
-
-## Validation
-
-```sh
-.venv-voice/bin/python -m pip install pytest
-.venv-voice/bin/python -m pytest voice/tests -q
+.venv-voice/bin/python -m pip install pytest jsonschema pyyaml
+.venv-voice/bin/python -m pytest voice/tests contract -q
+node --test voice/tests/test_browser_loop.cjs voice/tests/test_live_browser.cjs
 .venv-voice/bin/python -m unittest tools.test_dashboard core.test_ik
-.venv-voice/bin/python -m pytest contract -q
 ```
 
-Automated tests use fake speech providers. They cover audio/turn bounds, origin
-and token checks, Stop cancellation, STT rearming without playback, exact-text
-TTS contracts, interference/noise cooldowns and server-side simulation guards.
-Live Cartesia validation requires a configured key and voice ID.
+Automated tests use fake providers and cover delegation ID matching, deduplication,
+stale-result rejection, Tyto cancellation, bounded context, origin/token checks,
+Stop races, continuous conversation loops, playback gating, streamed output and
+chunk-invariant metallic processing. Dashboard tests use faked hardware runners.
 
-References: [ai-coustics Python SDK](https://docs.ai-coustics.com/reference/sdk/language-bindings/python),
-[Tyto](https://docs.ai-coustics.com/models/audio-insight/tyto),
-[OpenAI STT](https://developers.openai.com/api/docs/guides/speech-to-text),
-[Gemini TTS](https://ai.google.dev/gemini-api/docs/speech-generation),
-[Cartesia TTS](https://docs.cartesia.ai/api-reference/tts/bytes).
+Local live smoke tests used synthetic speech with actual OpenAI and licensed
+ai-coustics processing. A greeting began audible output about 1.24 seconds after
+the clip ended without a backend call. A robot request delegated to GPT-5-mini;
+one backend response took 2.21 seconds. Synthetic noise triggered a spoken Tyto
+clarification with no backend request, then analysis resumed. These small tests
+are not representative latency or room-acoustics benchmarks. No R1 hardware test
+or live Cartesia test is claimed.
+
+Both HTTP and WebSocket access are restricted to loopback hosts. WebSockets also
+require the page origin and a process token. Audio and captions stay in memory
+locally; enhanced audio and conversation text are sent to OpenAI, and ai-coustics
+uses license/usage telemetry. The application does not record microphone audio.
+
+References: [GPT-Live](https://developers.openai.com/api/docs/guides/live),
+[client delegation](https://developers.openai.com/api/docs/guides/live-delegation),
+[streaming audio](https://developers.openai.com/api/docs/guides/voice-websockets),
+[Tyto real-time analysis](https://docs.ai-coustics.com/models/audio-insight/real-time-analysis).

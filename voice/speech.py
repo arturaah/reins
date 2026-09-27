@@ -4,6 +4,7 @@ import io
 import wave
 import httpx
 from .audio import MAX_SECONDS, RATE
+from .errors import provider_error, validate_transcript
 
 STT_MODEL = 'gpt-transcribe'
 GEMINI_TTS_MODEL = 'gemini-3.8-flash-lite-tts'
@@ -40,12 +41,12 @@ class OpenAISTT:
         self.model = model
 
     async def transcribe(self, pcm):
-        response = await self.client.audio.transcriptions.create(
-            model=self.model, file=('speech.wav', wav_bytes(pcm), 'audio/wav'))
-        text = response.text.strip()
-        if not 1 <= len(text) <= 1000:
-            raise ValueError('Empty or oversized transcription')
-        return text
+        try:
+            response = await self.client.audio.transcriptions.create(
+                model=self.model, file=('speech.wav', wav_bytes(pcm), 'audio/wav'))
+            return validate_transcript(response.text)
+        except Exception as error:
+            raise provider_error(error) from None
 
     async def close(self):
         await self.client.close()
