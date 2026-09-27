@@ -57,11 +57,14 @@ def _loco():
 
 
 def _odom_sub(cb):
-    """Subscribe to rt/sportmodestate (position, yaw) for walk odometry; None when the type is unavailable."""
+    """Subscribe to the controller's odometry (position, yaw) for walk feedback: rt/odommodestate is what the R1 publishes
+    (rt/sportmodestate exists but was silent on 2026-09-27); both are tried. None when the type is unavailable."""
     try:
         from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
-        sub = ChannelSubscriber("rt/sportmodestate", SportModeState_); sub.Init(cb, 10)
-        return sub
+        subs = []
+        for topic in ("rt/odommodestate", "rt/sportmodestate"):
+            sub = ChannelSubscriber(topic, SportModeState_); sub.Init(cb, 10); subs.append(sub)
+        return subs
     except Exception:
         return None
 
@@ -122,8 +125,9 @@ class Streamer:
         if not lo.get("enabled", False):
             return "walking is disabled in the streamer's config (locomotion.enabled)", None
         fsm, name = query_fsm()
-        if fsm != 811:
-            return f"refused: walking needs FSM 811 (balance control); the robot is in {fsm} = {name}", None
+        fsm_ok = {int(v) for v in (lo.get("fsm_ok") or [811])}      # which FSM ids may walk: the operator's list (config), 811 by default
+        if fsm not in fsm_ok:
+            return f"refused: walking is allowed in FSM {sorted(fsm_ok)} (locomotion.fsm_ok); the robot is in {fsm} = {name}", None
         v, w = float(lo["speed_mps"]), float(lo["turn_speed_rps"])
         if abs(vx) > v * 1.05 or abs(vy) > v * 1.05 or abs(vyaw) > w * 1.05:
             return f"refused: velocity over the cap ({v} m/s, {w} rad/s)", None
@@ -134,8 +138,11 @@ class Streamer:
         lc = _loco()
         self.walking = True
         self.log(f"walk: vx={vx:+.2f} vy={vy:+.2f} m/s yaw={vyaw:+.2f} rad/s for {duration:.1f} s")
+        code = None
         try:
-            lc.SetVelocity(float(vx), float(vy), float(vyaw), float(duration))
+            code = lc.SetVelocity(float(vx), float(vy), float(vyaw), float(duration))
+            if code not in (0, None):
+                return f"the controller refused the velocity command (code {code}); nothing moved", None
             time.sleep(float(duration))
         finally:
             try:
@@ -187,8 +194,9 @@ class Streamer:
 
     def engage(self):
         fsm, name = query_fsm()
-        if fsm not in FSM_ARM_OK:
-            return f"refused: FSM {fsm} = {name}; the arm topic only takes effect in {sorted(FSM_ARM_OK)}"
+        ok = {int(v) for v in (self.cfg["robot"].get("fsm_ok_arms") or FSM_ARM_OK)}   # the operator's list; the SDK's 4 and 811 by default
+        if fsm not in ok:
+            return f"refused: FSM {fsm} = {name}; the arm topic is used only in {sorted(ok)} (robot.fsm_ok_arms)"
         with self.lock:
             self.targets = self.measured()                  # hold everything where it is
             if self.head_pitch is not None and HEAD[0] in self.slots:

@@ -171,6 +171,16 @@ def test_walk_plan_file_for_the_twin_and_the_glasses(cfg, tmp_path):
     assert d2["base_keyframes"][1]["yaw_rad"] == -0.35 and d2["base_keyframes"][1]["x_m"] == 0
 
 
+def test_refused_step_is_feedback_not_a_crash(rig):
+    cfg, backend, ex, per = rig
+    def refuse(vx, vy, vyaw, duration): raise RuntimeError("streamer refused the walk: refused: walking needs the balance controller")
+    backend.walk = refuse
+    vlm = ScriptedVLM(decisions=[{"decision": "WALK_FWD", "reasoning": "WRIST: NO"}, {"decision": "DONE", "reasoning": "WRIST: NO"}])
+    s = Episode(cfg, vlm, ex, per, None, log=lambda *_: None).run("walk ahead")
+    assert s["success"]
+    assert "the step was refused" in [c[1] for c in vlm.calls if c[0] == "act"][1] and ex.gate.walked_m == 0   # the budget is given back
+
+
 def test_prompts_hide_walking_when_disabled(cfg):
     stage = {"id": "s", "target": "t", "affordance": "a", "motion": "REACH", "description": "d", "completion": "c"}
     pro = {"text": "x", "hand_state": "no hand"}
@@ -225,9 +235,20 @@ def test_streamer_walk_command(cfg, monkeypatch):
     assert r["ok"] is False and "over the cap" in r["error"] and FakeLoco.calls == []
     r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 5.0})
     assert r["ok"] is False and "duration" in r["error"]
-    monkeypatch.setattr(am, "query_fsm", lambda: (4, "StandUp"))
+    monkeypatch.setattr(am, "query_fsm", lambda: (816, "unnamed"))
     r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
-    assert r["ok"] is False and "FSM 811" in r["error"]
+    assert r["ok"] is False and "locomotion.fsm_ok" in r["error"] and "816" in r["error"]     # only the operator's list may walk
+    st.loco["fsm_ok"] = [811, 816]; FakeLoco.calls.clear()
+    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    assert r["ok"] and FakeLoco.calls[0][0] == "vel"
+    st.loco["fsm_ok"] = [811]
+    class Refusing(FakeLoco):
+        def SetVelocity(self, *a): FakeLoco.calls.append(("vel", *a)); return 3103                  # the controller says no
+    monkeypatch.setattr(am, "_loco", lambda: Refusing()); monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start"))
+    FakeLoco.calls.clear()
+    r = st.dispatch("walk", {"vx": 0.25, "vy": 0.0, "vyaw": 0.0, "duration": 0.2})
+    assert r["ok"] is False and "code 3103" in r["error"] and FakeLoco.calls[-1] == ("stop",)    # refused, still stopped
+    monkeypatch.setattr(am, "_loco", lambda: FakeLoco())
     # odometry: a walk of 0.2 m along the heading at yaw 90 deg -> dx 0.2 in the body frame
     monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start"))
     st.odom = {"pos": [1.0, 1.0, 0.0], "yaw": math.pi / 2, "t": time.time()}

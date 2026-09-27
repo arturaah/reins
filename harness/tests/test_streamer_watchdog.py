@@ -34,7 +34,7 @@ def streamer(cfg, monkeypatch):
     monkeypatch.setattr(am, "LowStateReader", FakeReader)
     monkeypatch.setattr(am, "ChannelPublisher", FakePub)
     monkeypatch.setattr(am, "query_fsm", lambda: (811, "Start (balance control)"))
-    cfg["robot"]["weight_ramp_s"] = 0.6; cfg["streamer"]["watchdog_s"] = 0.2
+    cfg["robot"]["weight_ramp_s"] = 0.6; cfg["streamer"]["watchdog_s"] = 0.2; cfg["robot"]["fsm_ok_arms"] = [4, 811]
     cfg["robot"]["arm_kp_scale"] = 1.5; cfg["robot"]["head_pitch_rad"] = 0.35
     st = am.Streamer(cfg, "lo0", log=lambda *a: None)
     st.sent = []

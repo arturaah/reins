@@ -146,7 +146,11 @@ class ArmExecutor:
             if not ok:
                 return self._declined(note, state, zero)
         t0 = time.time()
-        odom = self.backend.walk(v.vx, v.vy, v.vyaw, v.duration_s)
+        try:
+            odom = self.backend.walk(v.vx, v.vy, v.vyaw, v.duration_s)
+        except RuntimeError as e:                                    # the streamer refused (FSM, caps): the model is told, the episode goes on
+            self.gate.walked_m -= math.hypot(v.dx, v.dy); self.gate.turned_rad -= abs(v.dyaw)
+            return ExecResult(False, f"the step was refused: {e}", state.p, state.p, zero, zero, state.roll, state.roll, asked=asked, operator_note=note)
         after = self.sync()
         if odom:
             fb = (f"walked {odom['dx'] * 100:.0f} cm forward, {odom['dy'] * 100:.0f} cm left, turned {math.degrees(odom['dyaw']):.0f} deg (odometry); "

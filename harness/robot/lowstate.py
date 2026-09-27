@@ -16,7 +16,8 @@ SLOT_TO_JOINT = {
 }
 JOINT_TO_SLOT = {v: k for k, v in SLOT_TO_JOINT.items()}
 HEAD_SLOTS = {29: "head_pitch", 30: "head_yaw"}
-FSM_NAMES = {0: "ZeroTorque", 1: "Damp", 4: "StandUp", 811: "Start (balance control)"}
+FSM_NAMES = {0: "ZeroTorque", 1: "Damp", 4: "StandUp", 811: "Start (balance control)",
+             816: "unnamed in the SDK (seen alternating with 811 while standing, 2026-09-27; meaning unconfirmed)"}
 FSM_ARM_OK = {4, 811}
 _initialized = {}
 
