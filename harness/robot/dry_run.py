@@ -9,6 +9,7 @@ from .lowstate import LowStateReader, query_fsm
 class DryRunBackend(Backend):
     name = "dry-run"
     dry_run = True
+    hands = None                   # hand_client.Revo2Client(dry_run=True) when hand.type is revo2: reads, never sends
 
     def __init__(self, iface, log=print):
         self.reader = LowStateReader(iface)
@@ -40,7 +41,12 @@ class DryRunBackend(Backend):
         return None
 
     def hand(self, arm, closed):
-        return "dry run: no hand on this robot" if True else ""
+        if self.hands:
+            return self.hands.hand(arm, closed)
+        return "dry run: no hand on this robot"
+
+    def hand_state(self, arm):
+        return self.hands.hand_state(arm) if self.hands else None
 
     def close(self):
         self.reader.close()

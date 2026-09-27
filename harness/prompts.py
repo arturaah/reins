@@ -52,6 +52,11 @@ TARGET with turns, then WALK_FWD until it is within reach; WALK_BACK when too cl
 plan chunk, and the images change afterwards: judge again before the next action. Never walk while the hand is near an
 object or a surface."""
 
+PLANNER_HAND_RULES_REVO2 = """- HAND: a five-finger hand that only opens or closes all fingers at once (a power grasp around the palm). Good for
+  objects roughly 3 to 9 cm across (blocks, bottles, cups by the body); thin flat objects lying on the table cannot be
+  picked up, plan PUSH stages for them instead. One object at a time.
+- The GRASP stage's completion is the object visibly inside the closed fingers; LIFT's is the object clear of the table."""
+
 CONTROLLER = """TASK: {task}
 STAGE: {stage}
 TARGET: {target}
@@ -105,6 +110,12 @@ MEM_RULES = """- If recent moves show GRASP(empty), do not GRASP in place again;
 HAND_BLOCK_GRIPPER = """HAND:
 - GRASP when BOTH the CONTEXT VIEW and the wrist view confirm the {affordance} is clearly between the fingers
 - RELEASE only when the held object is above its destination and lowered onto it"""
+HAND_BLOCK_REVO2 = """HAND (five fingers, GRASP closes all of them, RELEASE opens all of them; nothing in between):
+- The object is grasped against the palm: before GRASP the {affordance} must be between the open fingers and the
+  palm in BOTH views, at palm height, not below the fingertips. If it is only near the fingertips -> move closer first
+- If "Hand now" is closed and nothing is held while you still have to approach -> RELEASE first to open the hand
+- After GRASP read "Last hand command": "closed on an object" = held, go on (usually MV_UP); GRASP(empty) = missed
+- RELEASE only when the held object is above its destination and lowered onto it"""
 HAND_BLOCK_NONE = """HAND: this robot has no hand. GRASP and RELEASE only pause the arm; do not use them."""
 
 WRIST_MARKER = "WRIST CHECK: begin your reasoning with `WRIST: YES` if the TARGET is visible in the wrist view, else `WRIST: NO`."
@@ -115,6 +126,9 @@ ACTION_CHUNK = ("ACTION PLAN -- only when WRIST: NO (TARGET far): plan your next
 OUTPUT_CONTRACT = """Choose exactly one action:
 {vocab}
 Return JSON only: {{"decision":"ONE_ACTION","reasoning":"one visual sentence"}}"""
+SIZED_MOVE_RULES = ("""STEP SIZE: MV_* moves ~{step_cm:.0f} cm. When the TARGET is clearly far from the hand tip and the way is free, take ONE sized
+move instead of many small ones: MOVE <forward|back|left|right|up|down> <cm>, up to {cap_cm:.0f} cm (e.g. MOVE forward 15).
+Near the target, or with anything in the way, use the small MV_* moves.""")
 OUTPUT_CONTRACT_DUAL = """For EACH arm choose exactly one action from:
 {vocab}
 Return JSON only: {{"decision":{{"left":"ONE_ACTION","right":"ONE_ACTION"}},"reasoning":"one visual sentence"}}"""
@@ -137,6 +151,8 @@ def robot_description(cfg, arm):
     hand = cfg["hand"]["type"]
     return (f"Unitree R1 humanoid, {arm} arm only (5 joints: shoulder pitch/roll/yaw, elbow, wrist roll). "
             + ("No hand or gripper is fitted: the end effector is the bare hand tip." if hand == "none"
+               else f"A BrainCo Revo2 five-finger hand on the {arm} wrist, used open/close only: GRASP closes all fingers "
+                    "around what is between them (a power grasp), RELEASE opens them." if hand == "revo2"
                else "A simple hand: open/close only.")
             + " The legs and balance are handled by the robot itself and are not controllable.")
 
@@ -144,7 +160,7 @@ def robot_description(cfg, arm):
 def planner_prompt(task, cfg, arm, locomotion=None, pose_view=False):
     """locomotion: offer walking; None = whatever the config says (the loop passes its per-task decision).
     pose_view: the images include the ROBOT POSE VIEW rendering."""
-    hand_rules = PLANNER_HAND_RULES_NONE if cfg["hand"]["type"] == "none" else ""
+    hand_rules = {"none": PLANNER_HAND_RULES_NONE, "revo2": PLANNER_HAND_RULES_REVO2}.get(cfg["hand"]["type"], "")
     if (cfg.get("locomotion") or {}).get("enabled", False) if locomotion is None else locomotion:
         hand_rules = (hand_rules + "\n" if hand_rules else "") + PLANNER_LOCOMOTION
     desc = robot_description(cfg, arm)
@@ -181,7 +197,9 @@ def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=Fa
     images_line = (IMAGES_LINE_NO_WRIST if wrist_missing else IMAGES_LINE).format(wrist_label=wrist_label, arm=arm, ee_desc=ee_desc)
     if pose_view:
         images_line += "\n" + POSE_LINE.format(arm=arm)
-    vocab = vocab or "MV_FWD, MV_BACK, MV_LEFT, MV_RIGHT, MV_UP, MV_DOWN, ROTATE_CW, ROTATE_CCW, STILL, DONE" + \
+    cap_cm = float(cfg["steps"].get("param_max_translation_m", 0.2)) * 100
+    vocab = vocab or ("MV_FWD, MV_BACK, MV_LEFT, MV_RIGHT, MV_UP, MV_DOWN, MOVE <forward|back|left|right|up|down> <cm>, "
+                      "ROTATE_CW, ROTATE_CCW, STILL, DONE") + \
         ("" if hand == "none" else ", GRASP, RELEASE") + \
         (", WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" if locomotion else "")
     loco_text = LOCOMOTION_RULES.format(walk_cm=float(lo.get("step_m", 0.2)) * 100, turn_deg=float(lo.get("turn_deg", 20.0))) if locomotion else ""
@@ -193,13 +211,15 @@ def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=Fa
         mem_text=mem_text(history), recovery=("Recovery: " + recovery) if recovery else "",
         proprio=proprio.get("text", ""), wrist_label=wrist_label, arm=arm, images_line=images_line,
         wrist_rules=WRIST_RULES_DEFAULT, rotation=ROTATION_FRAGMENT, mem_rules=MEM_RULES,
-        hand_block=HAND_BLOCK_NONE if hand == "none" else HAND_BLOCK_GRIPPER.format(affordance=stage.get("affordance", "")),
+        hand_block=HAND_BLOCK_NONE if hand == "none" else (HAND_BLOCK_REVO2 if hand == "revo2" else HAND_BLOCK_GRIPPER).format(affordance=stage.get("affordance", "")),
         locomotion=loco_text,
-        variable_step=WRIST_MARKER, action_chunk=ACTION_CHUNK.format(n=chunk) if chunk > 1 and not dual else "",
+        variable_step=SIZED_MOVE_RULES.format(step_cm=float(cfg["steps"]["coarse_m"] if cfg["steps"]["profile"] != "precision" else cfg["steps"]["precision"]["step_m"]) * 100,
+                                              cap_cm=cap_cm) + "\n" + WRIST_MARKER,
+        action_chunk=ACTION_CHUNK.format(n=chunk) if chunk > 1 and not dual else "",
         output_contract=contract)
 
 
-def proprio_text(height_cm, step_cm, hand_state, stall=None, clamped=None, ik_fail=None, holding=False, high_cm=8.0):
+def proprio_text(height_cm, step_cm, hand_state, stall=None, clamped=None, ik_fail=None, holding=False, high_cm=8.0, hand_note=None):
     """Show-Harness proprioception block with RoboDawn-style outcome notes."""
     parts = [f"The hand tip is {height_cm:.1f} cm above the table; each step moves ~{step_cm:.0f} cm."]
     if holding:
@@ -212,6 +232,8 @@ def proprio_text(height_cm, step_cm, hand_state, stall=None, clamped=None, ik_fa
         parts.append("Last setpoint was clamped by the safety box: " + clamped + ".")
     if ik_fail:
         parts.append(ik_fail)
+    if hand_note:
+        parts.append(f"Last hand command: {hand_note}.")
     return {"text": " ".join(parts), "hand_state": hand_state}
 
 

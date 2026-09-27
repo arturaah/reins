@@ -328,14 +328,26 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
 
     async def handler(websocket):
         print(f"Lens connected: {websocket.remote_address}", file=sys.stderr, flush=True)
+        last_review_id = None
         async def send_paths():
+            nonlocal last_review_id
             while True:
                 payload = feed.current(state, base_pose_source.read() if base_pose_source else None)
                 if payload:
                     if review and (pending := review.pending(feed.path)):
-                        message = json.loads(payload)
+                        # A proposal has not been approved yet. Always show its
+                        # complete path; earlier rt/arm_sdk traffic may otherwise
+                        # make joint matching collapse it to a hand point.
+                        message = json.loads(feed.text)
                         message["review"] = pending
                         payload = json.dumps(message)
+                        if pending["id"] != last_review_id:
+                            print(f"Spectacles review pending: {pending['id']} ({pending['mode']})",
+                                  file=sys.stderr, flush=True)
+                            last_review_id = pending["id"]
+                    elif last_review_id:
+                        print(f"Spectacles review cleared: {last_review_id}", file=sys.stderr, flush=True)
+                        last_review_id = None
                     await websocket.send(payload)
                 await asyncio.sleep(period)
 
@@ -348,6 +360,9 @@ async def serve_feed(feed, host, port, period, state=None, base_pose_source=None
                     if msg.get("type") != "review_decision" or msg.get("version") != 1:
                         continue
                     accepted = bool(review and review.decide(feed.path, msg.get("id"), msg.get("decision")))
+                    print(f"Spectacles review decision: {msg.get('decision')} for {msg.get('id')}: "
+                          f"{'accepted' if accepted else 'ignored (stale or unmatched)'}",
+                          file=sys.stderr, flush=True)
                     await websocket.send(json.dumps({"type": "review_ack", "version": 1,
                                                      "id": msg.get("id"), "accepted": accepted}))
                 except (ValueError, TypeError, AttributeError, OSError) as exc:
@@ -397,6 +412,8 @@ def main():
         print(text)
         return
     async def run():
+        if a.review_file:
+            print(f"Spectacles review mailbox: {a.review_file.resolve()}", file=sys.stderr, flush=True)
         state = DirectRobotState(a.robot_iface, a.domain) if a.robot_iface else (RelayState() if a.state_url else None)
         if a.state_url:
             asyncio.create_task(listen_relay(state, a.state_url))

@@ -127,6 +127,9 @@ def build(cfg, mode, iface=None, log=print):
             backend = ArmClientBackend(cfg, log)
             gate = SafetyGate(cfg, kin, table_z, live=True)           # refuses without a measured table
         per = Perception(cfg, arm, HttpCameras(cfg, arm), cfg["perception"].get("context_camera"))
+        if cfg["hand"]["type"] == "revo2":
+            from .robot.hand_client import Revo2Client
+            backend.hands = Revo2Client(cfg, log, dry_run=mode == "dry-run")
     if cfg["perception"].get("pose_view", False):
         from .poseview import PoseView
         per.pose_view = PoseView(cfg, arm, gate.table_z, int(cfg["perception"]["width_px"]), int(cfg["perception"]["width_px"]) * 9 // 16,

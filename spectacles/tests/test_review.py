@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness.__main__ import make_confirm, stdin_lines
 from spectacles.review import ReviewMailbox
-from spectacles.plan_feed import Feed, MJCF, serve_feed
+from spectacles.plan_feed import Feed, MJCF, RelayState, serve_feed
 import mujoco
 from websockets.asyncio.client import connect
 
@@ -85,7 +85,12 @@ class WebSocketReviewTests(unittest.IsolatedAsyncioTestCase):
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
             feed = Feed(mujoco.MjModel.from_xml_path(str(MJCF)), plan, 20)
-            server = asyncio.create_task(serve_feed(feed, "127.0.0.1", port, 0.05, review=mailbox))
+            state = RelayState()
+            state.update({"type": "r1_state", "version": 1,
+                          "q": {"right_shoulder_pitch_joint": 0.2},
+                          "cmd": {"weight": 1}})
+            server = asyncio.create_task(serve_feed(feed, "127.0.0.1", port, 0.05,
+                                                    state=state, review=mailbox))
             try:
                 for attempt in range(50):
                     try:
@@ -98,6 +103,7 @@ class WebSocketReviewTests(unittest.IsolatedAsyncioTestCase):
                 async with client as websocket:
                     first = json.loads(await asyncio.wait_for(websocket.recv(), 2))
                     self.assertEqual(first["review"]["id"], proposal["id"])
+                    self.assertEqual(len(first["hands"]["right"]), 20)
                     for proposal_id, accepted in (("wrong", False), (proposal["id"], True)):
                         await websocket.send(json.dumps({"type": "review_decision", "version": 1,
                                                          "id": proposal_id, "decision": "decline"}))

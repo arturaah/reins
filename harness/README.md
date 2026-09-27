@@ -27,7 +27,7 @@ Everything uses the repo venv (`.venv/bin/python`, see CLAUDE.md step 6) plus `a
 `pytest`, `pyyaml`. All numbers live in [config.yaml](config.yaml); override any with `--set key=value`.
 
 ```
-.venv/bin/python -m pytest harness                       # 84 tests, no hardware, about 7 s
+.venv/bin/python -m pytest harness                       # 97 tests, no hardware, about 14 s
 
 # simulation: kinematic mock on the MuJoCo scene, rendered cameras
 MUJOCO_GL=cgl .venv/bin/python -m harness sim "move your hand above the block"        # chat provider
@@ -48,6 +48,50 @@ MUJOCO_GL=cgl .venv/bin/python -m harness --set hand.type=virtual sim "pick up t
 
 Cameras come from the stream servers the cockpit already uses: `tools/headcam.py en6` (port 8081,
 head camera = CONTEXT VIEW) and the Jetson's `camstream.py` forwarded to port 8080 (wrists).
+
+## Revo2 hands (`hand.type: revo2`)
+
+BrainCo Revo2 five-finger hands on the R1's wrists, driven open/close: GRASP sends `hand.revo2.close`,
+RELEASE sends `hand.revo2.open` ([config.yaml](config.yaml); motors thumb, thumb_aux, index, middle,
+ring, pinky, 0 = open .. 1 = closed). After a close the fingers are read back: index..pinky within
+`empty_reach` of the close pose means nothing stopped them, reported as `EMPTY grasp`, which the loop
+answers as before (open, note, roll back to the GRASP stage). With `--confirm` every hand command is a
+PROPOSAL like a motion.
+
+What the model is told ([prompts.py](prompts.py)): the planner gets the hand (five fingers, open/close
+only, a power grasp for objects about 3 to 9 cm, flat things are pushed) and plans GRASP / LIFT / MOVE /
+RELEASE / RETREAT stages; the controller gets GRASP and RELEASE in its vocabulary plus a HAND block (the
+object must sit between the open fingers and the palm in both views before GRASP; RELEASE first if the
+hand is closed and empty; release only when lowered onto the destination), `Hand now: open|closed` and,
+after a hand command, `Last hand command: <result>` ("hand closed on an object ..." or "EMPTY grasp ...").
+"Hand now" is measured from the fingers until the first command, so a hand that starts closed is not
+reported open; "Holding an object" is only said after a GRASP that closed on something. GRAB, CLOSE,
+OPEN, LET_GO and similar words are accepted as GRASP / RELEASE. `test_revo2.py` runs a whole simulated
+pick and place with `hand.type: revo2` and checks these prompts.
+
+Chain: `brainco_hand_server` on the Jetson (unitreerobotics/brainco_hand_service, the same bridge
+xr_teleoperate's `--ee brainco` uses; hands on USB serial, DDS `MotorCmds_` on
+`rt/brainco/{left,right}/cmd`, `MotorStates_` on `.../state`) -> the hand server on the Mac
+(`harness/robot/revo2.py serve`, localhost:8791, the only publisher on the hand topics, publishes once
+per accepted command and refuses while that hand's state is not arriving) -> `hand_client.py` in the
+loop (no SDK import). The server is separate from the arm streamer because the hands' DDS comes from
+the Jetson, which with the dual-link setup is a different Mac adapter than the body cable.
+
+```
+.venv/bin/python -m harness.robot.revo2 IFACE state --watch        # subscribe-only: are both hands publishing?
+.venv/bin/python -m harness.robot.revo2 IFACE close --side right   # one publish (needs the operator's yes on the robot)
+tools/harness_hands.sh [IFACE]                                     # the hand server, next to tools/harness_stream.sh
+.venv/bin/python -m harness --set hand.type=revo2 live en6 "pick up the red cube"
+.venv/bin/python -m harness --set hand.type=revo2 dry-run en6 "..."   # reads the hands, never commands them
+MUJOCO_GL=cgl .venv/bin/python -m harness --set hand.type=revo2 sim "..."   # sim: same as virtual, no server needed
+```
+
+Loopback rehearsal without the robot: `python -m harness.robot.revo2 lo0 fake --domain 1 --block-at 0.5`
+(fake hands, fingers stop at 0.5 as if on an object) and `python -m harness.robot.revo2 lo0 serve --domain 1`;
+verified 2026-09-27. Not yet verified on the robot: the server on the Jetson side, which adapter
+carries its DDS, the `empty_reach` threshold, and the end-effector offset with a hand on the flange
+(`robot.ee_offset_m` is still the bare-wrist 0.13 m; the grasp point between the fingers is likely
+further out).
 
 ## Demonstrations as context (`--demos`)
 

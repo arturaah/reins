@@ -206,13 +206,21 @@ class ArmExecutor:
         return " ".join(parts)
 
     def _hand(self, proposal, state):
+        note, asked = "", False
+        if self.confirm is not None and self.cfg["hand"]["type"] != "none":        # a real hand moves: ask like any motion
+            j = self.backend.joints()
+            q_now = self.kin.q_from_dict(j)
+            text = f"{'close' if proposal.hand_closed else 'open'} the {self.arm} hand ({self.cfg['hand']['type']}); the arm holds still"
+            ok, note = self._ask(text, {"arm": self.arm, "q_now": q_now, "frames": [q_now, q_now], "dt": 1.0 / self.rate, "joints": j}); asked = True
+            if not ok:
+                return self._declined(note, state, np.zeros(3))
         fb = self.backend.hand(self.arm, proposal.hand_closed)
         closed = self.backend.hand_state(self.arm)
         empty = False
         if proposal.hand_closed and closed is not None and self.cfg["hand"]["type"] != "none":
             empty = fb.startswith("EMPTY")
         return ExecResult(True, fb, state.p, state.p, np.zeros(3), np.zeros(3), state.roll, state.roll,
-                          hand_closed=closed, empty_grasp=empty)
+                          hand_closed=closed, empty_grasp=empty, asked=asked, operator_note=note)
 
     def go_to_joints(self, q_target, label="joint move"):
         """Joint-space move (start pose, home step). Still gated: e-stop, limits, speed cap, self-collision, confirmation."""

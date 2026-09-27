@@ -36,6 +36,7 @@ class Episode:
         self.loco = False                                  # decided per task in run(): enabled AND the task says "walk"
         self.walk_m, self.turn_rad = float(lo.get("step_m", 0.2)), math.radians(float(lo.get("turn_deg", 20.0)))
         self.limits.update({"param_max_walk_m": lo.get("param_max_walk_m", 0.4), "param_max_turn_deg": lo.get("param_max_turn_deg", 45.0)})
+        self.holding = False                              # the last hand command was a GRASP that closed on something
 
     # -- planning -------------------------------------------------------------------------------
     def make_plan(self, task, packet):
@@ -153,6 +154,8 @@ class Episode:
                 op_notes.append(RECOVERY_NOTES["rejected"].format(token=action.raw.upper(), why=f' with the note "{result.operator_note}"' if result.operator_note else ""))
             elif result.operator_note:                              # accepted with a note: the model reads it at its next call
                 op_notes.append(RECOVERY_NOTES["accepted_note"].format(token=action.raw.upper(), note=result.operator_note))
+            if proposal.kind == "hand" and result.ok and not result.declined:
+                self.holding = bool(proposal.hand_closed) and not result.empty_grasp
             if result.empty_grasp:                                  # open again (Show-Harness recovery), note, roll back
                 recovery = RECOVERY_NOTES["empty_grasp"]; queue = []
                 stage_i = self.grasp_stage(stages, stage_i)
@@ -183,7 +186,8 @@ class Episode:
             if last.ik_fail:
                 ik = "The last target was unreachable (IK failed); the arm did not move."
         hand = "no hand" if self.cfg["hand"]["type"] == "none" else ("closed" if state.hand_closed else "open")
-        pro = proprio_text(h, sigma * 100, hand, stall, clamped, ik, holding=state.hand_closed)
+        hand_note = last.feedback if last is not None and last.hand_closed is not None and not last.declined else None
+        pro = proprio_text(h, sigma * 100, hand, stall, clamped, ik, holding=state.hand_closed and self.holding, hand_note=hand_note)
         return self.with_context(controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing,
                                                    locomotion=self.loco, pose_view=pose_view))
 
