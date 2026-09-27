@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 after the recent WALK FORWARD 100 and an extra WALK_FWD, the rug's cream medallion fills the centre-lower context view, and the desk with the seated person and the robot arm sit in the same spot near the top, so the ~1 m forward walk looks complete.", "decision": "DONE"}

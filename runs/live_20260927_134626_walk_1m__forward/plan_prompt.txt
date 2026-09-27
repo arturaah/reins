@@ -1,0 +1,68 @@
+DEMONSTRATIONS: 2 motion(s) recorded on this robot earlier, chosen by the operator as references for this task. Their contact sheets are stacked in ONE image labelled DEMOS: each block is titled DEMO_k and has one row per camera (named at its left edge) and one column per key moment, left to right in time; where a context row says "cropped", its leftmost tile is the full camera view with a red box showing the region the other tiles are cropped to. Use them to recognise the objects and the workspace, to see how the hand approached and moved, and to judge the scale of the motion in centimetres. They are references, not scripts: objects may sit elsewhere now, so decide from the CURRENT images.
+
+DEMO_1: "recording of point_at_the_guy_closer_to_you" (recording; 15.9 s; left arm moved, right arm moved). No camera frames were logged for this recording: text only.
+Left hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=22 z=58
+  t=7.0s  x=11 y=21 z=57   (still)
+  t=15.9s  x=11 y=22 z=58   (still)
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-21 z=58
+  t=7.0s  x=47 y=-9 z=99   (forward 36, left 12, up 41)
+  t=15.9s  x=11 y=-21 z=58   (back 36, right 12, down 41)
+
+DEMO_2: "point_at_the_chair_closer_to_you" (kinesthetic teach, measured; 7.5 s; left arm still, right arm moved). Contact sheet columns: t=0.0s, t=1.8s, t=2.9s, t=7.5s; rows: context, left wrist, right wrist.
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-20 z=57
+  t=1.8s  x=31 y=-2 z=68   (forward 20, left 17, up 11)
+  t=2.9s  x=39 y=2 z=83   (forward 9, left 5, up 15)
+  t=7.5s  x=11 y=-16 z=56   (back 28, right 18, down 26)
+
+OPERATOR FEEDBACK from earlier sessions on this robot (✓ = the operator accepted the move, ✗ = rejected, NOT executed; quoted notes are the operator's guidance, follow them when the situation is similar):
+- task "strech your right arm in front of you", stage extend_right_arm_forward, hand 23 cm above the floor: ✗ MV_UP
+- task "point at the guy in front", stage raise_and_extend_toward_seated_guy, hand 8 cm above the floor: ✗ MV_FWD
+- task "raise right arm", stage lift_right_hand_to_chest, hand 56 cm above the floor: ✗ MV_UP
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_LEFT
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_UP — "go left instead, the tape is on your left"
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 28 cm above the floor: ✓ MV_UP — "good start"
+- plus 41 accepted move(s) without comment
+
+ROLE: SubgoalPlanner
+TASK: walk 1m  forward
+
+ROBOT: Unitree R1 humanoid, right arm only (5 joints: shoulder pitch/roll/yaw, elbow, wrist roll). No hand or gripper is fitted: the end effector is the bare hand tip. The legs and balance are handled by the robot itself and are not controllable. IMAGES: the camera views, plus a ROBOT POSE VIEW = a rendering of the robot's OWN current configuration from its measured joints (not a camera), seen
+from the front right: cyan sphere = the right hand tip, yellow sphere = where the last move aimed, white box = the
+reachable workspace, grey plane = the table height. Use it to locate your hand when the cameras do not show it and to
+check the last move went where it aimed; the cameras remain the only source for where the TARGET is.
+
+Return an ordered JSON plan:
+{"subgoals": [{"id": "short_snake_case_id", "target": "object or destination",
+  "affordance": "visible part or placement region", "motion": "semantic stage label",
+  "description": "visual strategy for this stage",
+  "completion": "visible condition that means this stage is complete"}]}
+
+### STRICT RULES
+#### 1. Stage Segmentation
+- Break the task down into meaningful visual milestones (e.g., GRASP, LIFT, MOVE, PLACE, RELEASE, RETREAT)
+- MERGE: Do NOT split immediate pre-grasp steps. Combine approach, align, lower, and close into a single 'GRASP' stage
+- SEPARATE: Keep lift/clearance after a successful grasp as a separate 'LIFT' stage
+- RETREAT: After every 'RELEASE', add a 'RETREAT' stage that lifts the hand up
+- THIS ROBOT HAS NO HAND OR GRIPPER. It can only reach, touch, push and hover. Never plan a GRASP, LIFT or
+  RELEASE stage; plan REACH / HOVER / TOUCH / PUSH stages whose completion is a visible spatial relation.
+- THE ROBOT CAN WALK for this task. The arm reaches about 45 cm from the shoulder; when the target is farther
+  than that, plan an APPROACH stage first (motion label APPROACH) whose completion is "the target is within arm's reach
+  in the context view", then the arm stages.
+- If the task itself is a walking instruction with no arm work (e.g. "walk forward", "turn around", "go to the door"),
+  plan ONLY walking stages (motion label WALK or APPROACH) with the distance or direction in the description and a
+  completion the images can show (e.g. "the robot has advanced about 1 m: the near objects look clearly closer"), and
+  no arm stages at all.
+#### 2. Affordance Selection
+- ONE specific part -- never alternatives like "left end or middle"
+- Must be visible in the CONTEXT VIEW
+- Containers/Hollow objects (cups, bowls): Target left/right rim or edge.
+- Simple Solid objects (blocks): main body
+#### 3. Completion Criteria
+- ALL completion conditions MUST be strictly judgeable from raw 2D images
+- Movement stages: End with a stable visual spatial relation, NOT a hand event
+- Set-aside placements: If moving an object to another location, ensure it is placed away from the origin point on the table
+- MUST distinguish among similar objects
+Return JSON ONLY.

@@ -1,0 +1,17 @@
+{
+ "stages": [
+  {
+   "id": "walk_forward_onto_rug",
+   "target": "red patterned rug centre (medallion) straight ahead",
+   "affordance": "central medallion of the red rug in the middle of the context view",
+   "motion": "WALK",
+   "description": "Keep the arm at rest and walk straight forward about 1 m across the red patterned rug, keeping the white desk at the back wall centred ahead and not turning toward the white robot arm on the right or the dark chairs on the left.",
+   "completion": "The robot has advanced about 1 m: the rug's central medallion has moved down toward the bottom of the context view and the white desk and back wall look clearly larger and closer, still centred ahead."
+  }
+ ],
+ "model": "claude-opus-5-5",
+ "latency_s": 17.16167402267456,
+ "input_tokens": 4,
+ "output_tokens": 576,
+ "error": ""
+}

@@ -1,0 +1,56 @@
+{
+ "step": 2,
+ "t": 1790509670.7826629,
+ "stage": "walk_forward_1m",
+ "action": "STILL",
+ "hand_tip_before": [
+  0.11608,
+  -0.20566,
+  0.57302
+ ],
+ "roll_before": 7.568984437966719e-05,
+ "joints_before": {
+  "waist_roll_joint": 0.006699182093143463,
+  "waist_yaw_joint": 0.014728613197803497,
+  "left_shoulder_pitch_joint": 0.21790318191051483,
+  "left_shoulder_roll_joint": 0.16061857342720032,
+  "left_shoulder_yaw_joint": 0.023251919075846672,
+  "left_elbow_joint": 0.8453495502471924,
+  "left_wrist_roll_joint": -0.0034665947314351797,
+  "right_shoulder_pitch_joint": 0.2133551687002182,
+  "right_shoulder_roll_joint": -0.16531039774417877,
+  "right_shoulder_yaw_joint": -0.0006206567049957812,
+  "right_elbow_joint": 0.8370237350463867,
+  "right_wrist_roll_joint": 7.568984437966719e-05
+ },
+ "images_missing": [],
+ "ok": true,
+ "feedback": "",
+ "hand_tip_after": [
+  0.11608,
+  -0.20566,
+  0.57302
+ ],
+ "requested_dp": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "achieved_dp": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "q_target": null,
+ "q_after": null,
+ "ik_fail": false,
+ "timeout": false,
+ "clamped": false,
+ "notes": [],
+ "duration_s": 0.0,
+ "model": "claude-opus-5-5",
+ "latency_s": 16.903,
+ "input_tokens": 4,
+ "output_tokens": 700,
+ "vlm_error": ""
+}

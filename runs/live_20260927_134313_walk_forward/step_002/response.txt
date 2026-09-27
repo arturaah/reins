@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 a person is standing directly in front of the robot and blocks the path across the rug toward the desk (context cells D1-F6); odometry shows the last two walks moved 0 cm, so the robot holds still rather than stepping into them.", "decision": "STILL"}

@@ -1,0 +1,17 @@
+{
+ "stages": [
+  {
+   "id": "walk_forward_across_rug",
+   "target": "center of the red-and-cream patterned rug ahead",
+   "affordance": "cream medallion in the middle of the rug (context view columns C-E, rows 3-5)",
+   "motion": "WALK",
+   "description": "Walk straight forward about 1 m over the rug toward the white desk against the back wall, keeping the heading constant. Keep the right arm still at the side. A person is standing just right of center (context view columns F-G), so stop before getting within about 50 cm of their grey sneakers.",
+   "completion": "The robot has advanced about 1 m: the cream rug medallion now fills the lower half of the context view, the white desk at the back wall looks clearly bigger and lower in the frame, and the standing person's sneakers are still visible without touching the robot"
+  }
+ ],
+ "model": "claude-opus-5-5",
+ "latency_s": 18.649417877197266,
+ "input_tokens": 4,
+ "output_tokens": 800,
+ "error": ""
+}

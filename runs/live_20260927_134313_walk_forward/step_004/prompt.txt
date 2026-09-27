@@ -1,0 +1,88 @@
+DEMONSTRATIONS: 2 motion(s) recorded on this robot earlier, chosen by the operator as references for this task. Their contact sheets are stacked in ONE image labelled DEMOS: each block is titled DEMO_k and has one row per camera (named at its left edge) and one column per key moment, left to right in time; where a context row says "cropped", its leftmost tile is the full camera view with a red box showing the region the other tiles are cropped to. Use them to recognise the objects and the workspace, to see how the hand approached and moved, and to judge the scale of the motion in centimetres. They are references, not scripts: objects may sit elsewhere now, so decide from the CURRENT images.
+
+DEMO_1: "recording of point_at_the_guy_closer_to_you" (recording; 15.9 s; left arm moved, right arm moved). No camera frames were logged for this recording: text only.
+Left hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=22 z=58
+  t=7.0s  x=11 y=21 z=57   (still)
+  t=15.9s  x=11 y=22 z=58   (still)
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-21 z=58
+  t=7.0s  x=47 y=-9 z=99   (forward 36, left 12, up 41)
+  t=15.9s  x=11 y=-21 z=58   (back 36, right 12, down 41)
+
+DEMO_2: "point_at_the_chair_closer_to_you" (kinesthetic teach, measured; 7.5 s; left arm still, right arm moved). Contact sheet columns: t=0.0s, t=1.8s, t=2.9s, t=7.5s; rows: context, left wrist, right wrist.
+Right hand tip at the key moments, robot frame in cm (x forward, y left, z up), then its change since the previous moment:
+  t=0.0s  x=11 y=-20 z=57
+  t=1.8s  x=31 y=-2 z=68   (forward 20, left 17, up 11)
+  t=2.9s  x=39 y=2 z=83   (forward 9, left 5, up 15)
+  t=7.5s  x=11 y=-16 z=56   (back 28, right 18, down 26)
+
+OPERATOR FEEDBACK from earlier sessions on this robot (✓ = the operator accepted the move, ✗ = rejected, NOT executed; quoted notes are the operator's guidance, follow them when the situation is similar):
+- task "strech your right arm in front of you", stage extend_right_arm_forward, hand 23 cm above the floor: ✗ MV_UP
+- task "point at the guy in front", stage raise_and_extend_toward_seated_guy, hand 8 cm above the floor: ✗ MV_FWD
+- task "raise right arm", stage lift_right_hand_to_chest, hand 56 cm above the floor: ✗ MV_UP
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_LEFT
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 32 cm above the floor: ✗ MV_UP — "go left instead, the tape is on your left"
+- task "knock the roll of yellow tape off the top of the", stage raise_hand_beside_tape, hand 28 cm above the floor: ✓ MV_UP — "good start"
+- plus 37 accepted move(s) without comment
+
+TASK: walk forward
+STAGE: WALK
+TARGET: white desk with the small robot on it against the far wall
+AFFORD: center medallion of the red and cream rug directly ahead
+Stage goal: Walk straight forward about 1 m across the red patterned rug toward the far wall with the white desk (context view cells D1-E2), keeping heading straight so the rug's central cream medallion stays centered in the context view; arm stays at rest by the side.
+DONE WHEN: The robot has advanced about 1 m: the rug's central medallion has moved to the bottom of the context view and the white desk with the small robot on the far wall looks clearly larger and closer.
+Hand now: no hand
+Recent moves, newest first: WALK_FWD, STILL, WALK_FWD, WALK_FWD
+Recovery: walked 0 cm forward, -0 cm left, turned -0 deg (odometry); the view has changed, judge the target again
+The hand tip is 7.3 cm above the table; each step moves ~6 cm.
+
+IMAGES: CONTEXT VIEW = the fixed camera on the robot's head looking at the workspace; RIGHT WRIST VIEW = the camera on
+the moving arm. The end effector is the right hand tip (the point 13 cm beyond the wrist).
+ROBOT POSE VIEW = a rendering of the robot's OWN current configuration from its measured joints (not a camera), seen
+from the front right: cyan sphere = the right hand tip, yellow sphere = where the last move aimed, white box = the
+reachable workspace, grey plane = the table height. Use it to locate your hand when the cameras do not show it and to
+check the last move went where it aimed; the cameras remain the only source for where the TARGET is.
+
+DIRECTION (these conventions matter more than the action names):
+Is TARGET inside the RIGHT WRIST VIEW?
+A) YES -> the wrist view is the primary guide. Judge AFFORD's position vs the hand tip and take the direction of LARGEST deviation:
+- AFFORD to the left in the wrist image  -> MV_LEFT
+- AFFORD to the right in the wrist image -> MV_RIGHT
+- AFFORD near the wrist image bottom (close to the hand) -> MV_DOWN
+- AFFORD near the wrist image top (far from the hand)    -> MV_FWD
+- AFFORD roughly centred and large -> the hand tip is over it: MV_DOWN
+B) NO -> the CONTEXT VIEW is the primary guide. Judge TARGET's position vs the hand tip and take the direction of LARGEST deviation:
+- TARGET to the left in the image   -> MV_LEFT
+- TARGET to the right in the image  -> MV_RIGHT
+- TARGET lower in the image (nearer the robot) -> MV_BACK
+- TARGET higher in the image (farther from the robot) -> MV_FWD
+- TARGET below the hand tip -> MV_DOWN ; hand tip lower than the target or under the table edge -> MV_UP
+C) MV_UP when:
+- Need to lift the object
+- too low to reach TARGET
+- retreating after a RELEASE
+- If the hand needs to spin about the forearm to align with the TARGET -> ROTATE_CW / ROTATE_CCW (wrist roll, the only rotation this arm has)
+ATTENTION:
+- If recent moves show GRASP(empty), do not GRASP in place again; prioritize MV_UP, MV_BACK, MV_DOWN, or MV_FWD
+- NEVER OSCILLATE: Do NOT choose the opposite of the newest recent move (Pairs: MV_LEFT/MV_RIGHT, MV_FWD/MV_BACK)
+- When opposite directions appear in recent moves, prioritize MV_DOWN or MV_UP
+- DONE only when "DONE WHEN" is already visible in the images; DONE ends this stage, not the task
+HAND: this robot has no hand. GRASP and RELEASE only pause the arm; do not use them.
+LOCOMOTION: the whole robot can step. WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT move the body 30 cm (the
+hand comes along; its position relative to the body does not change), TURN_LEFT / TURN_RIGHT turn the body 20 deg,
+or WALK <forward|back|left|right> <cm> and TURN <deg> (positive = left) within the caps. Use them ONLY when the TARGET is
+out of the arm's reach: more than about 40 cm from the hand tip, or the arm keeps reporting unreachable targets. Face the
+TARGET with turns, then WALK_FWD until it is within reach; WALK_BACK when too close. A walk is a single action, never in a
+plan chunk, and the images change afterwards: judge again before the next action. Never walk while the hand is near an
+object or a surface. IN A STAGE WHOSE MOTION IS APPROACH OR WALK, choose ONLY WALK_* / TURN_* / sized WALK or TURN, or DONE
+when its completion is visible; never an arm move there.
+STEP SIZE: MV_* moves ~6 cm. When the TARGET is clearly far from the hand tip and the way is free, take ONE sized
+move instead of many small ones: MOVE <forward|back|left|right|up|down> <cm>, up to 20 cm (e.g. MOVE forward 15).
+Near the target, or with anything in the way, use the small MV_* moves.
+WRIST CHECK: begin your reasoning with `WRIST: YES` if the TARGET is visible in the wrist view, else `WRIST: NO`.
+ACTION PLAN -- only when WRIST: NO (TARGET far): plan your next 3 moves as "plan": [M1, M2, ...] (MV_ tokens only) and set decision to M1. Choose each move from the height and step size so the plan does not overshoot (e.g. never plan more MV_DOWN than the height above the table allows). When WRIST: YES, decide a single move.
+Think one visual sentence, then commit.
+Choose exactly one action:
+MV_FWD, MV_BACK, MV_LEFT, MV_RIGHT, MV_UP, MV_DOWN, MOVE <forward|back|left|right|up|down> <cm>, ROTATE_CW, ROTATE_CCW, STILL, DONE, WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT
+Return JSON only: {"decision":"ONE_ACTION","reasoning":"one visual sentence"}

@@ -1,0 +1,17 @@
+{
+ "stages": [
+  {
+   "id": "walk_forward_1m",
+   "target": "floor area about 1 m ahead of the robot, toward the medallion at the center of the round carpet",
+   "affordance": "center medallion of the red round carpet",
+   "motion": "WALK",
+   "description": "Walk straight forward about 1 m without turning, keeping the arm still at the side. Use the carpet's center medallion and the white desk at the back wall as heading references: they should stay centered horizontally in the context view while they appear larger and lower in the frame.",
+   "completion": "the robot has advanced about 1 m: the carpet's center medallion has moved down toward the bottom of the context view and looks clearly closer and larger, and the white desk and chairs at the back wall appear bigger, with the heading unchanged"
+  }
+ ],
+ "model": "claude-opus-5-5",
+ "latency_s": 13.266527891159058,
+ "input_tokens": 4,
+ "output_tokens": 402,
+ "error": ""
+}

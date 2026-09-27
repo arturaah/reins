@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 the context view still shows the rug's cream medallion at mid-frame and the desk far away, so the robot hasn't moved; the last walk was refused only because of a transient FSM state, so I'm retrying with a smaller step.", "decision": "WALK_FWD"}

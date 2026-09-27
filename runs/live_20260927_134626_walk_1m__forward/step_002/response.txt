@@ -1,0 +1,1 @@
+{"reasoning": "WRIST: NO \u2014 a person is standing right in front of the robot on the rug, blocking the path to the cream medallion, and the last walk was refused because of the locomotion state, so the robot should hold still instead of walking into them.", "decision": "STILL"}

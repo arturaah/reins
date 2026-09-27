@@ -1,0 +1,56 @@
+{
+ "step": 0,
+ "t": 1790509951.328438,
+ "stage": "walk_forward_1m",
+ "action": "WALK_FWD",
+ "hand_tip_before": [
+  0.11287,
+  -0.20587,
+  0.57259
+ ],
+ "roll_before": -4.541390444501303e-05,
+ "joints_before": {
+  "waist_roll_joint": 0.006735134869813919,
+  "waist_yaw_joint": 0.01480051875114441,
+  "left_shoulder_pitch_joint": 0.21811290085315704,
+  "left_shoulder_roll_joint": 0.16065452992916107,
+  "left_shoulder_yaw_joint": 0.023221643641591072,
+  "left_elbow_joint": 0.8450165390968323,
+  "left_wrist_roll_joint": -0.0034817326813936234,
+  "right_shoulder_pitch_joint": 0.2219538390636444,
+  "right_shoulder_roll_joint": -0.1653164029121399,
+  "right_shoulder_yaw_joint": -0.0007417604210786521,
+  "right_elbow_joint": 0.834874153137207,
+  "right_wrist_roll_joint": -4.541390444501303e-05
+ },
+ "images_missing": [],
+ "ok": false,
+ "feedback": "the step was refused: streamer refused the walk: refused: walking is allowed in FSM [811] (locomotion.fsm_ok); the robot is in 816 = unnamed in the SDK (seen alternating with 811 while standing, 2026-09-27; meaning unconfirmed)",
+ "hand_tip_after": [
+  0.11287,
+  -0.20587,
+  0.57259
+ ],
+ "requested_dp": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "achieved_dp": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "q_target": null,
+ "q_after": null,
+ "ik_fail": false,
+ "timeout": false,
+ "clamped": false,
+ "notes": [],
+ "duration_s": 0.0,
+ "model": "claude-opus-5-5",
+ "latency_s": 18.679,
+ "input_tokens": 4,
+ "output_tokens": 577,
+ "vlm_error": ""
+}

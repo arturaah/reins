@@ -1,0 +1,194 @@
+{
+ "task": "walk 1m  forward",
+ "mode": "live",
+ "started": "2026-09-27T13:46:26",
+ "config": {
+  "robot": {
+   "model": "sim/models/r1/scene_fixed_base.xml",
+   "arm": "right",
+   "dual_arm": false,
+   "hold_head": true,
+   "head_pitch_rad": 0.35,
+   "arm_kp_scale": 1.5,
+   "start_pose_rad": {
+    "right": [
+     -0.05,
+     -0.23,
+     0.13,
+     0.0,
+     0.0
+    ],
+    "left": [
+     -0.05,
+     0.23,
+     -0.13,
+     0.0,
+     0.0
+    ]
+   },
+   "ee_offset_m": 0.13,
+   "command_rate_hz": 50,
+   "weight_ramp_s": 1.0
+  },
+  "frames": {
+   "view_forward": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "view_left": [
+    0.0,
+    1.0,
+    0.0
+   ]
+  },
+  "workspace": {
+   "table_z_m": 0.5,
+   "sim_table_z_m": 0.665,
+   "table_margin_m": 0.02,
+   "box_min_m": [
+    0.15,
+    -0.6,
+    0.55
+   ],
+   "box_max_m": [
+    0.6,
+    0.6,
+    1.25
+   ]
+  },
+  "steps": {
+   "profile": "coarse_fine",
+   "coarse_m": 0.06,
+   "fine_m": 0.03,
+   "rotate_deg": 15.0,
+   "precision": {
+    "step_m": 0.01,
+    "rotate_deg": 5.0
+   },
+   "max_translation_m": 0.08,
+   "max_rotation_deg": 20.0,
+   "param_max_translation_m": 0.2,
+   "param_max_rotation_deg": 90.0
+  },
+  "limits": {
+   "joint_margin_rad": 0.05,
+   "max_joint_vel_rad_s": 0.8,
+   "min_move_s": 0.4,
+   "settle_vel_rad_s": 0.05,
+   "settle_timeout_s": 3.0,
+   "tracking_abort_rad": 0.6,
+   "ik_tol_m": 0.005,
+   "ik_iters": 200
+  },
+  "hand": {
+   "type": "none",
+   "pause_s": 1.0,
+   "grasp_reach_m": 0.03,
+   "revo2": {
+    "host": "127.0.0.1",
+    "port": 8791,
+    "topic_prefix": "rt/brainco",
+    "open": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "close": [
+     0.98,
+     0.7,
+     0.98,
+     0.98,
+     0.98,
+     0.98
+    ],
+    "speed": 1.0,
+    "settle_s": 1.5,
+    "empty_reach": 0.9,
+    "state_max_age_s": 1.0
+   }
+  },
+  "loop": {
+   "max_steps": 60,
+   "history_len": 5,
+   "chunk_max": 3,
+   "ik_fail_home_after": 3,
+   "reprompt_once": true
+  },
+  "perception": {
+   "width_px": 640,
+   "jpeg_quality": 80,
+   "grid": true,
+   "grid_cols": 8,
+   "grid_rows": 6,
+   "hand_marker": false,
+   "wrist_optional": true,
+   "pose_view": true,
+   "context_url": "http://localhost:8081/cam",
+   "wrist_urls": {
+    "left": "http://localhost:8080/cam/0",
+    "right": "http://localhost:8080/cam/2"
+   },
+   "context_camera": null
+  },
+  "vlm": {
+   "provider": "chat",
+   "chat_inbox": "runs/chat_inbox",
+   "chat_timeout_s": 900,
+   "model": "claude-opus-5-5",
+   "effort": "medium",
+   "max_tokens": 2000,
+   "timeout_s": 120,
+   "retries": 2,
+   "fallbacks": null,
+   "openai_model": "gpt-6-astra"
+  },
+  "recorder": {
+   "root": "runs",
+   "export_dir": "recordings"
+  },
+  "locomotion": {
+   "enabled": true,
+   "step_m": 0.3,
+   "turn_deg": 20.0,
+   "param_max_walk_m": 0.6,
+   "param_max_turn_deg": 45.0,
+   "speed_mps": 0.25,
+   "turn_speed_rps": 0.4,
+   "max_total_m": 5.0,
+   "max_total_turn_deg": 360.0,
+   "settle_s": 1.0,
+   "fsm_ok": [
+    811
+   ]
+  },
+  "demos": {
+   "max_moments": 8,
+   "tolerance_rad": 0.08,
+   "max_width_px": 1568
+  },
+  "feedback": {
+   "path": "runs/operator_feedback.jsonl",
+   "max_in_prompt": 10
+  },
+  "stats": {
+   "path": "runs/inference_log.jsonl",
+   "plot": "runs/inference_stats.png"
+  },
+  "streamer": {
+   "host": "127.0.0.1",
+   "port": 8790,
+   "heartbeat_s": 0.1,
+   "watchdog_s": 0.5
+  }
+ },
+ "finished": "2026-09-27T13:48:06",
+ "summary": {
+  "success": true,
+  "reason": "all stages done",
+  "steps": 4
+ }
+}

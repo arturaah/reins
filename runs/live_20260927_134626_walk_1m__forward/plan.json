@@ -1,0 +1,17 @@
+{
+ "stages": [
+  {
+   "id": "walk_forward_1m",
+   "target": "floor area about 1 m straight ahead of the robot, toward the cream-coloured centre medallion of the red rug",
+   "affordance": "cream centre medallion of the red patterned rug",
+   "motion": "WALK",
+   "description": "Walk straight forward about 1 m with the arms kept at the sides; hold the current heading (no turning) so the desk with the seated person and the white robot arm on the stand stay in the same horizontal position in the frame while getting larger.",
+   "completion": "The robot has moved about 1 m forward: the rug's cream centre medallion now sits clearly lower and larger in the context view, and the desk with the seated person and the white robot arm look clearly closer and larger than before, still roughly in the same horizontal position"
+  }
+ ],
+ "model": "claude-opus-5-5",
+ "latency_s": 16.22587490081787,
+ "input_tokens": 4,
+ "output_tokens": 725,
+ "error": ""
+}

@@ -1,0 +1,17 @@
+{
+ "stages": [
+  {
+   "id": "walk_forward",
+   "target": "open floor straight ahead of the robot",
+   "affordance": "patterned red rug area directly in front of the robot's feet",
+   "motion": "WALK",
+   "description": "Keep both arms still at the sides and walk straight forward about 1 m along the current heading. A person is standing very close in front (jeans and dark shirt filling the context view, grid C-F rows 1-6), so advance only as the path clears and stop short of contact rather than walk into them; do not turn.",
+   "completion": "The robot has moved about 1 m forward: rug patterns and objects that were ahead look clearly closer or have passed below the frame in the context view, and the robot is upright and not touching the person in front"
+  }
+ ],
+ "model": "claude-opus-5-5",
+ "latency_s": 16.029727935791016,
+ "input_tokens": 4,
+ "output_tokens": 761,
+ "error": ""
+}
