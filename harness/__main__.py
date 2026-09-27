@@ -127,6 +127,10 @@ def build(cfg, mode, iface=None, log=print):
             backend = ArmClientBackend(cfg, log)
             gate = SafetyGate(cfg, kin, table_z, live=True)           # refuses without a measured table
         per = Perception(cfg, arm, HttpCameras(cfg, arm), cfg["perception"].get("context_camera"))
+    if cfg["perception"].get("pose_view", False):
+        from .poseview import PoseView
+        per.pose_view = PoseView(cfg, arm, gate.table_z, int(cfg["perception"]["width_px"]), int(cfg["perception"]["width_px"]) * 9 // 16,
+                                 props=(mode == "sim"))
     ex = ArmExecutor(cfg, kin, gate, backend, arm)
     return backend, ex, per
 

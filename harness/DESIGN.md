@@ -128,6 +128,14 @@ the Cartesian clamp. The streamer process re-checks joint speed a third time, in
 - No self-collision model with the table exists in the MJCF (table geom has contype 0); the
   contact veto only covers the arm against the body.
 
+## Pose view (2026-09-27)
+
+The head camera often does not show the hand at all (the 12:08 run), and the joint numbers in the
+text are a weak substitute for a model that reasons visually. So every call now carries a rendering
+of the robot's own configuration from the measured joints, with the hand tip and the last aim
+marked: the same state as the numbers, in the modality the model is good at, and a cross-check of
+one against the other. It is deliberately not passed off as a camera.
+
 ## Locomotion (2026-09-27, at Artur's request)
 
 The original ground rule "never command legs or locomotion" is relaxed: with `locomotion.enabled`

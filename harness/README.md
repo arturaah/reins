@@ -101,6 +101,18 @@ before each move, so the recording shows up with ✓ in the window's context lis
 selected as a demonstration for the next session, dry-run it and replayed with `tools/arm_lift.py`
 like a taught skill. A dry-run export is the pretend trajectory (what would have been sent).
 
+## Robot pose view (a second reading of the state)
+
+With `perception.pose_view` (default on) every planner and controller call also gets a ROBOT POSE
+VIEW: the fixed-base MuJoCo model posed from the measured joints, rendered from the front right
+with the hand tip (cyan), where the last move aimed (yellow, with a line to where the hand actually
+is), the workspace box (white) and the table height (plane), captioned with the tip position
+(`harness/poseview.py`). It is not a camera, and the prompt says so: it tells the model where its
+hand is when the cameras do not show it and whether the last move went where it aimed, next to the
+joint numbers in the text; the cameras stay the only source for where the target is. Recorded as
+`robot.jpg` per step and replayed by `harness replay`. Costs one more image (about 300 tokens, one
+more Read with `claude -p`).
+
 ## Locomotion (whole-body steps)
 
 Off by default, and on only when the task text itself contains the word "walk": the window then starts the

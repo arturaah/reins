@@ -112,8 +112,10 @@ def draw_marker(im, uv, label="tip", color=(0, 255, 255)):
 
 
 class Perception:
-    def __init__(self, cfg, arm, cameras, context_camera=None):
+    def __init__(self, cfg, arm, cameras, context_camera=None, pose_view=None):
+        """pose_view: optional harness.poseview.PoseView; capture(joints=...) then adds a ROBOT POSE VIEW image."""
         self.cfg, self.arm, self.cameras = cfg, arm, cameras
+        self.pose_view = pose_view
         p = cfg["perception"]
         self.width, self.quality = int(p["width_px"]), int(p["jpeg_quality"])
         self.grid, self.cols, self.rows = bool(p["grid"]), int(p["grid_cols"]), int(p["grid_rows"])
@@ -121,13 +123,16 @@ class Perception:
         self.context_camera = context_camera
         self.wrist_optional = bool(p.get("wrist_optional", False))
 
-    def capture(self, hand_tip=None):
+    def capture(self, hand_tip=None, joints=None, last_target=None):
+        """joints: name -> rad for the pose view; last_target: where the previous move aimed (robot frame), drawn in it."""
         frames = self.cameras.frames()
+        if self.pose_view is not None and joints:
+            frames["ROBOT POSE VIEW"] = self.pose_view.render(joints, last_target)
         images, pil, missing = [], {}, []
         for label, im in frames.items():
             if im is None:
                 missing.append(label)
-                if self.wrist_optional and "WRIST" in label:
+                if (self.wrist_optional and "WRIST" in label) or "POSE" in label:
                     continue                                   # send the context view alone; the prompt says so
                 im = placeholder(self.width, self.width * 9 // 16, f"{label}: NO IMAGE")
             src_w = im.width

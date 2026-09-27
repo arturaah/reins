@@ -39,7 +39,7 @@ class Episode:
 
     # -- planning -------------------------------------------------------------------------------
     def make_plan(self, task, packet):
-        prompt = self.with_context(planner_prompt(task, self.cfg, self.arm, locomotion=self.loco))
+        prompt = self.with_context(planner_prompt(task, self.cfg, self.arm, locomotion=self.loco, pose_view=any("POSE" in l for l, _ in packet.images)))
         images = self.demo_images + packet.images
         resp = self.vlm.plan(prompt, images, PLAN_SCHEMA); self.stat("plan", resp, prompt, images)
         stages, err = None, resp.error
@@ -74,7 +74,7 @@ class Episode:
         state = self.ex.sync()
         self.ex.gate.set_baseline(self.ex.kin.q_from_dict(state.q), self.ex.others(state.q))
         self.fb_text = self.feedback.block(task) if self.feedback is not None else ""
-        packet = self.per.capture(state.p)
+        packet = self.per.capture(state.p, joints=state.q)
         stages, presp = self.make_plan(task, packet)
         if not stages:
             return self.finish({"success": False, "reason": f"no plan: {presp.error or 'unparseable'}", "steps": 0})
@@ -87,7 +87,10 @@ class Episode:
                 return self.finish({"success": False, "reason": "e-stop", "steps": step})
             stage = stages[stage_i]
             state = self.ex.sync()
-            packet = self.per.capture(state.p)
+            aim = None                                              # where the last move aimed, for the pose view
+            if last_result is not None and last_result.ok and last_result.requested_dp is not None and np.linalg.norm(last_result.requested_dp) > 1e-6:
+                aim = np.asarray(last_result.p_before, float) + np.asarray(last_result.requested_dp, float)
+            packet = self.per.capture(state.p, joints=state.q, last_target=aim)
             wrist_missing = any("WRIST" in m for m in packet.missing)
             fatal = [m for m in packet.missing if "WRIST" not in m or not self.per.wrist_optional]
             if fatal and not self.ex.backend.dry_run and self.ex.backend.name != "mock":
@@ -98,7 +101,7 @@ class Episode:
                 self.log(f"step {step}: chunk -> {action.raw}")
             else:
                 prompt = self.build_prompt(task, stage, state, history, " ".join(n for n in [recovery, *op_notes] if n) or None,
-                                           last_result, wrist_missing)
+                                           last_result, wrist_missing, pose_view=any("POSE" in l for l, _ in packet.images))
                 op_notes = []
                 decision, resp = self.ask(prompt, packet.images)
                 if decision is None:
@@ -166,7 +169,7 @@ class Episode:
         return self.finish({"success": False, "reason": "max steps", "steps": int(lp["max_steps"])})
 
     # -- pieces ------------------------------------------------------------------------------------------
-    def build_prompt(self, task, stage, state, history, recovery, last, wrist_missing=False):
+    def build_prompt(self, task, stage, state, history, recovery, last, wrist_missing=False, pose_view=False):
         sigma, _ = step_size(self.cfg["steps"], False)
         h = height_above_table_cm(state.p, self.table_z)
         stall = clamped = ik = None
@@ -182,7 +185,7 @@ class Episode:
         hand = "no hand" if self.cfg["hand"]["type"] == "none" else ("closed" if state.hand_closed else "open")
         pro = proprio_text(h, sigma * 100, hand, stall, clamped, ik, holding=state.hand_closed)
         return self.with_context(controller_prompt(task, stage, pro, history, recovery, self.cfg, self.arm, wrist_missing=wrist_missing,
-                                                   locomotion=self.loco))
+                                                   locomotion=self.loco, pose_view=pose_view))
 
     def with_context(self, prompt):
         """Demonstrations, then earlier sessions' operator feedback, then the prompt itself."""

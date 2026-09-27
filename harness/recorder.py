@@ -120,7 +120,7 @@ def load_step(run_dir, i):
     rec = json.loads((d / "step.json").read_text())
     prompt = (d / "prompt.txt").read_text() if (d / "prompt.txt").exists() else None
     images = []
-    for name, label in (("context.jpg", "CONTEXT VIEW"), ("left.jpg", "LEFT WRIST VIEW"), ("right.jpg", "RIGHT WRIST VIEW")):
+    for name, label in (("context.jpg", "CONTEXT VIEW"), ("left.jpg", "LEFT WRIST VIEW"), ("right.jpg", "RIGHT WRIST VIEW"), ("robot.jpg", "ROBOT POSE VIEW")):
         if (d / name).exists():
             images.append((label, (d / name).read_bytes()))
     return rec, prompt, images

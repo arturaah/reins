@@ -141,12 +141,16 @@ def robot_description(cfg, arm):
             + " The legs and balance are handled by the robot itself and are not controllable.")
 
 
-def planner_prompt(task, cfg, arm, locomotion=None):
-    """locomotion: offer walking; None = whatever the config says (the loop passes its per-task decision)."""
+def planner_prompt(task, cfg, arm, locomotion=None, pose_view=False):
+    """locomotion: offer walking; None = whatever the config says (the loop passes its per-task decision).
+    pose_view: the images include the ROBOT POSE VIEW rendering."""
     hand_rules = PLANNER_HAND_RULES_NONE if cfg["hand"]["type"] == "none" else ""
     if (cfg.get("locomotion") or {}).get("enabled", False) if locomotion is None else locomotion:
         hand_rules = (hand_rules + "\n" if hand_rules else "") + PLANNER_LOCOMOTION
-    return PLANNER.format(task=task, robot_desc=robot_description(cfg, arm), hand_rules=hand_rules)
+    desc = robot_description(cfg, arm)
+    if pose_view:
+        desc += " IMAGES: the camera views, plus a " + POSE_LINE.format(arm=arm)
+    return PLANNER.format(task=task, robot_desc=desc, hand_rules=hand_rules)
 
 
 def mem_text(history):
@@ -156,12 +160,17 @@ def mem_text(history):
 
 IMAGES_LINE = ("IMAGES: CONTEXT VIEW = the fixed camera on the robot's head looking at the workspace; {wrist_label} = the camera on\n"
                "the moving arm. The end effector is the {arm} hand tip ({ee_desc}).")
+POSE_LINE = ("ROBOT POSE VIEW = a rendering of the robot's OWN current configuration from its measured joints (not a camera), seen\n"
+             "from the front right: cyan sphere = the {arm} hand tip, yellow sphere = where the last move aimed, white box = the\n"
+             "reachable workspace, grey plane = the table height. Use it to locate your hand when the cameras do not show it and to\n"
+             "check the last move went where it aimed; the cameras remain the only source for where the TARGET is.")
 IMAGES_LINE_NO_WRIST = ("IMAGES: only the CONTEXT VIEW (the fixed camera on the robot's head) is available this step; there is NO wrist\n"
                         "view, so judge everything from the context view, answer WRIST: NO, and take the direction of LARGEST deviation\n"
                         "of the hand tip from the TARGET. The end effector is the {arm} hand tip ({ee_desc}).")
 
 
-def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=False, vocab=None, wrist_missing=False, locomotion=False):
+def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=False, vocab=None, wrist_missing=False, locomotion=False,
+                      pose_view=False):
     """stage: dict with target, affordance, motion, description, completion. proprio: text. history: list newest first.
     locomotion: the WALK_* / TURN_* tokens and their rules are offered (locomotion.enabled)."""
     hand = cfg["hand"]["type"]
@@ -170,6 +179,8 @@ def controller_prompt(task, stage, proprio, history, recovery, cfg, arm, dual=Fa
     wrist_label = f"{arm.upper()} WRIST VIEW"
     ee_desc = "the point 13 cm beyond the wrist" if hand == "none" else "between the fingers"
     images_line = (IMAGES_LINE_NO_WRIST if wrist_missing else IMAGES_LINE).format(wrist_label=wrist_label, arm=arm, ee_desc=ee_desc)
+    if pose_view:
+        images_line += "\n" + POSE_LINE.format(arm=arm)
     vocab = vocab or "MV_FWD, MV_BACK, MV_LEFT, MV_RIGHT, MV_UP, MV_DOWN, ROTATE_CW, ROTATE_CCW, STILL, DONE" + \
         ("" if hand == "none" else ", GRASP, RELEASE") + \
         (", WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" if locomotion else "")
