@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "walk two metres forward",
+  "waypoints": [
+    {"x": 0.0, "y": 0.0},
+    {"x": 2.0, "y": 0.0, "label": "goal"}
+  ]
+}

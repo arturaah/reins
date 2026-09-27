@@ -35,7 +35,7 @@ from unitree_sdk2py.utils.crc import CRC
 
 from ..config import load
 from ..kinematics import ARM_JOINTS
-from .lowstate import FSM_ARM_OK, JOINT_TO_SLOT, LowStateReader, query_fsm
+from .lowstate import FSM_ARM_OK, JOINT_TO_SLOT, SLOT_TO_JOINT, LowStateReader, query_fsm
 
 # gains as in unitree_sdk2/example/r1/high_level/r1_arm_sdk_dds_example.cpp
 GAINS = {"shoulder_pitch": (50.0, 2.0), "shoulder_roll": (50.0, 2.0), "shoulder_yaw": (40.0, 2.0),
@@ -159,9 +159,9 @@ class Streamer:
                 return f"frame {i}: expected 5 finite joint values"
         with self.lock:
             prev = np.array([self.targets[s] for s in slots])
-        # The client plans from the measured joints; the hold target differs from them by the gravity droop (about
-        # 0.01 rad), which at 50 Hz would be a 0.5 rad/s jump on the first frame. Approach the first frame from the
-        # current target at the cap first, then play the frames.
+        # The client plans from the hold targets it reads in state(); a client that plans from the measured joints
+        # instead is a gravity droop away (about 0.01 rad, a 0.5 rad/s jump on the first frame at 50 Hz). Approach
+        # the first frame from the current target at the cap first, then play the frames.
         step = self.vmax * 0.8 * dt
         jump = float(np.abs(frames[0] - prev).max())
         k = int(np.ceil(jump / step)) - 1 if jump > step else 0
@@ -187,9 +187,12 @@ class Streamer:
         return ""
 
     def state(self):
+        """targets: the commanded joint targets being held (empty when not engaged). They differ from the measured
+        joints by the gravity droop; a client plans its frames from them."""
         m = self.reader.joints(); v = self.reader.velocities()
         with self.lock:
-            return {"ok": True, "joints": m, "velocities": v, "weight": self.weight, "engaged": self.engaged,
+            targets = {SLOT_TO_JOINT[s]: q for s, q in self.targets.items() if s in SLOT_TO_JOINT} if self.engaged else {}
+            return {"ok": True, "joints": m, "velocities": v, "targets": targets, "weight": self.weight, "engaged": self.engaged,
                     "lowstate_age_s": self.reader.age(), "frames_sent": self.frames_sent, "reason": self.reason}
 
     # -- socket side ------------------------------------------------------------------------------------

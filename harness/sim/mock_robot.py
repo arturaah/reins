@@ -12,7 +12,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from ..executor import Backend
+from ..executor import Backend, StreamError
 from ..kinematics import ARM_JOINTS, OTHER_JOINTS, ROOT
 
 CUBE_START = np.array([0.30, 0.16, 0.685])       # y is mirrored for the right arm (the scene XML places it for the left)
@@ -69,6 +69,8 @@ class MockBackend(Backend):
         self.engaged = False
         self.frames_sent = 0
         self._renderer = None
+        self._viewer = None
+        self._viewer_estop = None
         self._render_ok = render
         self._forward()
 
@@ -81,6 +83,39 @@ class MockBackend(Backend):
             if off is not None and self.cube_mocap >= 0:
                 self.data.mocap_pos[self.cube_mocap] = self.tip(side) + off
         mujoco.mj_kinematics(self.model, self.data)
+        self.sync_viewer()
+
+    # -- optional live simulation window --------------------------------------------------------------
+    def open_viewer(self, estop):
+        import mujoco.viewer
+        self._viewer_estop = estop
+        self._viewer = mujoco.viewer.launch_passive(
+            self.model, self.data, show_left_ui=False, show_right_ui=False,
+            key_callback=lambda key: estop.set() if key in (88, 120, 256) else None)
+        with self._viewer.lock():
+            self._viewer.cam.lookat[:] = [0.25, 0.12 * self.side, 0.85]
+            self._viewer.cam.distance = 1.5
+            self._viewer.cam.azimuth = 135 if self.side < 0 else -135
+            self._viewer.cam.elevation = -25
+        self._viewer.sync()
+
+    def sync_viewer(self):
+        if self._viewer is None:
+            return
+        if not self._viewer.is_running():
+            self._viewer_estop.set()
+            return
+        self._viewer.sync()
+
+    def wait_viewer(self):
+        while self._viewer is not None and self._viewer.is_running():
+            self._viewer.sync()
+            time.sleep(0.03)
+
+    def close_viewer(self):
+        if self._viewer is not None:
+            self._viewer.close()
+            self._viewer = None
 
     def tip(self, side):
         return self.data.site_xpos[self.sites[side]].copy()
@@ -89,6 +124,7 @@ class MockBackend(Backend):
         return self.data.mocap_pos[self.cube_mocap].copy() if self.cube_mocap >= 0 else None
 
     def joints(self):
+        self.sync_viewer()
         return dict(self.q)
 
     def velocities(self):
@@ -103,6 +139,9 @@ class MockBackend(Backend):
         names = ARM_JOINTS[arm]
         prev = np.array([self.q[n] for n in names])
         for f in frames:
+            self.sync_viewer()
+            if self._viewer_estop is not None and self._viewer_estop.is_set():
+                raise StreamError("simulation stopped from the viewer")
             f = np.asarray(f, float)
             for n, v in zip(names, f):
                 self.q[n] = float(v)
@@ -132,6 +171,7 @@ class MockBackend(Backend):
         if self.cube_mocap >= 0:
             c = self.cube_pos(); c[2] = self.cfg["workspace"]["sim_table_z_m"] + 0.02   # drop to the table
             self.data.mocap_pos[self.cube_mocap] = c
+        self._forward()
         return "hand opened"
 
     def hand_state(self, arm):

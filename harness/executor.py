@@ -27,6 +27,10 @@ def interpolate(q_from, q_to, duration_s, rate_hz):
     return [q_from + (q_to - q_from) * ease(i / n) for i in range(1, n + 1)]
 
 
+class StreamError(RuntimeError):
+    """The backend did not play the frames (refused, released, or answered too soon). Nothing more should be sent."""
+
+
 @dataclass
 class ExecResult:
     ok: bool
@@ -49,6 +53,7 @@ class ExecResult:
     declined: bool = False             # the operator rejected the move before it was sent
     operator_note: str = ""            # the note they typed with their Accept or Reject, when they gave one
     asked: bool = False                # an operator was asked about this move (confirm was set)
+    stream_error: str = ""             # the backend did not play the frames: the session must stop, the arm did not move
 
 
 class Backend:
@@ -57,7 +62,8 @@ class Backend:
     dry_run = False
     def joints(self) -> dict: raise NotImplementedError
     def velocities(self) -> dict: raise NotImplementedError
-    def stream(self, arm, frames, dt): raise NotImplementedError      # blocking, frames: list of 5-vectors
+    def stream(self, arm, frames, dt): raise NotImplementedError      # blocking, frames: list of 5-vectors; StreamError if not played
+    def commanded(self) -> dict: return {}                             # joint targets the robot is holding, when they differ from joints()
     def hand(self, arm, closed) -> str: raise NotImplementedError      # returns feedback text
     def hand_state(self, arm): return None                              # True closed, False open, None unknown
     def engage(self): pass
@@ -76,6 +82,19 @@ class ArmExecutor:
     # -- state ------------------------------------------------------------------------------------
     def others(self, joints):
         return {n: joints[n] for n in ("waist_roll_joint", "waist_yaw_joint") if n in joints}
+
+    def q_start(self, joints):
+        """Where streamed frames must begin: the targets the backend is holding (the measured joints plus the gravity
+        droop), else the measured joints. Frames from the measured joints jump by the droop on the first frame."""
+        cmd = self.backend.commanded()
+        return self.kin.q_from_dict({**joints, **cmd}) if all(n in cmd for n in self.kin.joint_names) else self.kin.q_from_dict(joints)
+
+    def _stream(self, frames, dt):
+        """-> "" when played, else why not."""
+        try:
+            self.backend.stream(self.arm, frames, dt); return ""
+        except StreamError as e:
+            return str(e)
 
     def sync(self):
         j = self.backend.joints()
@@ -101,7 +120,8 @@ class ArmExecutor:
             return ExecResult(False, v.feedback, state.p, state.p, requested, np.zeros(3), state.roll, state.roll,
                               ik_fail=v.reason.startswith("IK_FAIL"), clamped=bool(v.clamped), notes=v.clamped)
         dt = 1.0 / self.rate
-        frames = interpolate(q_now, v.q_target, v.duration_s, self.rate)
+        q_from = self.q_start(j)
+        frames = interpolate(q_from, v.q_target, v.duration_s, self.rate)
         bad = self.gate.check_trajectory(frames, dt)
         if bad:
             return ExecResult(False, f"REJECTED by the trajectory check: {bad}", state.p, state.p, requested, np.zeros(3),
@@ -113,11 +133,14 @@ class ArmExecutor:
                     f"roll {math.degrees(state.roll):.0f} -> {math.degrees(v.roll):.0f} deg, {v.duration_s:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(dq).max())):.0f} deg" +
                     (f"; {'; '.join(v.clamped)}" if v.clamped else ""))
-            ok, note = self._ask(text, q_now, frames, dt, j); asked = True
+            ok, note = self._ask(text, q_from, frames, dt, j); asked = True
             if not ok:
                 return self._declined(note, state, requested)
         t0 = time.time()
-        self.backend.stream(self.arm, frames, dt)
+        err = self._stream(frames, dt)
+        if err:
+            return ExecResult(False, f"NOT SENT: {err}", state.p, state.p, requested, np.zeros(3), state.roll, state.roll,
+                              asked=asked, operator_note=note, stream_error=err)
         timeout = self._settle()
         after = self.sync()
         achieved = after.p - state.p
@@ -169,13 +192,25 @@ class ArmExecutor:
         return " ".join(parts)
 
     def _hand(self, proposal, state):
+        if self.gate.estop.is_set():
+            return ExecResult(False, "ESTOP: nothing moves")
+        note, asked = "", False
+        if self.confirm is not None:
+            q = self.kin.q_from_dict(state.q)
+            text = f"{'GRASP' if proposal.hand_closed else 'RELEASE'}: {'close' if proposal.hand_closed else 'open'} the hand"
+            ok, note = self._ask(text, q, [q], 1.0 / self.rate, state.q)
+            asked = True
+            if not ok:
+                return self._declined(note, state, np.zeros(3))
+        if self.gate.estop.is_set():
+            return ExecResult(False, "ESTOP: nothing moves", asked=asked, operator_note=note)
         fb = self.backend.hand(self.arm, proposal.hand_closed)
         closed = self.backend.hand_state(self.arm)
         empty = False
         if proposal.hand_closed and closed is not None and self.cfg["hand"]["type"] != "none":
             empty = fb.startswith("EMPTY")
         return ExecResult(True, fb, state.p, state.p, np.zeros(3), np.zeros(3), state.roll, state.roll,
-                          hand_closed=closed, empty_grasp=empty)
+                          hand_closed=closed, empty_grasp=empty, asked=asked, operator_note=note)
 
     def go_to_joints(self, q_target, label="joint move"):
         """Joint-space move (start pose, home step). Still gated: e-stop, limits, speed cap, self-collision, confirmation."""
@@ -191,8 +226,9 @@ class ArmExecutor:
         if self.gate.contacts_baseline is not None and self.kin.contacts(q_t, self.others(j)) > self.gate.contacts_baseline:
             return ExecResult(False, f"{label} refused: the model shows a self-collision at the target", state.p, state.p)
         lim = self.cfg["limits"]
-        duration = max(float(lim["min_move_s"]), float(np.abs(q_t - q_now).max()) / float(lim["max_joint_vel_rad_s"]) * math.pi / 2)
-        frames = interpolate(q_now, q_t, duration, self.rate)
+        q_from = self.q_start(j)
+        duration = max(float(lim["min_move_s"]), float(np.abs(q_t - q_from).max()) / float(lim["max_joint_vel_rad_s"]) * math.pi / 2)
+        frames = interpolate(q_from, q_t, duration, self.rate)
         bad = self.gate.check_trajectory(frames, 1.0 / self.rate)
         if bad:
             return ExecResult(False, f"{label} refused by the trajectory check: {bad}", state.p, state.p)
@@ -201,12 +237,15 @@ class ArmExecutor:
         if self.confirm is not None:
             text = (f"{label}: hand {state.p.round(3).tolist()} -> {p_t.round(3).tolist()} m over {duration:.1f} s, "
                     f"largest joint change {math.degrees(float(np.abs(q_t - q_now).max())):.0f} deg")
-            ok, note = self._ask(text, q_now, frames, 1.0 / self.rate, j); asked = True
+            ok, note = self._ask(text, q_from, frames, 1.0 / self.rate, j); asked = True
             if not ok:
                 r = self._declined(note, state, p_t - state.p); r.feedback = f"the operator rejected the {label}" + (f": {note}" if note else "")
                 return r
         t0 = time.time()
-        self.backend.stream(self.arm, frames, 1.0 / self.rate)
+        err = self._stream(frames, 1.0 / self.rate)
+        if err:
+            return ExecResult(False, f"{label} NOT SENT: {err}", state.p, state.p, p_t - state.p, np.zeros(3),
+                              asked=asked, operator_note=note, stream_error=err)
         timeout = self._settle()
         after = self.sync()
         return ExecResult(True, f"{label} done", state.p, after.p, p_t - state.p, after.p - state.p, state.roll, after.roll,

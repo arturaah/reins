@@ -6,6 +6,7 @@ This simulation-only prototype implements Reins' review-before-action loop for U
 
 - macOS with Homebrew Python 3.14 and `python3 -m pip install mujoco scipy matplotlib`, or another Python with those packages
 - Run GUI commands from a normal Terminal session with `mjpython`. A Codex-launched viewer process crashed during macOS AppKit registration on this Mac; headless execution works.
+- In this repo's uv-managed environment, use `.venv/bin/python tools/mjpython.py` in place of `mjpython` so the native launcher can find `libpython`.
 
 ## Run
 

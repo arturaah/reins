@@ -105,7 +105,8 @@
           }
         },
         {"$ref": "#/$defs/preset_step"},
-        {"$ref": "#/$defs/walk_step"}
+        {"$ref": "#/$defs/walk_step"},
+        {"$ref": "#/$defs/servo_step"}
       ]
     },
 
@@ -166,6 +167,32 @@
         "path": {"$ref": "#/$defs/path2"}
       }
     },
+    "servo_step": {
+      "description": "Provisional: hand one arm to a closed-loop policy for a task, within approved bounds. What is approved is the task and the bounds, not a path: the policy picks each move from what it sees, and a safety gate holds it to the bounds.",
+      "type": "object",
+      "required": ["step_id", "kind", "description", "effector", "task", "bounds"],
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {"$ref": "#/$defs/id"},
+        "kind": {"const": "servo"},
+        "description": {"$ref": "#/$defs/text"},
+        "effector": {"enum": ["left_hand", "right_hand"]},
+        "task": {"$ref": "#/$defs/text"},
+        "bounds": {
+          "type": "object",
+          "required": ["frame", "box_min_m", "box_max_m", "max_step_m", "max_steps"],
+          "additionalProperties": false,
+          "properties": {
+            "frame": {"const": "robot"},
+            "box_min_m": {"$ref": "#/$defs/vec3"},
+            "box_max_m": {"$ref": "#/$defs/vec3"},
+            "max_step_m": {"type": "number", "exclusiveMinimum": 0},
+            "max_steps": {"type": "integer", "minimum": 1},
+            "max_joint_vel_rad_s": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
     "plan": {
       "type": "object",
       "required": ["plan_id", "revision", "command_id", "summary", "steps"],
@@ -190,7 +217,8 @@
           "items": {"oneOf": [
             {"$ref": "#/$defs/arm_step"},
             {"$ref": "#/$defs/preset_step"},
-            {"$ref": "#/$defs/walk_step"}
+            {"$ref": "#/$defs/walk_step"},
+            {"$ref": "#/$defs/servo_step"}
           ]}
         }
       }

@@ -6,6 +6,9 @@
         --demos recordings/a.json ...        selected recordings (text summary + contact sheet) as demonstrations in every call
         --confirm --preview runs/ui_preview.json   ask before every move in any mode and write each proposal as a plan file
                                              first (the desktop window's AI pane drives this: PROPOSAL lines, Accept/Reject)
+        --executor jev                       Claude plans and takes rare camera looks, TypeSafe Jev decides every step from
+                                             text (harness/split.py; needs TYPESAFE_API_KEY). scripted: geometric stand-in
+        --mover geometric                    with --executor: code picks each move, the decider only judges done / look
     python -m harness packet [--sim | --iface en6]   dump one perception packet (images + proprio text) and exit
     python -m harness replay RUN_DIR --step N [--vlm anthropic]   rebuild a recorded step's prompt and re-query
     python -m harness measure-table en6      print the hand tip height from rt/lowstate (subscribe-only)
@@ -114,7 +117,22 @@ def run_episode(a, cfg, mode):
     from .loop import Episode
     log = print
     backend, ex, per = build(cfg, mode, a.iface, log)
+    if cfg["executor"]["per_step"] == "split":             # the VLM only plans and looks: its own model and effort
+        x = cfg["executor"]
+        if x.get("planner_model"):
+            cfg["vlm"]["model"] = x["planner_model"]
+        if x.get("planner_effort"):
+            cfg["vlm"]["effort"] = cfg["vlm"]["cli_effort"] = x["planner_effort"]
     vlm = vlm_base.make(cfg, a.vlm)
+    decider = None
+    if cfg["executor"]["per_step"] == "split":
+        from .decider import base as decider_base
+        try:
+            decider = decider_base.make(cfg)               # before engaging: a missing API key stops here
+        except RuntimeError as e:
+            sys.exit(str(e))
+        print(f"per step: {decider.name} (mover {cfg['executor']['mover']}); {a.vlm or cfg['vlm']['provider']} plans and looks "
+              f"({getattr(vlm, 'model', cfg['vlm']['model'])}, effort {getattr(vlm, 'effort', cfg['vlm'].get('effort'))})")
     demos = load_demos(a.demos, cfg) if getattr(a, "demos", None) else []
     for d in demos:
         print(f"demo: {d.name} ({'with' if d.image else 'no'} contact sheet, {len(d.text)} chars)")
@@ -139,21 +157,33 @@ def run_episode(a, cfg, mode):
     stats = InferenceLog(cfg["stats"]["path"], cfg["stats"]["plot"], session, mode, a.task)
     feedback = FeedbackStore(cfg["feedback"]["path"], session, cfg["feedback"]["max_in_prompt"])
     try:
+        if mode == "sim" and getattr(a, "viewer", False):
+            backend.open_viewer(ex.gate.estop)
+            print("Live simulation: drag to orbit, scroll to zoom. X or Esc stops; closing the window stops the simulation.")
         if mode != "sim" or a.start_pose:
             r = ex.go_to_joints(cfg["robot"]["start_pose_rad"][ex.arm], "start pose")
             print(f"start pose: {r.feedback}")
             if not r.ok and mode == "live":
                 return
-        ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos, feedback=feedback, stats=stats)
+        if decider is not None:
+            from .split import SplitEpisode
+            ep = SplitEpisode(cfg, vlm, decider, ex, per, recorder=rec, log=log, demos=demos, feedback=feedback, stats=stats)
+        else:
+            ep = Episode(cfg, vlm, ex, per, rec, log, demos=demos, feedback=feedback, stats=stats)
         summary = ep.run(a.task)
         print(json.dumps(summary, indent=1, default=str))
         if stats.count:
             print(f"inference: {stats.count} call(s) logged to {stats.path.relative_to(stats.path.parents[1])}, plot {cfg['stats']['plot']}")
         path, msg = rec.export_recording(ex.arm, cfg["recorder"].get("export_dir"))
         print(f"EXPORTED {path.relative_to(ROOT) if path and path.is_relative_to(ROOT) else path}: {msg}" if path else f"no recording exported: {msg}")
+        if mode == "sim" and getattr(a, "viewer", False):
+            print("Episode finished. Close the simulation window to exit.")
+            backend.wait_viewer()
     finally:
         if mode == "live":
             backend.release()
+        elif mode == "sim":
+            backend.close_viewer()
 
 
 def cmd_packet(a, cfg):
@@ -225,9 +255,13 @@ def main():
         if name != "sim":
             p.add_argument("iface")
         p.add_argument("task")
-        p.add_argument("--vlm", help="anthropic | openai | scripted (default: config)")
+        p.add_argument("--vlm", help="anthropic | openai | claude-cli | codex-cli | chat | scripted (default: config)")
+        p.add_argument("--executor", choices=["claude", "jev", "scripted"],
+                       help="who decides each step: claude (the VLM, default) or a System One decider with the VLM as planner and eyes")
+        p.add_argument("--mover", choices=["jev", "geometric"], help="with --executor: who picks the move (default: config)")
         if name == "sim":
             p.add_argument("--realtime", action="store_true"); p.add_argument("--start-pose", action="store_true")
+            p.add_argument("--viewer", action="store_true", help="show the live MuJoCo window, at real-time speed (macOS: use mjpython)")
         if name == "live":
             p.add_argument("--no-confirm", action="store_true", help="do not ask before each move (e-stop: x + Enter)")
         p.add_argument("--confirm", action="store_true", help="ask before every move (live does by default)")
@@ -241,9 +275,15 @@ def main():
     over = parse_overrides(a.set)
     if a.arm: over["robot.arm"] = a.arm
     if a.profile: over["steps.profile"] = a.profile
+    ex_choice = getattr(a, "executor", None)
+    if ex_choice:
+        over["executor.per_step"] = "claude" if ex_choice == "claude" else "split"
+        if ex_choice != "claude":
+            over["executor.decider"] = ex_choice
+    if getattr(a, "mover", None): over["executor.mover"] = a.mover
     cfg = hcfg.load(a.config, over)
     if a.cmd == "sim":
-        cfg["_realtime"] = a.realtime
+        cfg["_realtime"] = a.realtime or a.viewer
         a.iface = None; a.no_confirm = not a.confirm
         run_episode(a, cfg, "sim")
     elif a.cmd in ("dry-run", "live"):

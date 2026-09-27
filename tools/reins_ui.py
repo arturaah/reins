@@ -102,13 +102,20 @@ PREVIEW = "runs/ui_preview.json"                      # each proposal, as a plan
 AI_LOG = "/tmp/harness_ui.log"                        # every line of every AI session (the pane's log is not kept otherwise)
 ai = {"p": None, "pending": False, "streamer": None}
 aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
-ttk.Label(aif, text="AI control  (VLM: claude -p on this Mac's Claude login, claude-fable-5-1; every Accept / Reject and its feedback is kept for later sessions)",
+ttk.Label(aif, text="AI control: choose the planner below. With Jev, the planner takes occasional camera looks and Jev picks each move. "
+                    "Every Accept / Reject and its feedback is kept for later sessions.",
           wraplength=SIZES["head"][0]).pack(anchor="w")
 ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
+vrow = ttk.Frame(aif); vrow.pack(fill="x")
+ttk.Label(vrow, text="Planner").pack(side="left")
+ai_vlm = tk.StringVar(value="codex-cli")
+ttk.Combobox(vrow, textvariable=ai_vlm, values=("codex-cli", "claude-cli"), state="readonly", width=11).pack(side="left", padx=3)
+ttk.Label(vrow, text="Codex: GPT-5.6 Sol · low effort").pack(side="left")
 arow = ttk.Frame(aif); arow.pack(fill="x")
 ai_mode = tk.StringVar(value="dry run"); ttk.Combobox(arow, textvariable=ai_mode, values=("dry run", "live"), state="readonly", width=7).pack(side="left")
 ai_arm = tk.StringVar(value="left"); ttk.Combobox(arow, textvariable=ai_arm, values=("left", "right"), state="readonly", width=5).pack(side="left", padx=3)
 ai_stepp = tk.StringVar(value="coarse_fine"); ttk.Combobox(arow, textvariable=ai_stepp, values=("coarse_fine", "precision"), state="readonly", width=10).pack(side="left")
+ai_exec = tk.StringVar(value="jev"); ttk.Combobox(arow, textvariable=ai_exec, values=("planner", "jev"), state="readonly", width=8).pack(side="left", padx=3)
 ttk.Label(arow, text="floor z").pack(side="left", padx=(6, 2)); ai_floor = tk.StringVar(value="0.50"); ttk.Entry(arow, textvariable=ai_floor, width=5).pack(side="left")
 abtns = ttk.Frame(arow); abtns.pack(side="right")
 ttk.Label(aif, text="Context: recordings the model sees as demonstrations (✓ = with a camera contact sheet). Click toggles.",
@@ -366,7 +373,8 @@ def ai_run():
     live = ai_mode.get() == "live"
     demos = [demo_files[i] for i in demo_lb.curselection()]
     cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}",
-           "live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW]
+           "live" if live else "dry-run", a.iface, task, "--vlm", ai_vlm.get(), "--confirm", "--preview", PREVIEW]
+    cmd += ["--executor", "claude" if ai_exec.get() == "planner" else ai_exec.get()]
     if demos: cmd += ["--demos", *demos]
     if live:
         if not messagebox.askokcancel("AI control on the robot",

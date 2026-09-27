@@ -1,0 +1,15 @@
+<mujoco model="r1 room">
+  <!-- The walk scene plus furniture. Geoms named obstacle* are solid to the loco sim. -->
+  <include file="scene_walk.xml"/>
+
+  <asset>
+    <material name="furniture" rgba="0.55 0.42 0.3 1"/>
+    <material name="counter" rgba="0.75 0.75 0.78 1"/>
+  </asset>
+
+  <worldbody>
+    <geom name="obstacle_table" type="box" pos="0.8 0.9 0.37" size="0.3 0.25 0.37" material="furniture" group="2" contype="0" conaffinity="0"/>
+    <geom name="obstacle_counter" type="box" pos="1.8 2.6 0.45" size="0.8 0.3 0.45" material="counter" group="2" contype="0" conaffinity="0"/>
+    <geom name="obstacle_plant" type="cylinder" pos="0.3 1.6 0.4" size="0.18 0.4" rgba="0.25 0.5 0.3 1" group="2" contype="0" conaffinity="0"/>
+  </worldbody>
+</mujoco>

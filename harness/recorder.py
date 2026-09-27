@@ -61,6 +61,12 @@ class Recorder:
         with self.steps_file.open("a") as f:
             f.write(json.dumps(record, default=_json) + "\n")
 
+    def attach(self, i, name, text):
+        """An extra text file in step i's folder (the split loop's look prompt and answer)."""
+        d = self.dir / f"step_{i:03d}"
+        d.mkdir(exist_ok=True)
+        (d / name).write_text(text or "")
+
     def finish(self, summary):
         self.meta["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S"); self.meta["summary"] = summary
         self._write("meta.json", self.meta)

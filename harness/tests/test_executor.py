@@ -91,3 +91,21 @@ def test_settle_timeout_flag(rig, monkeypatch):
     s = ex.sync()
     r = ex.execute(it.propose(s, parse_action("MV_UP"), 0.02, 0.1), s)
     assert r.ok and r.timeout and "still moving" in r.feedback
+
+
+@pytest.mark.parametrize("token", ["GRASP", "RELEASE"])
+def test_hand_obeys_review_and_estop(rig, monkeypatch, token):
+    cfg, kin, gate, backend, ex, it = rig
+    calls = []
+    monkeypatch.setattr(backend, "hand", lambda *args: calls.append(args) or "ok")
+    s = ex.sync()
+    proposal = it.propose(s, parse_action(token), 0.02, 0.1)
+    ex.confirm = lambda *_: "wait"
+    result = ex.execute(proposal, s)
+    assert result.declined and result.asked and result.operator_note == "wait" and not calls
+    ex.confirm = lambda *_: (True, "ready")
+    result = ex.execute(proposal, s)
+    assert result.ok and result.asked and result.operator_note == "ready" and len(calls) == 1
+    gate.estop.set()
+    result = ex.execute(proposal, s)
+    assert not result.ok and len(calls) == 1

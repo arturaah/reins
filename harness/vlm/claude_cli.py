@@ -22,6 +22,7 @@ class ClaudeCliVLM(VLM):
         v = cfg["vlm"]
         self.model = v.get("model", "claude-fable-5-1")
         self.timeout = float(v.get("timeout_s", 120))
+        self.effort = v.get("cli_effort")          # None: the CLI's own default (the setting before --executor existed)
         self.bin = shutil.which("claude")
         if not self.bin:
             raise RuntimeError("the `claude` CLI is not on PATH")
@@ -37,6 +38,8 @@ class ClaudeCliVLM(VLM):
                    "Then answer the prompt below. Output the JSON object only, no other text.\n\n"
             cmd = [self.bin, "-p", head + prompt, "--output-format", "json", "--allowed-tools", "Read",
                    "--permission-mode", "dontAsk", "--max-turns", str(len(paths) + 3), "--model", self.model]
+            if self.effort:
+                cmd += ["--effort", str(self.effort)]
             if schema:
                 cmd += ["--json-schema", json.dumps(schema)]
             try:

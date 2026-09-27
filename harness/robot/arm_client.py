@@ -8,7 +8,7 @@ import socket
 import threading
 import time
 
-from ..executor import Backend
+from ..executor import Backend, StreamError
 
 
 class ArmClientBackend(Backend):
@@ -28,6 +28,7 @@ class ArmClientBackend(Backend):
         self.fsm, self.fsm_name = hello.get("fsm"), hello.get("fsm_name")
         self.log(f"streamer: FSM {self.fsm} = {self.fsm_name}, weight {hello.get('weight', 0):.2f}")
         self._joints, self._vel = hello["joints"], hello["velocities"]
+        self._targets = hello.get("targets") or {}
 
     def _heartbeat(self):
         while self.alive:
@@ -48,6 +49,7 @@ class ArmClientBackend(Backend):
         resp = json.loads(line)
         if "joints" in resp:
             self._joints, self._vel = resp["joints"], resp["velocities"]
+            self._targets = resp.get("targets") or {}
         return resp
 
     def joints(self):
@@ -55,6 +57,10 @@ class ArmClientBackend(Backend):
 
     def velocities(self):
         self.call({"cmd": "state"}); return dict(self._vel)
+
+    def commanded(self):
+        """The streamer's hold targets as of the last call (joints() refreshes them); empty when not engaged."""
+        return dict(self._targets)
 
     def engage(self):
         r = self.call({"cmd": "engage"}, timeout=15.0)
@@ -75,12 +81,18 @@ class ArmClientBackend(Backend):
         self.call({"cmd": "freeze"})
 
     def stream(self, arm, frames, dt):
+        t0 = time.time()
         r = self.call({"cmd": "frames", "arm": arm, "frames": [[float(v) for v in f] for f in frames], "dt": dt},
                       timeout=len(frames) * dt + 10.0)
+        took = time.time() - t0
         if not r.get("ok"):
-            raise RuntimeError(f"streamer refused the frames: {r.get('error')}")
+            raise StreamError(f"streamer refused the frames: {r.get('error')}")
         if not r.get("engaged"):
-            raise RuntimeError(f"the streamer released during the move: {r.get('reason') or 'unknown reason'}")
+            raise StreamError(f"the streamer released during the move: {r.get('reason') or 'unknown reason'}")
+        # The streamer plays the frames in real time, so a reply much sooner than their duration means they never went
+        # out, whatever the reply says (2026-09-27: every refusal came back as ok after 2 ms).
+        if took < 0.5 * len(frames) * dt:
+            raise StreamError(f"the streamer answered after {took:.2f} s for {len(frames) * dt:.2f} s of frames: not streamed")
 
     def hand(self, arm, closed):
         return "this robot has no hand: nothing to grasp with, the arm paused"

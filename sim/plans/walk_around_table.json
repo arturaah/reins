@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "name": "walk around an obstacle to the counter",
+  "waypoints": [
+    {"x": 0.0, "y": 0.0, "label": "start"},
+    {"x": 1.2, "y": 0.0},
+    {"x": 1.8, "y": 0.8},
+    {"x": 1.8, "y": 1.8, "yaw": 1.5708, "label": "counter"}
+  ]
+}

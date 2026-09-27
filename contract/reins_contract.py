@@ -56,6 +56,10 @@ def check_plan(plan: dict) -> None:
         raise ContractError(f"plan {plan['plan_id']}: duplicate step_id")
     for step in plan["steps"]:
         where = f"plan {plan['plan_id']} step {step['step_id']}"
+        if step["kind"] == "servo":
+            lo, hi = step["bounds"]["box_min_m"], step["bounds"]["box_max_m"]
+            if any(a >= b for a, b in zip(lo, hi)):
+                raise ContractError(f"{where}: servo box_min_m must be below box_max_m on every axis")
         if step["kind"] == "arm":
             tr = step["trajectory"]
             _check_times(tr["times_s"], where)

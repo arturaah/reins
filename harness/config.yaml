@@ -87,6 +87,29 @@ vlm:
   retries: 2
   fallbacks: null            # null: a refusal ends the step. "default": server-side refusal fallback to another model.
   openai_model: gpt-6-astra
+  codex_model: gpt-5.6-sol    # Sol available through this Mac's Codex CLI login
+  codex_effort: low          # light reasoning for planning and camera snapshots
+
+executor:                    # who decides each step (harness/split.py). claude: the VLM every step (harness/loop.py).
+  per_step: claude           # claude | split. split: the VLM plans and looks (snapshots), the decider below decides each step
+  decider: jev               # jev (TypeSafe, text only, needs TYPESAFE_API_KEY) | scripted (geometric stand-in, tests / sim)
+  mover: jev                 # jev: the decider picks the move | geometric: code closes the largest gap, the decider only judges
+  planner_model: claude-opus-5-5   # split mode only: the VLM's model and effort for the plan and the looks (claude-cli, anthropic)
+  planner_effort: low
+  jev_url: https://api.typesafe.ai/v1/systemone
+  jev_model: jev-1.13.0      # pinned for reproducibility; thresholds below still need real-model tuning
+  jev_key_env: TYPESAFE_API_KEY
+  jev_timeout_s: 5.0
+  jev_retries: 2
+  min_action_confidence: 0.5 # below this the step escalates: a fresh look, one re-ask, then the VLM decides the step
+  stage_done_threshold: 0.7  # needs_look / stage_done are Noul probabilities of yes
+  needs_look_threshold: 0.6
+  confirm_done_with_claude: true   # a DONE from the decider advances the stage only after the VLM sees it in the images
+  claude_fallback: true      # false: an unsure step holds STILL instead of asking the VLM
+  look_every_steps: 6        # fresh snapshot after this many moves ...
+  look_after_move_cm: 12.0   # ... or this much hand travel, whichever comes first (the goal is dead-reckoned in between)
+  aligned_cm: 1.0            # an axis counts as aligned within max(this, 0.6 x step size)
+  max_goal_offset_cm: 60.0   # a snapshot's goal offset is clipped to this per axis
 
 recorder:
   root: runs

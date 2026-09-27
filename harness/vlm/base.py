@@ -47,4 +47,7 @@ def make(cfg, name=None):
     if name == "claude-cli":
         from .claude_cli import ClaudeCliVLM
         return ClaudeCliVLM(cfg)
+    if name == "codex-cli":
+        from .codex_cli import CodexCliVLM
+        return CodexCliVLM(cfg)
     raise ValueError(f"unknown vlm provider {name!r}")

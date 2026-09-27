@@ -200,7 +200,7 @@ What reviewers see and what the streamer runs. Both get the same object.
 - `preview.effector_paths` are the predicted hand paths from the MuJoCo replay:
   the lines people see in the preview and the glasses.
 - Step kinds: `arm` (q(t) on `rt/arm_sdk`), `preset` (a named arm action),
-  and `walk` (provisional, below).
+  and `walk` and `servo` (provisional, below).
 
 ### `walk` steps (provisional)
 
@@ -220,6 +220,25 @@ With `path_update` (core → all: `plan_id`, `revision`, `step_id`, `path`,
 "self-driving line". Replans that stay within `corridor_half_width_m` of the
 approved path and keep the same goal need no new approval. Anything else halts
 the robot and proposes a new revision.
+
+### `servo` steps (provisional)
+
+Hand one arm to a closed-loop policy, such as the VLM arm controller in
+`harness/`, for a task. The policy picks each move from the cameras as it
+goes, so there is no path to preview. What the reviewer approves is the task
+and the bounds, and the policy's safety gate enforces them:
+
+```json
+{"step_id": "s1", "kind": "servo", "description": "Pick up the red cube",
+ "effector": "right_hand", "task": "pick up the red cube",
+ "bounds": {"frame": "robot", "box_min_m": [0.15, -0.6, 0.74], "box_max_m": [0.6, 0.6, 1.25],
+            "max_step_m": 0.05, "max_steps": 60, "max_joint_vel_rad_s": 0.8}}
+```
+
+The hand stays inside the box. Each move is at most `max_step_m` and joints
+stay under `max_joint_vel_rad_s`. The episode ends after `max_steps` moves at
+the latest. A reviewer who wants to see every move can still be asked before
+each one; that is the policy's own confirmation, outside this contract.
 
 ## Changing the contract
 

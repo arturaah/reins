@@ -17,7 +17,11 @@ key). Each planner or controller call lands in `runs/chat_inbox/<NNN>_<plan|act>
 `prompt.txt`, `context.jpg`, `right.jpg` and `request.json`; the loop blocks until `answer.json`
 is written there with the model's JSON answer, then continues. `claude-cli` runs `claude -p` under the
 Mac's Claude login for unattended loops (about 20 to 25 s per step, images read by the CLI's Read
-tool, JSON schema enforced). `anthropic` calls the API with `ANTHROPIC_API_KEY`; `scripted` is the
+tool, JSON schema enforced). `codex-cli` runs `codex exec` under the existing Codex login with
+images attached directly and structured JSON output. It defaults to `gpt-5.6-sol` with `low`
+reasoning effort (the Sol model available to this CLI account; GPT-6 Sol was rejected by the service).
+Override `vlm.codex_model` / `vlm.codex_effort` through `--set`. Calls are ephemeral, use a temporary
+directory, ignore user CLI configuration, and disable shell tools. `anthropic` calls the API with `ANTHROPIC_API_KEY`; `scripted` is the
 test stand-in. First chat-driven sim episode 2026-09-26: 3 steps, one chunk of two MV_DOWN, DONE,
 success.
 
@@ -27,12 +31,15 @@ Everything uses the repo venv (`.venv/bin/python`, see CLAUDE.md step 6) plus `a
 `pytest`, `pyyaml`. All numbers live in [config.yaml](config.yaml); override any with `--set key=value`.
 
 ```
-.venv/bin/python -m pytest harness                       # 84 tests, no hardware, about 7 s
+.venv/bin/python -m pytest harness                       # 105 tests, no hardware, about 16 s
 
 # simulation: kinematic mock on the MuJoCo scene, rendered cameras
 MUJOCO_GL=cgl .venv/bin/python -m harness sim "move your hand above the block"        # chat provider
 MUJOCO_GL=cgl .venv/bin/python -m harness --set hand.type=virtual sim "pick up the block and place it on the plate"
 .venv/bin/python -m harness sim "..." --vlm scripted     # no API calls
+
+# live 3D simulation window: run from Terminal on macOS; TYPESAFE_API_KEY must be set
+MUJOCO_GL=cgl .venv/bin/python tools/mjpython.py -m harness sim "hover 5 cm above the orange block" --vlm codex-cli --executor jev --viewer
 
 # real robot, nothing published: real joints from rt/lowstate, real cameras, real VLM calls, IK, gate
 .venv/bin/python -m harness dry-run en6 "move your hand above the red block"
@@ -48,6 +55,86 @@ MUJOCO_GL=cgl .venv/bin/python -m harness --set hand.type=virtual sim "pick up t
 
 Cameras come from the stream servers the cockpit already uses: `tools/headcam.py en6` (port 8081,
 head camera = CONTEXT VIEW) and the Jetson's `camstream.py` forwarded to port 8080 (wrists).
+
+`sim --viewer` opens a live MuJoCo window and automatically uses real-time motion. Drag to orbit,
+scroll to zoom. Add `--confirm` to approve each proposed move in Terminal. The window stays open
+after the episode so you can inspect the final pose. X or Esc requests a stop; closing the window
+stops the simulation (an in-flight model call can finish before the loop exits). On macOS launch
+with `.venv/bin/python tools/mjpython.py` from Terminal. This wraps MuJoCo's required `mjpython`
+launcher and supplies the Python shared-library path for uv-managed environments. The desktop AI pane's
+`live` mode controls hardware and is not simulation.
+
+## The planner looks occasionally, Jev decides each step (`--executor jev`)
+
+`harness/split.py`. The chosen `--vlm` (Codex CLI or Claude, for example) makes the stage plan, and per stage it takes a
+**look**: from the camera images it reports where the hand tip must go to finish the stage, as an offset
+from where it is now (cm forward / left / up), the done condition restated in terms of that offset,
+whether the wrist camera sees the target, and hazards. Between looks the goal is dead-reckoned: it stays
+fixed in the robot frame while the hand's own motion is known exactly from forward kinematics. Code
+recomputes the remaining gap after every move and writes it as words ("the goal is 6 cm below the hand
+tip (near)"), because Jev is text only and weak at arithmetic.
+
+Every step, [TypeSafe Jev](https://docs.typesafe.ai/api) (`harness/decider/jev.py`, plain HTTP)
+answers three typed questions in one call: `action` (a Choice over MV_* / ROTATE_CW / ROTATE_CCW / STILL / DONE, GRASP /
+RELEASE with a hand, and LOOK, with probabilities), `stage_done` and `needs_look` (Nouls). With
+`--mover geometric`, code picks the move that closes the largest gap and Jev only answers the two Nouls.
+
+The planner is called again only when code or Jev asks for it:
+- **Code** asks for a new look: when a stage starts, after `executor.look_every_steps` moves or
+  `look_after_move_cm` of travel, after an unreachable, stalled or rejected move or an operator note,
+  and when the last look was low confidence.
+- **Jev** asks for a look: it chose LOOK, its confidence is under `min_action_confidence`, `needs_look`
+  is high, or the call failed. The step is then asked again with the fresh look. If Jev is still unsure,
+  the planner decides that one step from the images, using the normal controller prompt. With
+  `claude_fallback: false`, the arm holds STILL instead.
+- **A stage ends**: a DONE from Jev is only a claim. The planner confirms it from the images before the
+  stage advances. That same look also reports the next stage's goal, so the next stage starts without
+  another call. A successful GRASP / RELEASE can also finish its matching stage when the hand reports
+  the expected closed / open state; an unavailable or rejected hand action cannot finish a stage.
+
+Every move still goes through the executor, the safety gate and the operator's Accept / Reject, exactly
+as before. Run records mark each step with `decided_by`. Jev's state, questions and answers go in the
+step's `prompt.txt` / `response.txt`, and planner looks in `look_prompt.txt` / `look_response.txt`.
+The inference plot shows looks (purple squares) and decider calls (green diamonds).
+Gripper actions also honor operator review and e-stop. Invalid snapshots and malformed Jev answers
+(including non-finite probabilities, unknown choices, or incomplete distributions) trigger the
+same retry / fallback path. A failed camera refresh invalidates the old snapshot; a failed completion
+check cannot advance a stage. Safety rejections and settle timeouts request a fresh look.
+
+On the mock pick-and-place (`tests/test_split.py`, with scripted eyes and decider), an episode takes
+one plan, 9 camera looks, 25 decider calls and 20 execution steps, with no planner fallback actions.
+These counts demonstrate the control flow; they do not measure real Claude or Jev accuracy or latency.
+
+```
+export TYPESAFE_API_KEY=...                              # console.typesafe.ai/keys
+MUJOCO_GL=cgl .venv/bin/python -m harness sim "hover above the orange block" --vlm codex-cli --executor jev --confirm
+.venv/bin/python -m harness --set hand.type=virtual sim "pick up the block and place it on the plate" --vlm claude-cli --executor jev --confirm
+.venv/bin/python -m harness dry-run en6 "touch the red block" --vlm claude-cli --executor jev
+```
+Add `--mover geometric` to have code choose translations and Jev judge completion / escalation.
+For a fully offline simulation test, with no API key or hardware, run
+`.venv/bin/python -m pytest harness/tests/test_split.py -q`.
+The desktop AI pane defaults to **Planner → codex-cli**, **per-step → jev**. Select `planner`
+for the VLM to decide every step, or `claude-cli` to use Claude as the planner.
+`executor.claude_fallback` and `confirm_done_with_claude` are legacy config names that also apply to
+Codex. Summaries expose `planner_provider`, `planner_looks`, and `planner_steps`, retaining the old
+`claude_*` counts for compatibility.
+The thresholds in `config.yaml` under `executor:` are initial guesses, not calibrated for hardware.
+The config pins `jev-1.13.0` so a new release cannot shift them without notice. On 2026-09-27, real Jev
+completed the mock pick-and-place with a scripted plan and scene snapshots, with planner fallback
+disabled. The API rounds individual probabilities, so validation allows the corresponding rounding
+error in their sum. Completion checks preserve the hand requirement: positional alignment alone
+cannot complete a pending grasp or release.
+An attempted combined Claude CLI + Jev simulation stopped before planning because Claude reported
+its monthly spend limit. Thus real Claude scene estimation with Jev remains unverified. Validation
+records are under `runs/jev_validation/`; automated tests use a loopback fake API and scripted models.
+The subsequent real **Codex CLI (GPT-5.6 Sol, low) + Jev** hover simulation completed with one plan,
+three camera looks, eight Jev calls and six executed moves, with no planner fallback actions.
+Ground-truth inspection found a 2.6 cm horizontal error and 3.8 cm clearance above the block top
+against the requested 5 cm, despite the planner reporting completion. This verifies the integration,
+not precise visual positioning. See the run's `validation.json` for measured geometry and latency.
+Between looks, the controller assumes the target stays fixed. Moving objects require a new camera
+look; the text decider cannot detect them from joint state alone.
 
 ## Demonstrations as context (`--demos`)
 

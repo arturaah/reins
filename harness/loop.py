@@ -110,10 +110,15 @@ class Episode:
             result = self.ex.execute(proposal, state)
             last_result = result
             extra = {}
+            if result.stream_error:                                 # nothing reached the robot: stop, do not let the model chase it
+                self.record(step, packet, prompt, resp, stage, state, action, result, {"stream_error": result.stream_error})
+                return self.finish({"success": False, "reason": f"move not sent: {result.stream_error}", "steps": step + 1})
             if result.ik_fail:
                 ik_fails += 1; recovery = RECOVERY_NOTES["ik_fail"]; queue = []
                 if ik_fails >= int(lp["ik_fail_home_after"]):
                     hr = self.ex.home_step(self.ex.sync(), q_home)
+                    if hr.stream_error:
+                        return self.finish({"success": False, "reason": f"home step not sent: {hr.stream_error}", "steps": step + 1})
                     recovery = RECOVERY_NOTES["home_step"] + " " + hr.feedback
                     ik_fails = 0; extra["home_step"] = hr.feedback
             elif result.ok:

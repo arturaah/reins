@@ -99,7 +99,8 @@ class InferenceLog:
         if old:
             ax.scatter([r["context_est_tokens"] for r in old], [r["latency_s"] for r in old], s=12, c="#6e7681", alpha=0.6,
                        label=f"earlier sessions ({len(old)})")
-        for kind, marker, color in (("plan", "^", "#f5a623"), ("act", "o", "#4fc3f7")):
+        for kind, marker, color in (("plan", "^", "#f5a623"), ("act", "o", "#4fc3f7"), ("snapshot", "s", "#c792ea"),
+                                    ("decider", "D", "#7ee787")):
             pts = [r for r in cur if r["kind"] == kind]
             if pts:
                 ax.scatter([r["context_est_tokens"] for r in pts], [r["latency_s"] for r in pts], s=26, marker=marker, c=color,
