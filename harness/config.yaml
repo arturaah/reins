@@ -53,9 +53,19 @@ limits:
   ik_iters: 200
 
 hand:
-  type: none                 # none (this R1 has no hand: GRASP/RELEASE pause) | virtual (sim only)
+  type: none                 # none (GRASP/RELEASE pause) | virtual (sim only) | revo2 (BrainCo Revo2 over DDS; sim treats it as virtual)
   pause_s: 1.0
   grasp_reach_m: 0.03        # sim: an object within this distance of the hand tip is grasped
+  revo2:                     # harness/robot/revo2.py (the hand server) and hand_client.py; motors thumb, thumb_aux, index, middle, ring, pinky
+    host: 127.0.0.1
+    port: 8791
+    topic_prefix: rt/brainco # brainco_hand_server on the Jetson: <prefix>/{left,right}/{cmd,state}
+    open: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]         # q normalized, 0 open .. 1 closed
+    close: [0.98, 0.7, 0.98, 0.98, 0.98, 0.98]   # xr_teleoperate's full-grasp caps; a flat 1.0 over-drives the motors
+    speed: 1.0               # dq sent with every command, 0..1
+    settle_s: 1.5            # longest wait for the fingers to stop after a command
+    empty_reach: 0.9         # a close whose index..pinky reached this share of the close pose held nothing (EMPTY grasp)
+    state_max_age_s: 1.0     # the server refuses a command while that hand's state is older than this
 
 loop:
   max_steps: 60

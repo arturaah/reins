@@ -53,7 +53,9 @@ move is still outstanding.
 - **No hand or gripper on this unit.** `GRASP`/`RELEASE` are pauses (`hand.type: none`); the
   planner is told there is no hand and plans reach/hover/touch/push stages. `hand.type: virtual`
   exists for the sim (kinematic grasp of the scene's cube within 3 cm) so the grasp/recovery logic
-  is tested. If a hand is fitted, add its presets to the backend's `hand()` and set the type.
+  is tested. **BrainCo Revo2 hands** (fitted 2026-09-27): `hand.type: revo2`, open/close presets
+  over DDS through `harness/robot/revo2.py` (hand server) and `hand_client.py`; see README
+  "Revo2 hands". The sim treats `revo2` as `virtual`.
 - **End effector** = wrist roll link + 0.13 m along its x, the model's `*_hand_preview` site
   (`robot.ee_offset_m`). What is physically at the wrist flange is unverified: check before a
   touch task and change the offset if needed.

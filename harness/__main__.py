@@ -127,6 +127,9 @@ def build(cfg, mode, iface=None, log=print):
             backend = ArmClientBackend(cfg, log)
             gate = SafetyGate(cfg, kin, table_z, live=True)           # refuses without a measured table
         per = Perception(cfg, arm, HttpCameras(cfg, arm), cfg["perception"].get("context_camera"))
+        if cfg["hand"]["type"] == "revo2":
+            from .robot.hand_client import Revo2Client
+            backend.hands = Revo2Client(cfg, log, dry_run=mode == "dry-run")
     ex = ArmExecutor(cfg, kin, gate, backend, arm)
     return backend, ex, per
 

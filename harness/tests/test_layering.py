@@ -5,7 +5,7 @@ import sys
 ALGORITHM_MODULES = ["harness.actions", "harness.interpreter", "harness.kinematics", "harness.safety",
                      "harness.executor", "harness.prompts", "harness.perception", "harness.loop",
                      "harness.recorder", "harness.config", "harness.sim.mock_robot", "harness.vlm.base",
-                     "harness.vlm.scripted", "harness.vlm.chat", "harness.vlm.claude_cli", "harness.robot.arm_client",
+                     "harness.vlm.scripted", "harness.vlm.chat", "harness.vlm.claude_cli", "harness.robot.arm_client", "harness.robot.hand_client",
                      "harness.demos", "harness.preview", "harness.stats", "harness.feedback", "tools.framelog"]
 
 

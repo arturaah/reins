@@ -14,6 +14,7 @@ from ..executor import Backend
 class ArmClientBackend(Backend):
     name = "arm_sdk"
     dry_run = False
+    hands = None                   # hand_client.Revo2Client when hand.type is revo2 (set by harness.__main__.build)
 
     def __init__(self, cfg, log=print):
         s = cfg["streamer"]
@@ -83,4 +84,9 @@ class ArmClientBackend(Backend):
             raise RuntimeError(f"the streamer released during the move: {r.get('reason') or 'unknown reason'}")
 
     def hand(self, arm, closed):
+        if self.hands:
+            return self.hands.hand(arm, closed)
         return "this robot has no hand: nothing to grasp with, the arm paused"
+
+    def hand_state(self, arm):
+        return self.hands.hand_state(arm) if self.hands else None

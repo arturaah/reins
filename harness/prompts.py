@@ -126,6 +126,8 @@ def robot_description(cfg, arm):
     hand = cfg["hand"]["type"]
     return (f"Unitree R1 humanoid, {arm} arm only (5 joints: shoulder pitch/roll/yaw, elbow, wrist roll). "
             + ("No hand or gripper is fitted: the end effector is the bare hand tip." if hand == "none"
+               else f"A BrainCo Revo2 five-finger hand on the {arm} wrist, used open/close only: GRASP closes all fingers "
+                    "around what is between them (a power grasp), RELEASE opens them." if hand == "revo2"
                else "A simple hand: open/close only.")
             + " The legs and balance are handled by the robot itself and are not controllable.")
 
