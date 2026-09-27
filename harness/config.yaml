@@ -109,13 +109,13 @@ recorder:
 
 locomotion:                  # whole-body steps through the robot's loco service: a velocity for a bounded time, then an explicit stop.
   enabled: false             # off = the model never sees WALK/TURN. The window's "walk" box sets it per session; needs FSM 811.
-  step_m: 0.20               # WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT
+  step_m: 0.30               # WALK_FWD / WALK_BACK / WALK_LEFT / WALK_RIGHT
   turn_deg: 20.0             # TURN_LEFT / TURN_RIGHT
-  param_max_walk_m: 0.40     # WALK <cm> cap, also the per-command cap
+  param_max_walk_m: 0.60     # WALK <cm> cap, also the per-command cap
   param_max_turn_deg: 45.0   # TURN <deg> cap
   speed_mps: 0.25
   turn_speed_rps: 0.4
-  max_total_m: 3.0           # per episode; then walks are refused
+  max_total_m: 5.0           # per episode; then walks are refused
   max_total_turn_deg: 360.0
   settle_s: 1.0              # after the stop, before odometry and the next images
 

@@ -145,6 +145,13 @@ before each move, so the recording shows up with ✓ in the window's context lis
 selected as a demonstration for the next session, dry-run it and replayed with `tools/arm_lift.py`
 like a taught skill. A dry-run export is the pretend trajectory (what would have been sent).
 
+## Step sizes
+
+Unit moves are `steps.coarse_m` (4 cm) or `steps.fine_m` (2 cm, wrist camera sees the target),
+1 cm in the precision profile. The controller prompt also offers `MOVE <dir> <cm>` up to
+`steps.param_max_translation_m` (20 cm) and tells the model to take one sized move when the target
+is far and the way is free, small moves near it. The gate caps unit and sized moves separately.
+
 ## Robot pose view (a second reading of the state)
 
 With `perception.pose_view` (default on) every planner and controller call also gets a ROBOT POSE
@@ -161,11 +168,11 @@ more Read with `claude -p`).
 
 Off by default, and on only when the task text itself contains the word "walk": the window then starts the
 streamer and the loop with `locomotion.enabled=true`, and the loop refuses a walk otherwise. That adds WALK_FWD /
-WALK_BACK / WALK_LEFT / WALK_RIGHT (20 cm), TURN_LEFT / TURN_RIGHT (20 deg), `WALK <dir> <cm>` (up
-to 40 cm) and `TURN <deg>` (up to 45 deg) to the vocabulary, tells the planner to add an APPROACH
+WALK_BACK / WALK_LEFT / WALK_RIGHT (30 cm), TURN_LEFT / TURN_RIGHT (20 deg), `WALK <dir> <cm>` (up
+to 60 cm) and `TURN <deg>` (up to 45 deg) to the vocabulary, tells the planner to add an APPROACH
 stage when the target is beyond the arm's reach, and tells the controller to walk only when the
 target is out of reach and to look again afterwards. A step never sits in a plan chunk. The gate
-(`SafetyGate.vet_walk`) caps each step, keeps a per-episode budget (3 m, 360 deg) and turns the
+(`SafetyGate.vet_walk`) caps each step, keeps a per-episode budget (5 m, 360 deg) and turns the
 step into a velocity and a duration; the streamer's `walk` command checks enabled, FSM 811, speed
 and duration again on its own, asks the loco service for that velocity for that long, then sends an
 explicit stop (also on e-stop and Ctrl-C), and reports odometry from `rt/sportmodestate` as the

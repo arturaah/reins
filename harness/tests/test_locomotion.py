@@ -25,7 +25,7 @@ def test_parse_walk_and_turn_tokens():
     a = parse_action("WALK_RIGHT"); assert (a.axis, a.sign) == ("left", -1)
     a = parse_action("TURN_LEFT"); assert (a.name, a.axis, a.sign) == ("TURN", "yaw", 1)
     a = parse_action("WALK back 30", LIM); assert (a.axis, a.sign, a.amount, a.mode) == ("forward", -1, 0.3, "param")
-    assert parse_action("WALK forward 80", LIM).amount == 0.4                                   # capped
+    assert parse_action("WALK forward 80", LIM).amount == 0.4                                   # capped by the limits given
     a = parse_action("TURN -30", LIM); assert a.sign == -1 and abs(a.amount - math.radians(30)) < 1e-9
     assert parse_action("TURN 90", LIM).amount == math.radians(45)
     assert parse_action("WALK_FWD").opposite_of.raw == "" and parse_action("WALK_FWD").opposite_of.sign == -1
@@ -56,12 +56,12 @@ def test_walk_gate_caps_budget_and_enable(cfg):
     v = g.vet_walk(0.2, 0.0, 0.0)
     assert v.ok and abs(v.vx - 0.25) < 1e-9 and abs(v.duration_s - 0.8) < 1e-9 and v.vy == 0 and v.vyaw == 0
     v = g.vet_walk(1.0, 0.0, 0.0)
-    assert v.ok and abs(v.dx - 0.4) < 1e-9 and "capped" in v.clamped[0]                       # per-command cap
+    assert v.ok and abs(v.dx - 0.6) < 1e-9 and "capped" in v.clamped[0]                       # per-command cap
     v = g.vet_walk(0.0, 0.0, math.radians(20))
     assert v.ok and abs(v.duration_s - math.radians(20) / 0.4) < 1e-9 and abs(v.vyaw * v.duration_s - math.radians(20)) < 1e-9
     v = g.vet_walk(0.0, 0.0, -math.radians(90))
     assert v.ok and abs(v.dyaw + math.radians(45)) < 1e-9
-    g.walked_m = 2.9
+    g.walked_m = 4.9
     assert not g.vet_walk(0.2, 0, 0).ok and "budget" in g.vet_walk(0.2, 0, 0).reason
     g.estop.set()
     assert g.vet_walk(0.0, 0.0, 0.1).reason.startswith("ESTOP")
@@ -108,12 +108,12 @@ def test_episode_walks_when_allowed_and_prompts_say_so(rig):
     prompts = [c[1] for c in vlm.calls if c[0] == "act"]
     assert all("LOCOMOTION: the whole robot can step" in p and "WALK_FWD" in p for p in prompts)
     assert asked[0][0].startswith("TURN_LEFT: the WHOLE ROBOT steps: turn 20 deg left") and asked[0][1]["walk"][2] > 0
-    assert asked[1][0].startswith("WALK_FWD: the WHOLE ROBOT steps: walk 20 cm forward at 0.25 m/s") and "frames" not in asked[1][1]
-    assert "walk 40 cm forward" in asked[2][0]                                                # the parser already caps WALK <cm>
-    assert abs(backend.base[2] - math.radians(20)) < 1e-9 and abs(np.hypot(*backend.base[:2]) - 0.6) < 1e-9
-    assert "walked 20 cm forward" in prompts[2] or "Recent moves, newest first: WALK_FWD" in prompts[2]
+    assert asked[1][0].startswith("WALK_FWD: the WHOLE ROBOT steps: walk 30 cm forward at 0.25 m/s") and "frames" not in asked[1][1]
+    assert "walk 50 cm forward" in asked[2][0]                                                # under the 60 cm cap
+    assert abs(backend.base[2] - math.radians(20)) < 1e-9 and abs(np.hypot(*backend.base[:2]) - 0.8) < 1e-9
+    assert "walked 30 cm forward" in prompts[2] or "Recent moves, newest first: WALK_FWD" in prompts[2]
     assert "the view has changed" in prompts[2]
-    assert ex.gate.walked_m == pytest.approx(0.6)
+    assert ex.gate.walked_m == pytest.approx(0.8)
 
 
 def test_walking_needs_the_word_walk_in_the_task(rig):
@@ -139,7 +139,8 @@ def test_prompts_hide_walking_when_disabled(cfg):
     assert "WALK" not in planner_prompt("task", cfg, "right")
     cfg["locomotion"]["enabled"] = True
     p = controller_prompt("task", stage, pro, [], None, cfg, "right", locomotion=True)
-    assert "WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" in p and "move the body 20 cm" in p
+    assert "WALK_FWD, WALK_BACK, WALK_LEFT, WALK_RIGHT, TURN_LEFT, TURN_RIGHT" in p and "move the body 30 cm" in p
+    assert "MOVE <forward|back|left|right|up|down> <cm>, up to 20 cm" in p                    # sized arm moves are offered too
     assert "THE ROBOT CAN WALK" in planner_prompt("task", cfg, "right")
     assert "THE ROBOT CAN WALK" not in planner_prompt("task", cfg, "right", locomotion=False)
 

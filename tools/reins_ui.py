@@ -126,8 +126,13 @@ def vlm_model():
 ttk.Label(aif, text=f"AI control  (VLM: claude -p on this Mac's Claude login, model {vlm_model()}; every Accept / Reject and its feedback is kept for later sessions)",
           wraplength=SIZES["head"][0]).pack(anchor="w")
 ai_task = tk.StringVar(); ai_task_entry = ttk.Entry(aif, textvariable=ai_task); ai_task_entry.pack(fill="x", pady=2)
-ttk.Label(aif, text="Arm only, unless the task contains the word \"walk\": then the model may also step the whole robot.", foreground="#8b949e",
-          wraplength=SIZES["head"][0]).pack(anchor="w")
+walk_lbl = tk.Label(aif, text="", bg="#0f1419", fg="#8b949e", anchor="w", wraplength=SIZES["head"][0], justify="left"); walk_lbl.pack(fill="x")
+def walk_changed(*_):                                              # the word walk in the task is the switch for whole-body steps
+    on = bool(re.search(r"\bwalk(s|ed|ing)?\b", ai_task.get(), re.IGNORECASE))
+    walk_lbl.configure(text=("walking: ON  (the task says \"walk\": the model may step the whole robot, 30 cm or 20 deg per step, each behind Accept)"
+                             if on else "walking: off  (arm only; put the word \"walk\" in the task to allow whole-body steps)"),
+                       fg="#ff6b6b" if on else "#8b949e")
+ai_task.trace_add("write", walk_changed)
 arow = ttk.Frame(aif); arow.pack(fill="x")
 ai_mode = tk.StringVar(value="dry run"); ttk.Combobox(arow, textvariable=ai_mode, values=("dry run", "live"), state="readonly", width=7).pack(side="left")
 UI_STATE = os.path.join(ROOT, "runs/ui_state.json")     # the AI pane's last settings, restored at the next launch
@@ -397,8 +402,8 @@ def ai_run():
             "--spectacles-review", SPECTACLES_REVIEW]
     if demos: cmd += ["--demos", *demos]
     if live:
-        walk_note = ("\nThe task says WALK, so the model may also step the whole robot (20 cm or 20 deg per step, each behind Accept, "
-                     "3 m per session). Keep 1 m free around the robot and the remote ready.\n") if walk_ok else ""
+        walk_note = ("\nThe task says WALK, so the model may also step the whole robot (30 cm or 20 deg per step, sized steps up to 60 cm, "
+                     "each behind Accept, 5 m per session). Keep 1 m free around the robot and the remote ready.\n") if walk_ok else ""
         if not messagebox.askokcancel("AI control on the robot",
                 "The arm_sdk streamer takes both arms (weight ramps to 1) and holds them for the whole session; the head tilts down "
                 "to look at the workspace.\n"
@@ -500,7 +505,7 @@ def load_ui_state():
     ai_stepp.set(st.get("profile", "coarse_fine")); ai_floor.set(st.get("floor_z", "0.50"))
     for i, f in enumerate(demo_files):
         if f in st.get("context", []): demo_lb.selection_set(i)
-    ctx_changed(); mode_changed()
+    ctx_changed(); mode_changed(); walk_changed()
 load_ui_state()
 accept_btn = ttk.Button(prow, text="Accept", style="Go.TButton", width=7, command=lambda: ai_answer(True)); accept_btn.pack(side="left"); accept_btn.state(["disabled"])
 reject_btn = ttk.Button(prow, text="Reject", style="Danger.TButton", width=7, command=lambda: ai_answer(False)); reject_btn.pack(side="left", padx=4); reject_btn.state(["disabled"])
