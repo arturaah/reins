@@ -33,6 +33,10 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+try:
+    from .review import ReviewMailbox
+except ImportError:  # also runnable as `python spectacles/plan_feed.py`
+    from review import ReviewMailbox
 
 ROOT = Path(__file__).resolve().parents[1]
 MJCF = ROOT / "sim/models/r1/R1_fixed_base.xml"
@@ -319,17 +323,43 @@ async def listen_relay(state, url):
         await asyncio.sleep(2)
 
 
-async def serve_feed(feed, host, port, period, state=None, base_pose_source=None):
+async def serve_feed(feed, host, port, period, state=None, base_pose_source=None, review=None):
     from websockets.asyncio.server import serve
 
     async def handler(websocket):
         print(f"Lens connected: {websocket.remote_address}", file=sys.stderr, flush=True)
-        try:
+        async def send_paths():
             while True:
-                text = feed.current(state, base_pose_source.read() if base_pose_source else None)
-                if text:
-                    await websocket.send(text)
+                payload = feed.current(state, base_pose_source.read() if base_pose_source else None)
+                if payload:
+                    if review and (pending := review.pending(feed.path)):
+                        message = json.loads(payload)
+                        message["review"] = pending
+                        payload = json.dumps(message)
+                    await websocket.send(payload)
                 await asyncio.sleep(period)
+
+        async def receive_decisions():
+            async for raw in websocket:
+                try:
+                    if not isinstance(raw, str) or len(raw) > 1024:
+                        continue
+                    msg = json.loads(raw)
+                    if msg.get("type") != "review_decision" or msg.get("version") != 1:
+                        continue
+                    accepted = bool(review and review.decide(feed.path, msg.get("id"), msg.get("decision")))
+                    await websocket.send(json.dumps({"type": "review_ack", "version": 1,
+                                                     "id": msg.get("id"), "accepted": accepted}))
+                except (ValueError, TypeError, AttributeError, OSError) as exc:
+                    print(f"bad Spectacles review decision: {exc}", file=sys.stderr, flush=True)
+        try:
+            sender = asyncio.create_task(send_paths())
+            receiver = asyncio.create_task(receive_decisions())
+            done, pending_tasks = await asyncio.wait((sender, receiver), return_when=asyncio.FIRST_COMPLETED)
+            for task in pending_tasks:
+                task.cancel()
+            for task in done:
+                task.result()
         except Exception as exc:
             print(f"Lens disconnected: {exc}", file=sys.stderr, flush=True)
 
@@ -351,6 +381,8 @@ def main():
     state_source.add_argument("--robot-iface", help="subscribe to R1 DDS directly on this Mac, e.g. en6")
     ap.add_argument("--base-pose-file", type=Path,
                     help="fresh measured map pose JSON from the walking controller; never inferred from glasses")
+    ap.add_argument("--review-file", type=Path,
+                    help="Spectacles accept/reject mailbox written by the harness; serve the same --preview plan")
     ap.add_argument("--domain", type=int, default=0, help="DDS domain for --robot-iface (default: 0)")
     a = ap.parse_args()
     if not 2 <= a.points <= MAX_POINTS:
@@ -369,7 +401,8 @@ def main():
         if a.state_url:
             asyncio.create_task(listen_relay(state, a.state_url))
         await serve_feed(feed, a.host, a.port, a.period, state,
-                         BasePoseFile(a.base_pose_file) if a.base_pose_file else None)
+                         BasePoseFile(a.base_pose_file) if a.base_pose_file else None,
+                         ReviewMailbox(a.review_file.resolve()) if a.review_file else None)
     asyncio.run(run())
 
 

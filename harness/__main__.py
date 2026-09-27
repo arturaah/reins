@@ -39,17 +39,38 @@ def stdin_reader():
         stdin_lines.put(line.strip())
 
 
-def make_confirm(gate, backend, preview_file=None):
+def make_confirm(gate, backend, preview_file=None, review_file=None, mode="live"):
     """Ask on the terminal before a move; 'x' at any time is the e-stop. With preview_file the proposal is written there
     as a plan first (the twin's ghost). PROPOSAL lines and the answers are the desktop window's protocol."""
     from .preview import write_plan
+    from spectacles.review import ReviewMailbox
+
+    mailbox = ReviewMailbox(ROOT / review_file if review_file else None) if review_file else None
+    if mailbox and not preview_file:
+        raise ValueError("Spectacles review needs --preview so the exact proposal can be shown")
 
     def confirm(text, preview=None):
+        proposal = None
         if preview_file and preview is not None:
-            write_plan(preview_file, preview["arm"], preview["q_now"], preview["frames"], preview["dt"], preview["joints"], text)
+            plan_path = write_plan(preview_file, preview["arm"], preview["q_now"], preview["frames"], preview["dt"], preview["joints"], text)
+            if mailbox:
+                proposal = mailbox.propose(plan_path, text, mode)
         print(f"\nPROPOSAL: {text}")
         print("  [Enter] send   y [note] Enter send with a note   n [note] Enter reject   x Enter e-stop > ", end="", flush=True)
-        line = stdin_lines.get()
+        try:
+            while True:
+                try:
+                    line = stdin_lines.get(timeout=0.1)
+                    break
+                except queue.Empty:
+                    if proposal:
+                        decision = mailbox.take(proposal["id"], plan_path)
+                        if decision:
+                            print("\nSpectacles: " + decision, flush=True)
+                            return decision == "approve"
+        finally:
+            if proposal:
+                mailbox.clear(proposal["id"])
         print()
         if line == "x":
             gate.estop.set(); backend.freeze(); print("E-STOP set"); return False
@@ -121,7 +142,8 @@ def run_episode(a, cfg, mode):
     threading.Thread(target=stdin_reader, daemon=True).start()
     ask = (mode == "live" and not a.no_confirm) or getattr(a, "confirm", False)
     if ask:
-        ex.confirm = make_confirm(ex.gate, backend, getattr(a, "preview", None))
+        ex.confirm = make_confirm(ex.gate, backend, getattr(a, "preview", None),
+                                  getattr(a, "spectacles_review", None), mode)
     elif mode != "dry-run":
         threading.Thread(target=estop_watch, args=(ex.gate, backend), daemon=True).start()
     if mode == "live":
@@ -232,6 +254,7 @@ def main():
             p.add_argument("--no-confirm", action="store_true", help="do not ask before each move (e-stop: x + Enter)")
         p.add_argument("--confirm", action="store_true", help="ask before every move (live does by default)")
         p.add_argument("--preview", metavar="FILE", help="write each proposal as a plan file before asking (the twin previews it)")
+        p.add_argument("--spectacles-review", metavar="FILE", help="publish this proposal to a Spectacles review mailbox; needs --preview")
         p.add_argument("--demos", nargs="+", metavar="RECORDING", help="recordings/*.json shown to the model as demonstrations")
     p = sub.add_parser("packet"); p.add_argument("--sim", action="store_true"); p.add_argument("--iface")
     p = sub.add_parser("replay"); p.add_argument("run_dir"); p.add_argument("--step", type=int, required=True)

@@ -48,6 +48,15 @@ var statusUntil = 0;
 var statusPosition = null;
 var notificationAudio = null;
 var lastNotificationAt = -1000;
+var pendingReview = null;
+var reviewChoice = "";
+var reviewChoiceAt = -1000;
+var reviewSent = false;
+var reviewMessage = "";
+var reviewObject = null;
+var reviewText = null;
+var reviewFrame = null;
+var socketReady = false;
 
 try {
     if (script.tagDetectedSound) {
@@ -88,6 +97,61 @@ try {
 } catch (e) {
     print("R1 AR: tracking HUD unavailable: " + e);
 }
+
+// Head-following review card. Gestures come from Spectacles' built-in GestureModule;
+// the server still checks the proposal ID and the exact plan hash.
+try {
+    reviewObject = global.scene.createSceneObject("R1 proposal review");
+    reviewObject.setParent(root);
+    reviewFrame = reviewObject.createComponent("Component.RenderMeshVisual");
+    reviewFrame.mainMaterial = script.leftMaterial;
+    var reviewCanvasObject = global.scene.createSceneObject("R1 review canvas");
+    reviewCanvasObject.setParent(reviewObject);
+    var reviewCanvas = reviewCanvasObject.createComponent("Component.Canvas");
+    reviewCanvas.setSize(new vec2(80, 32));
+    var reviewTextObject = global.scene.createSceneObject("R1 review text");
+    reviewTextObject.setParent(reviewCanvasObject);
+    var reviewScreen = reviewTextObject.createComponent("Component.ScreenTransform");
+    reviewScreen.anchors.setSize(new vec2(2.0, 2.0));
+    reviewText = reviewTextObject.createComponent("Component.Text");
+    reviewText.size = 130;
+    reviewText.horizontalAlignment = HorizontalAlignment.Center;
+    reviewText.verticalAlignment = VerticalAlignment.Center;
+    reviewText.textFill.color = new vec4(0.2, 1, 0.9, 1);
+    drawTube([[-42,-18,0],[42,-18,0],[42,18,0],[-42,18,0],[-42,-18,0]],
+        reviewFrame, function(p) { return p; }, 1.2);
+    reviewObject.enabled = false;
+} catch (e) { print("R1 AR: review card unavailable: " + e); }
+
+function reviewPinch(choice) {
+    if (!pendingReview || !tagAnchored || !socketReady || reviewSent) { return; }
+    var now = getTime();
+    if (reviewChoice === choice && now - reviewChoiceAt > 0.25 && now - reviewChoiceAt < 4) {
+        try {
+            socket.send(JSON.stringify({type:"review_decision", version:1,
+                                        id:pendingReview.id, decision:choice}));
+            reviewSent = true;
+            reviewMessage = "SENDING " + choice.toUpperCase();
+            print("R1 AR: " + choice + " sent for proposal " + pendingReview.id);
+        } catch (e) { reviewMessage = "SEND FAILED"; print("R1 AR: review send failed: " + e); }
+        return;
+    }
+    reviewChoice = choice;
+    reviewChoiceAt = now;
+    reviewMessage = "PINCH " + (choice === "approve" ? "RIGHT" : "LEFT") + " AGAIN TO " +
+                    (choice === "approve" ? "ACCEPT" : "REJECT");
+}
+
+try {
+    var gestureModule = require('LensStudio:GestureModule');
+    gestureModule.getPinchDownEvent(GestureModule.HandType.Right).add(function() {
+        reviewPinch("approve");
+    });
+    gestureModule.getPinchDownEvent(GestureModule.HandType.Left).add(function() {
+        reviewPinch("decline");
+    });
+    print("R1 AR: right double-pinch accepts; left double-pinch rejects");
+} catch (e) { print("R1 AR: review gesture unavailable: " + e); }
 
 function showStatus(found, side) {
     if (!statusVisual) { return; }
@@ -332,6 +396,17 @@ function applyTrajectory(message) {
         observedTags = {left:null, right:null};
         print("R1 AR: coordinate frame changed; rescan both shoulder tags");
     }
+    var incoming = message.review;
+    if (incoming && typeof incoming.id === "string" && incoming.id.length >= 16 &&
+        (incoming.mode === "live" || incoming.mode === "dry-run" || incoming.mode === "sim")) {
+        if (!pendingReview || pendingReview.id !== incoming.id) {
+            reviewChoice = ""; reviewSent = false; reviewMessage = "";
+            print("R1 AR: proposal ready: " + incoming.text);
+        }
+        pendingReview = incoming;
+    } else {
+        pendingReview = null; reviewChoice = ""; reviewSent = false; reviewMessage = "";
+    }
     latestTrajectory = message;
     function drawHand(points, visual) {
         visual.enabled = points.length > 0;
@@ -370,10 +445,17 @@ function connect() {
     var url = urls[socketUrlIndex % urls.length];
     try {
         socket=script.internetModule.createWebSocket(url);
-        socket.onopen=function(){lastNetworkError="";print("R1 AR: WebSocket connected to "+url);};
+        socket.onopen=function(){socketReady=true;lastNetworkError="";print("R1 AR: WebSocket connected to "+url);};
         socket.onmessage=function(event){
             try {
                 var trajectory = JSON.parse(event.data);
+                if (trajectory.type === "review_ack") {
+                    if (pendingReview && trajectory.id === pendingReview.id) {
+                        reviewMessage = trajectory.accepted ? "DECISION RECEIVED" : "PROPOSAL EXPIRED";
+                        if (!trajectory.accepted) { reviewSent = false; reviewChoice = ""; }
+                    }
+                    return;
+                }
                 applyTrajectory(trajectory);
                 lastReceivedAt=getTime();
                 if (trajectory && trajectory.type === "trajectory" &&
@@ -400,13 +482,14 @@ function connect() {
             }
         };
         socket.onclose=function(event){
-            socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
+            socketReady=false;socket=null;socketUrlIndex++;reconnectAt=getTime()+2;
             if (event && event.code && event.code!==1000 && !lastNetworkError) {
                 print("R1 AR: WebSocket closed with code "+event.code);
                 lastNetworkError="closed";
             }
         };
     } catch(e) {
+        socketReady=false;
         if (lastNetworkError!=="unavailable") {
             print("R1 AR: WebSocket unavailable: "+e);
             lastNetworkError="unavailable";
@@ -429,6 +512,24 @@ script.createEvent("UpdateEvent").bind(function(){
         statusVisual.enabled = false;
         if (statusFrame) { statusFrame.enabled = false; }
         if (statusTextObject) { statusTextObject.enabled = false; }
+    }
+    if (reviewObject && script.cameraObject) {
+        reviewObject.enabled = !!pendingReview;
+        if (pendingReview) {
+            var cameraTransform = script.cameraObject.getTransform();
+            var panel = reviewObject.getTransform();
+            panel.setWorldPosition(cameraTransform.getWorldPosition().add(
+                cameraTransform.back.uniformScale(140)));
+            panel.setWorldRotation(cameraTransform.getWorldRotation());
+            if (reviewChoice && !reviewSent && getTime() - reviewChoiceAt >= 4) {
+                reviewChoice = ""; reviewMessage = "";
+            }
+            reviewText.text = "REVIEW " + pendingReview.mode.toUpperCase() + "\n" +
+                String(pendingReview.text || "NEW PATH").slice(0, 38) + "\n" +
+                (reviewMessage || (!tagAnchored ? "SCAN BOTH TAGS FIRST" :
+                 !socketReady ? "WAITING FOR CONNECTION" :
+                 "RIGHT x2 ACCEPT   LEFT x2 REJECT"));
+        }
     }
     if (!socket && getTime()>=reconnectAt) { connect(); }
     // Keep the last real plan on screen when USB/Wi-Fi drops. Only animate a

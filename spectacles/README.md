@@ -106,6 +106,22 @@ When the relay reports active `rt/arm_sdk` commands, the feed matches **measured
 
 The path starts at the reported hand, not the tag. The tag-to-robot offsets are still estimates until the papers are measured on the robot; set `tagForwardM`, `tagSideM`, and `tagHeightM` to those measurements before evaluating physical alignment.
 
+### Review a harness proposal from the glasses
+
+The desktop AI pane already asks Accept/Reject at each `PROPOSAL` before the harness can send an arm move. The Lens now shows that same pending proposal with its hand path. Spectacles' built-in Gesture Module supports pinches; it does not provide a built-in thumbs-up/down classifier. **Pinch the right hand twice within four seconds to Accept, or the left hand twice to Reject.** The first pinch only selects the choice; the second sends it. The card appears only while a proposal is pending. Scan both shoulder tags first so the path is calibrated; the gestures are ignored otherwise. A lost network connection also disables glasses decisions. The desktop buttons and `x` e-stop remain available.
+
+On **Artur's Mac**, update this repo and start the feed from the very same preview file that his UI/harness writes:
+
+```sh
+.venv/bin/python spectacles/plan_feed.py runs/ui_preview.json --robot-iface en8 \
+  --review-file runs/spectacles_review.json
+.venv/bin/python tools/reins_ui.py --iface en8
+```
+
+Start the feed in a separate terminal; `runs/ui_preview.json` appears at the first proposal, so an initial “cannot use” message is expected. The UI automatically passes `--spectacles-review` to the harness. A terminal harness run can opt in with `--confirm --preview runs/ui_preview.json --spectacles-review runs/spectacles_review.json`. Both paths must be on Artur's Mac and refer to the same proposal. The feed adds the proposal ID to the trajectory message and accepts only a decision for that ID and the exact plan file contents. The harness consumes the first desktop or glasses answer, clears the pending proposal, and keeps its existing safety checks. In **dry-run** mode, Accept advances the simulated session without commanding the R1; in **live** mode, Accept can trigger the vetted arm move. Reject drops it and lets the model replan. This interaction is distinct from the `Execute…` button for a saved trajectory, which still uses its desktop confirmation.
+
+The Lens must be resent once from Jonathan's Lens Studio after this script change. Its WebSocket URL must reach Artur's feed on the private hotspot. For the current setup that is `ws://172.20.10.7:8765`, while Artur's hotspot IP remains unchanged. The local `ws://` connection is unencrypted and has no client authentication; use this review control only on a private network whose clients you trust. The feed never writes DDS commands itself.
+
 ### Planned walk followed by an arm action
 
 `sim/preview.py` pins the pelvis and previews arm motion only. For an AR demonstration that includes walking, add `base_keyframes` to a resolved arm plan. These are planned planar robot-base poses in metres and radians. `map` has the same axes as `robot_base` at the **initial** pose: +x forward, +y left, +z up. The feed applies each planned base pose to the MuJoCo hand-tip positions and sends a room-fixed `frame: "map"` trajectory. For a straight 0.7 m walk followed by the dry-run arm action:

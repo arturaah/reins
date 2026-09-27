@@ -99,6 +99,7 @@ _, wr_lbl = tile(row, "wrist_r", "Right wrist"); _.pack(side="left")
 
 # ---- AI pane (under the cameras): a VLM drives one arm through the harness, one accepted move at a time ------
 PREVIEW = "runs/ui_preview.json"                      # each proposal, as a plan file the twin previews (hold=1)
+SPECTACLES_REVIEW = "runs/spectacles_review.json"
 AI_LOG = "/tmp/harness_ui.log"                        # every line of every AI session (the pane's log is not kept otherwise)
 ai = {"p": None, "pending": False, "streamer": None}
 aif = ttk.Frame(cams); aif.pack(fill="both", expand=True, padx=6, pady=(8, 4))
@@ -366,7 +367,8 @@ def ai_run():
     live = ai_mode.get() == "live"
     demos = [demo_files[i] for i in demo_lb.curselection()]
     cmd = [PY, "-m", "harness", "--arm", ai_arm.get(), "--profile", ai_stepp.get(), "--set", f"workspace.table_z_m={floor}",
-           "live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW]
+           "live" if live else "dry-run", a.iface, task, "--vlm", "claude-cli", "--confirm", "--preview", PREVIEW,
+           "--spectacles-review", SPECTACLES_REVIEW]
     if demos: cmd += ["--demos", *demos]
     if live:
         if not messagebox.askokcancel("AI control on the robot",
@@ -409,6 +411,7 @@ def ai_launch(cmd, task):
             if "take sample error" in line: continue
             line = ANSWER_PROMPT.sub("", line)
             if line.startswith("PROPOSAL:"): events.put(("ai_proposal", line[9:].strip()))
+            elif line.startswith("Spectacles: "): events.put(("ai_review_answer", line.split(":", 1)[1].strip()))
             elif line.startswith("EXPORTED "): events.put(("ai_log", "→ saved as a recording; it is in the trajectory list and the context list (✓)\n"))
             elif line.startswith("ENGAGE:"): ai_write("")                      # the dialog before Run was the yes
             if line.strip(): events.put(("ai_log", line))
@@ -506,6 +509,11 @@ def drain():
                 ai_prop.configure(text=("DRY RUN, nothing is sent · " if ai.get("mode") == "dry run" else "LIVE · ") + "PROPOSAL  " + val)
                 accept_btn.state(["!disabled"]); reject_btn.state(["!disabled"])
                 cockpit(f"/preview?file={PREVIEW}&hold=1")
+            elif kind == "ai_review_answer":
+                ai["pending"] = False
+                accept_btn.state(["disabled"]); reject_btn.state(["disabled"])
+                ai_prop.configure(text=f"Spectacles {val}: " + ("sending, then thinking…" if val == "approve" else "the model plans again…"))
+                cockpit("/preview/stop")
             elif kind == "ai_done": ai_finished(val)
             elif kind == "plot":
                 try:
